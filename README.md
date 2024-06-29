@@ -41,7 +41,8 @@ DemonFF is a powerful Blender addon designed to enhance your workflow by providi
 2. Import or create your 3D model.
 3. Use DemonFF tools to edit collision models, export, and import DFF files.
 4. Use DemonFF to import .IFP animation.
-5. Use DemonFF to import/edit maps.
+5. Import/edit maps via .IPL & IDE files.
+6. Export your map to Pawn, & artconfig.
 
 ## Documentation
 
