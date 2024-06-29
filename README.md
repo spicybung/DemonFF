@@ -16,7 +16,7 @@ DemonFF is a powerful Blender addon designed to enhance your workflow by providi
 
 - **Export and Import**: Easily export your Blender models to DFF format and import existing DFF files into Blender for further editing.
 
-- **Collision Editing**: Streamline collision model editing with DemonFF's dedicated tools for managing spheres, boxes, vertices, and faces.
+- **Collision Editing**: Streamline collision model editing, as well as importing and exporting.
 
 - **Animation Editing**: Import and export .IFP animation files from Grand Theft Auto, and modify them or create your own.
 
