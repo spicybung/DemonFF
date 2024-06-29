@@ -18,9 +18,12 @@ IDE_TO_SAMP_DL_IDS = {i: -(1000 + i) for i in range(29000)}
 
 #######################################################
 class DFFSceneProps(bpy.types.PropertyGroup):
-    game_version_dropdown: bpy.props.EnumProperty(
-        name='Game',
-        items=(
+    def update_map_sections(self, context):
+        return map_data.data[self.game_version_dropdown]['IPL_paths']
+
+    game_version_dropdown : bpy.props.EnumProperty(
+        name = 'Game',
+        items = (
             (game_version.III, 'GTA III', 'GTA III map segments'),
             (game_version.VC, 'GTA VC', 'GTA VC map segments'),
             (game_version.SA, 'GTA SA', 'GTA SA map segments'),
@@ -29,40 +32,53 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         )
     )
 
-    map_sections: bpy.props.EnumProperty(
-        name='Map segment',
-        items=lambda self, context: map_data.data[self.game_version_dropdown]['IPL_paths']
+    map_sections : bpy.props.EnumProperty(
+        name = 'Map segment',
+        items = update_map_sections
     )
 
     skip_lod: bpy.props.BoolProperty(
-        name="Skip LOD Objects",
-        default=False
+        name        = "Skip LOD Objects",
+        default     = False
     )
 
-    game_root: bpy.props.StringProperty(
-        name='Game root',
-        default='C:\\Program Files (x86)\\Steam\\steamapps\\common\\',
-        description="Folder with the game's executable",
-        subtype='DIR_PATH'
+    game_root : bpy.props.StringProperty(
+        name = 'Game root',
+        default = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\',
+        description = "Folder with the game's executable",
+        subtype = 'DIR_PATH'
     )
 
-    dff_folder: bpy.props.StringProperty(
-        name='Dff folder',
-        default='C:\\Users\\blaha\\Documents\\GitHub\\DragonFF\\tests\\dff',
-        description="Define a folder where all of the dff models are stored.",
-        subtype='DIR_PATH'
+    dff_folder : bpy.props.StringProperty(
+        name = 'Dff folder',
+        default = 'C:\\Users\\blaha\\Documents\\GitHub\\DragonFF\\tests\\dff',
+        description = "Define a folder where all of the dff models are stored.",
+        subtype = 'DIR_PATH'
     )
 
+    # Add the stream_distance, draw_distance, x_offset, and y_offset properties
     stream_distance: bpy.props.FloatProperty(
-        name="Stream Distance",
-        default=300.0,
-        description="Distance at which the object becomes visible to players"
+        name = "Stream Distance",
+        default = 300.0,
+        description = "Stream distance for dynamic objects"
     )
 
     draw_distance: bpy.props.FloatProperty(
-        name="Draw Distance",
-        default=300.0,
-        description="Maximum distance at which the object is rendered"
+        name = "Draw Distance",
+        default = 300.0,
+        description = "Draw distance for objects"
+    )
+
+    x_offset: bpy.props.FloatProperty(
+        name = "X Offset",
+        default = 0.0,
+        description = "Offset for the x coordinate of the objects"
+    )
+
+    y_offset: bpy.props.FloatProperty(
+        name = "Y Offset",
+        default = 0.0,
+        description = "Offset for the y coordinate of the objects"
     )
 
     @classmethod
@@ -92,14 +108,14 @@ def import_ide(filepath, context):
             continue
         elif line.lower().startswith("end"):
             in_obj_section = False
-
-        if in_obj_section and line and not line.startswith("#"):
-            parts = line.split(",")
-            if len(parts) > 3:
-                obj_id = int(parts[0].strip())
-                obj_name = parts[1].strip()
-                txd_name = parts[2].strip()
-                obj_data[obj_name] = (obj_id, txd_name)
+        else:
+            if in_obj_section and line and not line.startswith("#"):
+                parts = line.split(",")
+                if len(parts) > 3:
+                    obj_id = int(parts[0].strip())
+                    obj_name = parts[1].strip()
+                    txd_name = parts[2].strip()
+                    obj_data[obj_name] = (obj_id, txd_name)
 
     for obj in context.scene.objects:
         base_name = obj.name.split('.')[0]
@@ -248,6 +264,26 @@ class ExportToPawnOperator(bpy.types.Operator):
     
     # Properties
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    stream_distance: bpy.props.FloatProperty(
+        name="Stream Distance",
+        default=300.0,
+        description="Stream distance for dynamic objects"
+    )
+    draw_distance: bpy.props.FloatProperty(
+        name="Draw Distance",
+        default=300.0,
+        description="Draw distance for objects"
+    )
+    x_offset: bpy.props.FloatProperty(
+        name="X Offset",
+        default=0.0,
+        description="Offset for the x coordinate of the objects"
+    )
+    y_offset: bpy.props.FloatProperty(
+        name="Y Offset",
+        default=0.0,
+        description="Offset for the y coordinate of the objects"
+    )
     
     def execute(self, context):
         def export_to_pawn(file_path, objects):
@@ -258,11 +294,17 @@ class ExportToPawnOperator(bpy.types.Operator):
 
                 name_mapping = {}
                 for obj in objects:
+                    # Skip objects with ".ColMesh" suffix
+                    if obj.name.endswith(".ColMesh"):
+                        continue
+
                     if current_id <= max_id:
                         self.report({'ERROR'}, "Maximum ID limit reached. Export cancelled.")
                         break
 
                     position = obj.location
+                    position.x += self.x_offset
+                    position.y += self.y_offset
                     rotation = euler_to_degrees(obj.rotation_euler)  # Convert Euler to rotation in degrees using three.js convention
                     base_name = obj.name.split('.')[0]
 
@@ -272,20 +314,23 @@ class ExportToPawnOperator(bpy.types.Operator):
                     object_id = name_mapping[base_name]
 
                     interior = obj.get('Interior', -1)
-                    stream_distance = context.scene.dff.stream_distance
-                    draw_distance = context.scene.dff.draw_distance
+                    stream_distance = self.stream_distance
+                    draw_distance = self.draw_distance
 
                     dff_name = obj.get('DFF_Name', base_name)  # Default to object name without suffix
                     txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
 
+                    quat = obj.rotation_quaternion
+                    quat_w = quat.w
+
                     # Formatting the CreateDynamicObject line with explicit "-" for IDs
                     line = f"CreateDynamicObject({object_id}, {position.x:.6f}, {position.y:.6f}, {position.z:.6f}, " \
-                           f"{rotation[0]:.6f}, {rotation[1]:.6f}, {rotation[2]:.6f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f}, -1, 0);  // {obj.name}\n"
+                           f"{rotation[0]:.6f}, {rotation[1]:.6f}, {rotation[2]:.6f}, {quat_w:.6f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
                     f.write(line)
                     print(f"Exporting {obj.name} with ID {object_id}")
 
                     # Write to artconfig.txt
-                    artconfig_line = f"AddSimpleModel(-1, {object_id}, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
+                    artconfig_line = f"AddSimpleModel(-1, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
                     artconfig.write(artconfig_line)
                     print(f"Writing to artconfig: {artconfig_line.strip()}")
 
@@ -311,6 +356,13 @@ class ExportToPawnOperator(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "stream_distance")
+        layout.prop(self, "draw_distance")
+        layout.prop(self, "x_offset")
+        layout.prop(self, "y_offset")
 
 #######################################################
 class ExportArtConfigOperator(bpy.types.Operator):
@@ -344,7 +396,7 @@ class ExportArtConfigOperator(bpy.types.Operator):
                     txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
 
                     # Write to artconfig.txt
-                    artconfig_line = f"AddSimpleModel(-1, {object_id}, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
+                    artconfig_line = f"AddSimpleModel(-1, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
                     artconfig.write(artconfig_line)
                     print(f"Writing to artconfig: {artconfig_line.strip()}")
 
@@ -378,11 +430,16 @@ class MapImportPanel(bpy.types.Panel):
     bl_region_type = 'WINDOW'
     bl_context = "scene"
 
+    #######################################################
     def draw(self, context):
         layout = self.layout
         settings = context.scene.dff
 
-        flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
+        flow = layout.grid_flow(row_major=True,
+                                columns=0,
+                                even_columns=True,
+                                even_rows=False,
+                                align=True)
 
         col = flow.column()
         col.prop(settings, "game_version_dropdown", text="Game")
@@ -417,7 +474,7 @@ class MapExportPanel(bpy.types.Panel):
 #######################################################
 class DemonFFPawnPanel(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
-    bl_label = "DemonFF - Pawn"
+    bl_label = "DemonFF - Pawn SAMP"
     bl_idname = "SCENE_PT_demonff_pawn"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
