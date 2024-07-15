@@ -1,26 +1,27 @@
 import bpy
 import os
+from ..data import map_data
+from ..ops.importer_common import game_version
 from mathutils import Quaternion, Euler
-from ..data import map_data  # Ensure this is the correct import path
-from ..ops.importer_common import game_version  # Ensure this is the correct import path
+from bpy.props import StringProperty, FloatProperty, BoolProperty
 
-# Function to convert quaternion to rotation in degrees using Blender's mathutils
+# Function to convert quaternion to rotation in degrees and ensure no negative zero
 def quat_to_degrees(quat):
     euler = quat.to_euler('XYZ')
-    return euler.x * (180 / 3.141592653589793), euler.y * (180 / 3.141592653589793), euler.z * (180 / 3.141592653589793)
-
-# Function to convert Euler to rotation in degrees using three.js convention
-def euler_to_degrees(euler):
-    return euler.x * (180 / 3.141592653589793), euler.y * (180 / 3.141592653589793), euler.z * (180 / 3.141592653589793)
+    return (euler.x * (180 / 3.141592653589793),
+            abs(euler.y * (180 / 3.141592653589793)),  # Ensure positive zero for rotation
+            euler.z * (180 / 3.141592653589793))
 
 # Example mapping from IDE IDs to SAMP 0.3DL object IDs (to be extended as needed)
 IDE_TO_SAMP_DL_IDS = {i: -(1000 + i) for i in range(29000)}
 
 #######################################################
 class DFFSceneProps(bpy.types.PropertyGroup):
+
+    #######################################################    
     def update_map_sections(self, context):
         return map_data.data[self.game_version_dropdown]['IPL_paths']
-
+        
     game_version_dropdown: bpy.props.EnumProperty(
         name='Game',
         items=(
@@ -31,7 +32,6 @@ class DFFSceneProps(bpy.types.PropertyGroup):
             (game_version.VCS, 'GTA VCS', 'GTA VCS map segments'),
         )
     )
-
     map_sections: bpy.props.EnumProperty(
         name='Map segment',
         items=update_map_sections
@@ -56,7 +56,6 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         subtype='DIR_PATH'
     )
 
-    # Add the stream_distance, draw_distance, x_offset, and y_offset properties
     stream_distance: bpy.props.FloatProperty(
         name="Stream Distance",
         default=300.0,
@@ -89,7 +88,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     def unregister(cls):
         del bpy.types.Scene.dff
 
-# Function to import IDE file and assign IDs and TXD names to similar named objects
+# Function to import IDE file and assign TXD names to similar named objects
 def import_ide(filepath, context):
     if not os.path.isfile(filepath):
         print("File not found")
@@ -105,26 +104,22 @@ def import_ide(filepath, context):
         line = line.strip()
         if line.lower().startswith("objs"):
             in_obj_section = True
-            continue
         elif line.lower().startswith("end"):
             in_obj_section = False
-        else:
-            if in_obj_section and line and not line.startswith("#"):
-                parts = line.split(",")
-                if len(parts) > 3:
-                    obj_id = int(parts[0].strip())
-                    obj_name = parts[1].strip()
-                    txd_name = parts[2].strip()
-                    obj_data[obj_name] = (obj_id, txd_name)
+        elif in_obj_section and line and not line.startswith("#"):
+            parts = line.split(",")
+            if len(parts) > 3:
+                obj_name = parts[1].strip()
+                txd_name = parts[2].strip()
+                obj_data[obj_name] = txd_name
 
     for obj in context.scene.objects:
         base_name = obj.name.split('.')[0]
         if base_name in obj_data:
-            obj["IDE_ID"] = obj_data[base_name][0]
-            obj["TXD_Name"] = obj_data[base_name][1]
-            print(f"Assigned ID {obj_data[base_name][0]} and TXD {obj_data[base_name][1]} to {obj.name}")
+            obj["TXD_Name"] = obj_data[base_name]
+            print(f"Assigned TXD {obj_data[base_name]} to {obj.name}")
         else:
-            print(f"No matching ID found for {obj.name}")
+            print(f"No matching TXD found for {obj.name}")
 
     print("IDE import completed")
 
@@ -139,7 +134,6 @@ def import_samp_ide(filepath, context):
 
     obj_data = {}
     in_obj_section = False
-    current_id = -4000  # Start ID
 
     for line in lines:
         line = line.strip()
@@ -150,12 +144,11 @@ def import_samp_ide(filepath, context):
         elif in_obj_section and line and not line.startswith("#"):
             parts = line.split(",")
             if len(parts) > 3:
-                obj_id = current_id  # Use the current ID and decrement for each object
+                obj_id = int(parts[0].strip())
                 obj_name = parts[1].strip()
                 txd_name = parts[2].strip()
-                samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)  # Convert to SAMP 0.3DL ID or use the current ID
+                samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, -obj_id)  # Convert to SAMP 0.3DL ID or ensure negative
                 obj_data[obj_name] = (samp_id, txd_name)
-                current_id -= 1  # Decrement the ID for the next object
 
     for obj in context.scene.objects:
         base_name = obj.name.split('.')[0]
@@ -205,7 +198,6 @@ class SAMP_IDE_Import_Operator(bpy.types.Operator):
 
 def menu_func_import(self, context):
     self.layout.operator(IDE_Import_Operator.bl_idname, text="Import .IDE File")
-    self.layout.operator(SAMP_IDE_Import_Operator.bl_idname, text="Import SAMP .IDE File")
 
 #######################################################
 class ExportToIPLOperator(bpy.types.Operator):
@@ -223,10 +215,16 @@ class ExportToIPLOperator(bpy.types.Operator):
                 f.write("inst\n")
                 
                 for obj in objects:
+                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
+                        continue
                     position = obj.location
-                    rotation = euler_to_degrees(obj.rotation_euler)  # Convert Euler to rotation in degrees using three.js convention
+                    rotation = quat_to_degrees(obj.rotation_quaternion)  # Convert Quaternion to rotation in degrees
                     object_id = obj.get('IDE_ID', 0)  # Default to 0 if IDE_ID is not set
                     object_id = int(object_id)  # Ensure object_id is an integer
+                    if object_id in IDE_TO_SAMP_DL_IDS:
+                        object_id = IDE_TO_SAMP_DL_IDS[object_id]  # Convert to SAMP 0.3DL object ID
+                    else:
+                        object_id = -object_id  # Ensure ID is negative
                     interior = obj.get('Interior', 0)
                     lod_index = obj.get('LODIndex', -1)
 
@@ -250,7 +248,7 @@ class ExportToIPLOperator(bpy.types.Operator):
             return {'CANCELLED'}
         
         # Ensure file path has the correct extension
-        output_file = self.filepath if thefilepath.endswith('.ipl') else thefilepath + '.ipl'
+        output_file = self.filepath if self.filepath.endswith('.ipl') else self.filepath + '.ipl'
         
         # Export selected objects to IPL format
         export_to_ipl(output_file, selected_objects)
@@ -278,6 +276,8 @@ class ExportToIDEOperator(bpy.types.Operator):
                 f.write("objs\n")
                 
                 for obj in objects:
+                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
+                        continue
                     object_id = obj.get('IDE_ID', 0)  # Default to 0 if IDE_ID is not set
                     object_id = int(object_id)  # Ensure object_id is an integer
                     base_name = obj.name.split('.')[0]
@@ -299,7 +299,7 @@ class ExportToIDEOperator(bpy.types.Operator):
             return {'CANCELLED'}
         
         # Ensure file path has the correct extension
-        output_file = self.filepath if thefilepath.endswith('.ide') else thefilepath + '.ide'
+        output_file = self.filepath if self.filepath.endswith('.ide') else self.filepath + '.ide'
         
         # Export scene objects to IDE format
         export_to_ide(output_file, scene_objects)
@@ -353,15 +353,15 @@ class ExportToPawnOperator(bpy.types.Operator):
     def execute(self, context):
         def export_to_pawn(file_path, objects):
             artconfig_path = os.path.join(os.path.dirname(file_path), 'artconfig.txt')
-            base_id = 19379  # Base ID for all objects
+            baseid = 19379
+            model_directory = self.model_directory.strip()
             with open(file_path, 'w') as f, open(artconfig_path, 'w') as artconfig:
                 current_id = -1000  # Starting ID
                 max_id = -30000  # Maximum ID
 
                 name_mapping = {}
                 for obj in objects:
-                    # Skip objects with ".ColMesh" suffix
-                    if obj.name.endswith(".ColMesh"):
+                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
                         continue
 
                     if current_id <= max_id:
@@ -371,7 +371,7 @@ class ExportToPawnOperator(bpy.types.Operator):
                     position = obj.location
                     position.x += self.x_offset
                     position.y += self.y_offset
-                    rotation = euler_to_degrees(obj.rotation_euler)  # Convert Euler to rotation in degrees using three.js convention
+                    rotation = quat_to_degrees(obj.rotation_quaternion)  # Convert Quaternion to rotation in degrees
                     base_name = obj.name.split('.')[0]
 
                     if base_name not in name_mapping:
@@ -386,16 +386,24 @@ class ExportToPawnOperator(bpy.types.Operator):
                     dff_name = obj.get('DFF_Name', base_name)  # Default to object name without suffix
                     txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
 
-                    # Formatting the CreateDynamicObject line with explicit "-" for IDs
-                    line = f"CreateDynamicObject({base_id}, {object_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
+                    # Formatting the CreateDynamicObject line
+                    line = f"CreateDynamicObject({object_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
                            f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
                     f.write(line)
                     print(f"Exporting {obj.name} with ID {object_id}")
 
-                    # Write to artconfig.txt with base_id
-                    artconfig_line = f"AddSimpleModel(-1, {base_id}, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
+                    # Write to artconfig.txt with baseid and model directory
+                    artconfig_line = f"AddSimpleModel(-1, {baseid}, {object_id}, \"{model_directory}/{dff_name}.dff\", \"{model_directory}/{txd_name}.txd\");  // {obj.name}\n"
                     artconfig.write(artconfig_line)
                     print(f"Writing to artconfig: {artconfig_line.strip()}")
+
+                    # Optionally export LOD information
+                    if 'LODIndex' in obj:
+                        lod_index = obj['LODIndex']
+                        lod_line = f"CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
+                                   f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // LOD for {obj.name}\n"
+                        f.write(lod_line)
+                        print(f"Exporting LOD for {obj.name} with LODIndex {lod_index}")
 
                 print(f"Exported Pawn script to {file_path}")
                 print(f"Exported artconfig to {artconfig_path}")
@@ -437,15 +445,30 @@ class ExportArtConfigOperator(bpy.types.Operator):
     
     # Properties
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-    
+    model_directory: bpy.props.StringProperty(
+        name="Model Directory",
+        default="",
+        description="Model directory for the artconfig paths"
+    )
+    skip_lod: bpy.props.BoolProperty(
+        name="Skip LOD Objects",
+        default=False,
+        description="Skip LOD objects in the .pwn and artconfig scripts"
+    )
+
     def execute(self, context):
         def export_artconfig(file_path, objects):
+            baseid = 19379
+            model_directory = self.model_directory.strip()
             with open(file_path, 'w') as artconfig:
                 current_id = -1000  # Starting ID
                 max_id = -30000  # Maximum ID
                 name_mapping = {}
 
                 for obj in objects:
+                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
+                        continue
+
                     if current_id <= max_id:
                         self.report({'ERROR'}, "Maximum ID limit reached. Export cancelled.")
                         break
@@ -460,10 +483,17 @@ class ExportArtConfigOperator(bpy.types.Operator):
                     dff_name = obj.get('DFF_Name', base_name)  # Default to object name without suffix
                     txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
 
-                    # Write to artconfig.txt
-                    artconfig_line = f"AddSimpleModel(-1, 19379, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
+                    # Write to artconfig.txt with baseid and model directory
+                    artconfig_line = f"AddSimpleModel(-1, {baseid}, {object_id}, \"{model_directory}/{dff_name}.dff\", \"{model_directory}/{txd_name}.txd\");  // {obj.name}\n"
                     artconfig.write(artconfig_line)
                     print(f"Writing to artconfig: {artconfig_line.strip()}")
+
+                    # Optionally export LOD information
+                    if 'LODIndex' in obj:
+                        lod_index = obj['LODIndex']
+                        lod_line = f"AddSimpleModel(-1, {baseid}, {lod_index}, \"{model_directory}/{dff_name}.dff\", \"{model_directory}/{txd_name}.txd\");  // LOD for {obj.name}\n"
+                        artconfig.write(lod_line)
+                        print(f"Exporting LOD for {obj.name} with LODIndex {lod_index}")
 
                 print(f"Exported artconfig to {file_path}")
 
@@ -474,7 +504,7 @@ class ExportArtConfigOperator(bpy.types.Operator):
             return {'CANCELLED'}
         
         # Ensure file path has the correct extension
-        output_file = self.filepath if thefilepath.endswith('.txt') else thefilepath + '.txt'
+        output_file = self.filepath if self.filepath.endswith('.txt') else self.filepath + '.txt'
         
         # Export selected objects to artconfig
         export_artconfig(output_file, scene_objects)
@@ -485,12 +515,17 @@ class ExportArtConfigOperator(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "model_directory")
+        layout.prop(self, "skip_lod")
 
 #######################################################
 class MapImportPanel(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
-    bl_label = "DemonFF - Map Import"
-    bl_idname = "SCENE_PT_map_import"
+    bl_label = "DemonFF - Map Import "
+    bl_idname = "SCENE_PT_layout"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
@@ -523,7 +558,7 @@ class MapImportPanel(bpy.types.Panel):
 #######################################################
 class MapExportPanel(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
-    bl_label = "DemonFF - Map Export (Experimental)"
+    bl_label = "DemonFF - Map Export"
     bl_idname = "SCENE_PT_map_export"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
@@ -532,8 +567,8 @@ class MapExportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         row = layout.row()
-        row.operator("object.export_to_ipl", text="Export to IPL")
-        row.operator("object.export_to_ide", text="Export to IDE")
+        row.operator("object.export_to_ipl", text="Export IPL")
+        row.operator("object.export_to_ide", text="Export IDE")
         row.operator("object.ide_import", text="Import IDE")
 
 #######################################################
@@ -564,7 +599,7 @@ def register():
     bpy.utils.register_class(MapExportPanel)
     bpy.utils.register_class(DemonFFPawnPanel)
     DFFSceneProps.register()
-    bpy.types.VIEW3D_MT_object.append(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
 
 def unregister():
     bpy.utils.unregister_class(DFFSceneProps)
@@ -578,7 +613,7 @@ def unregister():
     bpy.utils.unregister_class(MapExportPanel)
     bpy.utils.unregister_class(DemonFFPawnPanel)
     DFFSceneProps.unregister()
-    bpy.types.VIEW3D_MT_object.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
 
 if __name__ == "__main__":
     register()
