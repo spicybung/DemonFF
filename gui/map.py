@@ -21,9 +21,9 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     def update_map_sections(self, context):
         return map_data.data[self.game_version_dropdown]['IPL_paths']
 
-    game_version_dropdown : bpy.props.EnumProperty(
-        name = 'Game',
-        items = (
+    game_version_dropdown: bpy.props.EnumProperty(
+        name='Game',
+        items=(
             (game_version.III, 'GTA III', 'GTA III map segments'),
             (game_version.VC, 'GTA VC', 'GTA VC map segments'),
             (game_version.SA, 'GTA SA', 'GTA SA map segments'),
@@ -32,53 +32,53 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         )
     )
 
-    map_sections : bpy.props.EnumProperty(
-        name = 'Map segment',
-        items = update_map_sections
+    map_sections: bpy.props.EnumProperty(
+        name='Map segment',
+        items=update_map_sections
     )
 
     skip_lod: bpy.props.BoolProperty(
-        name        = "Skip LOD Objects",
-        default     = False
+        name="Skip LOD Objects",
+        default=False
     )
 
-    game_root : bpy.props.StringProperty(
-        name = 'Game root',
-        default = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\',
-        description = "Folder with the game's executable",
-        subtype = 'DIR_PATH'
+    game_root: bpy.props.StringProperty(
+        name='Game root',
+        default='C:\\Program Files (x86)\\Steam\\steamapps\\common\\',
+        description="Folder with the game's executable",
+        subtype='DIR_PATH'
     )
 
-    dff_folder : bpy.props.StringProperty(
-        name = 'Dff folder',
-        default = 'C:\\Users\\blaha\\Documents\\GitHub\\DragonFF\\tests\\dff',
-        description = "Define a folder where all of the dff models are stored.",
-        subtype = 'DIR_PATH'
+    dff_folder: bpy.props.StringProperty(
+        name='Dff folder',
+        default='C:\\Users\\blaha\\Documents\\GitHub\\DragonFF\\tests\\dff',
+        description="Define a folder where all of the dff models are stored.",
+        subtype='DIR_PATH'
     )
 
     # Add the stream_distance, draw_distance, x_offset, and y_offset properties
     stream_distance: bpy.props.FloatProperty(
-        name = "Stream Distance",
-        default = 300.0,
-        description = "Stream distance for dynamic objects"
+        name="Stream Distance",
+        default=300.0,
+        description="Stream distance for dynamic objects"
     )
 
     draw_distance: bpy.props.FloatProperty(
-        name = "Draw Distance",
-        default = 300.0,
-        description = "Draw distance for objects"
+        name="Draw Distance",
+        default=300.0,
+        description="Draw distance for objects"
     )
 
     x_offset: bpy.props.FloatProperty(
-        name = "X Offset",
-        default = 0.0,
-        description = "Offset for the x coordinate of the objects"
+        name="X Offset",
+        default=0.0,
+        description="Offset for the x coordinate of the objects"
     )
 
     y_offset: bpy.props.FloatProperty(
-        name = "Y Offset",
-        default = 0.0,
-        description = "Offset for the y coordinate of the objects"
+        name="Y Offset",
+        default=0.0,
+        description="Offset for the y coordinate of the objects"
     )
 
     @classmethod
@@ -128,6 +128,47 @@ def import_ide(filepath, context):
 
     print("IDE import completed")
 
+# Function to import SAMP IDE file and convert IDE IDs to SAMP 0.3DL IDs
+def import_samp_ide(filepath, context):
+    if not os.path.isfile(filepath):
+        print("File not found")
+        return
+
+    with open(filepath, 'r') as file:
+        lines = file.readlines()
+
+    obj_data = {}
+    in_obj_section = False
+    current_id = -4000  # Start ID
+
+    for line in lines:
+        line = line.strip()
+        if line.lower().startswith("objs"):
+            in_obj_section = True
+        elif line.lower().startswith("end"):
+            in_obj_section = False
+        elif in_obj_section and line and not line.startswith("#"):
+            parts = line.split(",")
+            if len(parts) > 3:
+                obj_id = current_id  # Use the current ID and decrement for each object
+                obj_name = parts[1].strip()
+                txd_name = parts[2].strip()
+                samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)  # Convert to SAMP 0.3DL ID or use the current ID
+                obj_data[obj_name] = (samp_id, txd_name)
+                current_id -= 1  # Decrement the ID for the next object
+
+    for obj in context.scene.objects:
+        base_name = obj.name.split('.')[0]
+        if base_name in obj_data:
+            samp_id, txd_name = obj_data[base_name]
+            obj["SAMP_ID"] = samp_id
+            obj["TXD_Name"] = txd_name
+            print(f"Assigned SAMP ID {samp_id} and TXD {txd_name} to {obj.name}")
+        else:
+            print(f"No matching SAMP ID found for {obj.name}")
+
+    print("SAMP IDE import completed")
+
 class IDE_Import_Operator(bpy.types.Operator):
     """Import .IDE File"""
     bl_idname = "object.ide_import"
@@ -145,8 +186,26 @@ class IDE_Import_Operator(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
+class SAMP_IDE_Import_Operator(bpy.types.Operator):
+    """Import SAMP .IDE File"""
+    bl_idname = "object.samp_ide_import"
+    bl_label = "Import SAMP .IDE File"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="", options={'HIDDEN'}, maxlen=1024)
+    filter_glob: bpy.props.StringProperty(default="*.ide", options={'HIDDEN'})
+
+    def execute(self, context):
+        import_samp_ide(self.filepath, context)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
 def menu_func_import(self, context):
     self.layout.operator(IDE_Import_Operator.bl_idname, text="Import .IDE File")
+    self.layout.operator(SAMP_IDE_Import_Operator.bl_idname, text="Import SAMP .IDE File")
 
 #######################################################
 class ExportToIPLOperator(bpy.types.Operator):
@@ -168,10 +227,6 @@ class ExportToIPLOperator(bpy.types.Operator):
                     rotation = euler_to_degrees(obj.rotation_euler)  # Convert Euler to rotation in degrees using three.js convention
                     object_id = obj.get('IDE_ID', 0)  # Default to 0 if IDE_ID is not set
                     object_id = int(object_id)  # Ensure object_id is an integer
-                    if object_id in IDE_TO_SAMP_DL_IDS:
-                        object_id = IDE_TO_SAMP_DL_IDS[object_id]  # Convert to SAMP 0.3DL object ID
-                    else:
-                        object_id = -object_id  # Ensure ID is negative
                     interior = obj.get('Interior', 0)
                     lod_index = obj.get('LODIndex', -1)
 
@@ -180,8 +235,8 @@ class ExportToIPLOperator(bpy.types.Operator):
                     if base_name not in name_mapping:
                         name_mapping[base_name] = obj.name
 
-                    line = f"{object_id}, {name_mapping[base_name]}, {interior}, {position.x:.6f}, {position.y:.6f}, {position.z:.6f}, " \
-                           f"{rotation[0]:.6f}, {rotation[1]:.6f}, {rotation[2]:.6f}, {lod_index}  # {obj.name}\n"
+                    line = f"{object_id}, {name_mapping[base_name]}, {interior}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
+                           f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {lod_index}  # {obj.name}\n"
                     f.write(line)
                     print(f"Exporting {obj.name} with ID {object_id}")
 
@@ -195,7 +250,7 @@ class ExportToIPLOperator(bpy.types.Operator):
             return {'CANCELLED'}
         
         # Ensure file path has the correct extension
-        output_file = self.filepath if self.filepath.endswith('.ipl') else self.filepath + '.ipl'
+        output_file = self.filepath if thefilepath.endswith('.ipl') else thefilepath + '.ipl'
         
         # Export selected objects to IPL format
         export_to_ipl(output_file, selected_objects)
@@ -244,7 +299,7 @@ class ExportToIDEOperator(bpy.types.Operator):
             return {'CANCELLED'}
         
         # Ensure file path has the correct extension
-        output_file = self.filepath if self.filepath.endswith('.ide') else self.filepath + '.ide'
+        output_file = self.filepath if thefilepath.endswith('.ide') else thefilepath + '.ide'
         
         # Export scene objects to IDE format
         export_to_ide(output_file, scene_objects)
@@ -264,6 +319,16 @@ class ExportToPawnOperator(bpy.types.Operator):
     
     # Properties
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    model_directory: bpy.props.StringProperty(
+        name="Model Directory",
+        default="",
+        description="Model directory for the artconfig paths"
+    )
+    skip_lod: bpy.props.BoolProperty(
+        name="Skip LOD Objects",
+        default=False,
+        description="Skip LOD objects in the .pwn and artconfig scripts"
+    )
     stream_distance: bpy.props.FloatProperty(
         name="Stream Distance",
         default=300.0,
@@ -288,6 +353,7 @@ class ExportToPawnOperator(bpy.types.Operator):
     def execute(self, context):
         def export_to_pawn(file_path, objects):
             artconfig_path = os.path.join(os.path.dirname(file_path), 'artconfig.txt')
+            base_id = 19379  # Base ID for all objects
             with open(file_path, 'w') as f, open(artconfig_path, 'w') as artconfig:
                 current_id = -1000  # Starting ID
                 max_id = -30000  # Maximum ID
@@ -320,17 +386,14 @@ class ExportToPawnOperator(bpy.types.Operator):
                     dff_name = obj.get('DFF_Name', base_name)  # Default to object name without suffix
                     txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
 
-                    quat = obj.rotation_quaternion
-                    quat_w = quat.w
-
                     # Formatting the CreateDynamicObject line with explicit "-" for IDs
-                    line = f"CreateDynamicObject({object_id}, {position.x:.6f}, {position.y:.6f}, {position.z:.6f}, " \
-                           f"{rotation[0]:.6f}, {rotation[1]:.6f}, {rotation[2]:.6f}, {quat_w:.6f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
+                    line = f"CreateDynamicObject({base_id}, {object_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
+                           f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
                     f.write(line)
                     print(f"Exporting {obj.name} with ID {object_id}")
 
-                    # Write to artconfig.txt
-                    artconfig_line = f"AddSimpleModel(-1, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
+                    # Write to artconfig.txt with base_id
+                    artconfig_line = f"AddSimpleModel(-1, {base_id}, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
                     artconfig.write(artconfig_line)
                     print(f"Writing to artconfig: {artconfig_line.strip()}")
 
@@ -359,6 +422,8 @@ class ExportToPawnOperator(bpy.types.Operator):
     
     def draw(self, context):
         layout = self.layout
+        layout.prop(self, "model_directory")
+        layout.prop(self, "skip_lod")
         layout.prop(self, "stream_distance")
         layout.prop(self, "draw_distance")
         layout.prop(self, "x_offset")
@@ -396,7 +461,7 @@ class ExportArtConfigOperator(bpy.types.Operator):
                     txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
 
                     # Write to artconfig.txt
-                    artconfig_line = f"AddSimpleModel(-1, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
+                    artconfig_line = f"AddSimpleModel(-1, 19379, {object_id}, \"{dff_name}.dff\", \"{txd_name}.txd\");  // {obj.name}\n"
                     artconfig.write(artconfig_line)
                     print(f"Writing to artconfig: {artconfig_line.strip()}")
 
@@ -409,7 +474,7 @@ class ExportArtConfigOperator(bpy.types.Operator):
             return {'CANCELLED'}
         
         # Ensure file path has the correct extension
-        output_file = self.filepath if self.filepath.endswith('.txt') else self.filepath + '.txt'
+        output_file = self.filepath if thefilepath.endswith('.txt') else thefilepath + '.txt'
         
         # Export selected objects to artconfig
         export_artconfig(output_file, scene_objects)
@@ -458,7 +523,7 @@ class MapImportPanel(bpy.types.Panel):
 #######################################################
 class MapExportPanel(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
-    bl_label = "DemonFF - Map Export(Experimental)"
+    bl_label = "DemonFF - Map Export (Experimental)"
     bl_idname = "SCENE_PT_map_export"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
@@ -485,10 +550,12 @@ class DemonFFPawnPanel(bpy.types.Panel):
         row = layout.row()
         row.operator("object.export_to_pawn", text="Export .pwn")
         row.operator("object.export_artconfig", text="Export artconfig")
+        row.operator("object.samp_ide_import", text="Import SAMP IDE")
 
 def register():
     bpy.utils.register_class(DFFSceneProps)
     bpy.utils.register_class(IDE_Import_Operator)
+    bpy.utils.register_class(SAMP_IDE_Import_Operator)
     bpy.utils.register_class(ExportToIPLOperator)
     bpy.utils.register_class(ExportToIDEOperator)
     bpy.utils.register_class(ExportToPawnOperator)
@@ -502,6 +569,7 @@ def register():
 def unregister():
     bpy.utils.unregister_class(DFFSceneProps)
     bpy.utils.unregister_class(IDE_Import_Operator)
+    bpy.utils.unregister_class(SAMP_IDE_Import_Operator)
     bpy.utils.unregister_class(ExportToIPLOperator)
     bpy.utils.unregister_class(ExportToIDEOperator)
     bpy.utils.unregister_class(ExportToPawnOperator)
