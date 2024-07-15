@@ -245,7 +245,6 @@ SA_IDE = (
     'DATA\\MAPS\\generic\\dynamic2.IDE',
     'DATA\\MAPS\\generic\\multiobj.IDE',
     'DATA\\MAPS\\generic\\procobj.IDE',
-    'DATA\\MAPS\\GTAPL\\brook_n.IDE',
     'DATA\\MAPS\\LA\\LAn2.IDE',
     'DATA\\MAPS\\LA\\LAs.IDE',
     'DATA\\MAPS\\LA\\LAs2.IDE',
@@ -292,47 +291,19 @@ SA_IDE = (
     'DATA\\MAPS\\interior\\props2.IDE',
     'DATA\\MAPS\\interior\\propext.IDE',
     'DATA\\MAPS\\veh_mods\\veh_mods.IDE',
-    'DATA\\MAPS\\beach\\vcs.IDE'
+    'DATA\\MAPS\\beach\\beach.ide'
 )
 
 LCS_IDE = (
-    'DATA\\MAPS\\interior\\interior_savehouse.IDE',
-    'DATA\\MAPS\\generic\\vegepart.IDE',
-    'DATA\\MAPS\\generic\\barriers.IDE',
-    'DATA\\MAPS\\generic\\dynamic.IDE',
-    'DATA\\MAPS\\generic\\dynamic2.IDE',
-    'DATA\\MAPS\\generic\\multiobj.IDE',
-    'DATA\\MAPS\\generic\\procobj.IDE',
-    'DATA\\MAPS\\leveldes\\levelxre.IDE',
-    'DATA\\MAPS\\leveldes\\seabed.IDE',
-    'DATA\\MAPS\\generic\\SALC.IDE',
-    'DATA\\MAPS\\Portland\\most1.IDE',
-    'DATA\\MAPS\\Portland\\mono.IDE',
-    'DATA\\MAPS\\Portland\\making.IDE',
-    'DATA\\MAPS\\Portland\\temppart.IDE',
-    'DATA\\MAPS\\Portland\\industNE.IDE',
-    'DATA\\MAPS\\Portland\\industNW.IDE',
-    'DATA\\MAPS\\Portland\\industSE.IDE',
-    'DATA\\MAPS\\Portland\\industSW.IDE',
-    'DATA\\MAPS\\Portland\\indroads.IDE',
-    'DATA\\MAPS\\Portland\\Portroads.IDE',
-    'DATA\\MAPS\\Staunton\\comNbtm.IDE',
-    'DATA\\MAPS\\Staunton\\comNtop.IDE',
-    'DATA\\MAPS\\Staunton\\comse.IDE',
-    'DATA\\MAPS\\Staunton\\comsw.IDE',
-    'DATA\\MAPS\\Staunton\\comroad.IDE',
-    'DATA\\MAPS\\Staunton\\comNroads.IDE',
-    'DATA\\MAPS\\Staunton\\STAroads.IDE',
-    'DATA\\MAPS\\Ssv\\subroads.IDE',
-    'DATA\\MAPS\\Ssv\\SSVroads.IDE',
-    'DATA\\MAPS\\Ssv\\landNE.IDE',
-    'DATA\\MAPS\\Ssv\\landSW.IDE',
-    'DATA\\MAPS\\others\\seafloor.IDE',
-    'DATA\\MAPS\\interior\\interior_fastfood.IDE',
-    'DATA\\MAPS\\interior\\interior_casinos.IDE',
-    'DATA\\MAPS\\Horse.IDE',
-    'DATA\\MAPS\\veh_mods\\veh_mods.IDE',
-    'DATA\\TXDCUT.IDE'
+    'DATA\\MAPS\\SUBURB.IDE',
+    'DATA\\MAPS\\SUBROADS.IDE',
+    'DATA\\MAPS\\COMMER.IDE',
+    'DATA\\MAPS\\COMROAD.IDE',
+    'DATA\\MAPS\\INDUST.IDE',
+    'DATA\\MAPS\\INDROADS.IDE',
+    'DATA\\MAPS\\FORTDESTROYED.IDE',
+    'DATA\\MAPS\\FORTSTAUNTON.IDE'
+
 )
 
 VCS_IDE = (
@@ -360,12 +331,15 @@ VCS_IDE = (
     'DATA\\MAPS\\islandsf\\islandsf.IDE',
     'DATA\\MAPS\\oceandn\\oceandn.IDE',
     'DATA\\MAPS\\oceandrv\\oceandrv.IDE',
+    'DATA\\MAPS\\nbeach\\nbeach.IDE',
     'DATA\\MAPS\\nbeachbt\\nbeachbt.IDE',
     'DATA\\MAPS\\washintN\\washintN.IDE',
     'DATA\\MAPS\\washintS\\washintS.IDE',
     'DATA\\MAPS\\mall\\mall.IDE',
     'DATA\\MAPS\\shops\\shops.IDE',
-    'DATA\\MAPS\\empire\\empire.IDE'
+    'DATA\\MAPS\\empire\\empire.IDE',
+    'DATA\\MAPS\\stadium\\stadium.IDE'
+
 )
 
 
@@ -404,7 +378,7 @@ VC_IPL = (
     ('DATA\\MAPS\\bridge\\bridge.IPL',     'bridge', ''),
     ('DATA\\MAPS\\starisl\\starisl.IPL',   'starisl', ''),
     ('DATA\\MAPS\\nbeachbt\\nbeachbt.IPL', 'nbeachbt', ''),
-    ('DATA\\MAPS\\nbeach\\nbeach.IPL',     'nbeach', ''),
+    ('DATA\\MAPS\\nbeach\\nbeach',     'nbeach', ''),
     ('DATA\\MAPS\\nbeachw\\nbeachw.IPL',   'nbeachw', ''),
     ('DATA\\MAPS\\cisland\\cisland.IPL',   'cisland', ''),
     ('DATA\\MAPS\\airport\\airport.IPL',   'airport', ''),
@@ -428,7 +402,7 @@ VC_IPL = (
 )
 
 SA_IPL = (
-    ('DATA\\MAPS\\GTAPL\\brook_n.IPL',            'brook_n', ''),
+
     ('DATA\\MAPS\\LA\\LAn2.IPL',           'LAn2', ''),
     ('DATA\\MAPS\\LA\\LAs.IPL',            'LAs', ''),
     ('DATA\\MAPS\\LA\\LAs2.IPL',           'LAs2', ''),
@@ -478,34 +452,19 @@ SA_IPL = (
     ('DATA\\MAPS\\occluLA.ipl',            'occluLA', ''),
     ('DATA\\MAPS\\occluint.ipl',           'occluint', ''),
     ('DATA\\MAPS\\audiozon.ipl',           'audiozon', ''),
-    ('DATA\\MAPS\\beach\\vcs.IPL',         'Vice CS', '')
+    ('DATA\\MAPS\\beach\\beach.ipl',         'Vice CS', '')
 )
 
 LCS_IPL = (
-    ('DATA\\MAPS\\interior\\interior_savehouse.IPL', 'interior_savehouse', ''),
-    ('DATA\\MAPS\\Staunton\\comNbtm.IPL',            'comNbtm', ''),
-    ('DATA\\MAPS\\Staunton\\comse.IPL',              'comse', ''),
-    ('DATA\\MAPS\\Staunton\\comsw.IPL',              'comsw', ''),
-    ('DATA\\MAPS\\Staunton\\STAroads.IPL',           'STAroads', ''),
-    ('DATA\\MAPS\\Staunton\\comNtop.IPL',            'comNtop', ''),
-    ('DATA\\MAPS\\Ssv\\landNE.IPL',                  'landNE', ''),
-    ('DATA\\MAPS\\Ssv\\landSW.IPL',                  'landSW', ''),
-    ('DATA\\MAPS\\Ssv\\ssvtemp.IPL',                 'ssvtemp', ''),
-    ('DATA\\MAPS\\Ssv\\SSVroads.IPL',                'SSVroads', ''),
-    ('DATA\\MAPS\\Portland\\most1.IPL',              'most1', ''),
-    ('DATA\\MAPS\\Portland\\industNE.IPL',           'industNE', ''),
-    ('DATA\\MAPS\\Portland\\industNW.IPL',           'industNW', ''),
-    ('DATA\\MAPS\\Portland\\industSE.IPL',           'industSE', ''),
-    ('DATA\\MAPS\\Portland\\industSW.IPL',           'industSW', ''),
-    ('DATA\\MAPS\\Portland\\Portroads.IPL',          'Portroads', ''),
-    ('DATA\\MAPS\\Portland\\mono.IPL',               'mono', ''),
-    ('DATA\\MAPS\\Portland\\overview.IPL',           'overview', ''),
-    ('DATA\\MAPS\\Portland\\props.IPL',              'props', ''),
-    ('DATA\\MAPS\\others\\seafloor.IPL',             'seafloor', ''),
-    ('DATA\\MAPS\\interior\\interior_fastfood.IPL',  'interior_fastfood', ''),
-    ('DATA\\MAPS\\interior\\interior_casinos.IPL',   'interior_casinos', ''),
-    ('DATA\\MAPS\\Ssv\\XPEH.IPL',                    'XPEH', ''),
-    ('DATA\\MAPS\\paths.ipl',                        'paths', '')
+    ('DATA\\MAPS\\temppart.ipl',                     'temppart', ''),
+    ('DATA\\MAPS\\suburb.ipl',                       'suburb', ''),
+    ('DATA\\MAPS\\subroads.ipl',                     'subroads', ''),
+    ('DATA\\MAPS\\indust.ipl',                       'indust', ''),
+    ('DATA\\MAPS\\indroads.ipl',                     'indroads', ''),
+    ('DATA\\MAPS\\commer.ipl',                       'commer', ''),
+    ('DATA\\MAPS\\comroad.ipl',                      'comroad', ''),
+    ('DATA\\MAPS\\fortstaunton.ipl',                 'fort_staunton', ''),
+    ('DATA\\MAPS\\fortdestroyed.ipl',                'fort_destroyed', '')
 )
 
 VCS_IPL = (
@@ -526,13 +485,14 @@ VCS_IPL = (
     ('DATA\\MAPS\\islandsf\\islandsf.IPL', 'islandsf', ''),
     ('DATA\\MAPS\\oceandn\\oceandn.IPL',   'oceandn', ''),
     ('DATA\\MAPS\\oceandrv\\oceandrv.IPL', 'oceandrv', ''),
-    ('DATA\\MAPS\\beach\\vcs.IPL',         'vcs', ''),
+    ('DATA\\MAPS\\nbeach\\nbeach.IPL',     'nbeach', ''),
     ('DATA\\MAPS\\nbeachbt\\nbeachbt.IPL', 'nbeachbt', ''),
     ('DATA\\MAPS\\mall\\mall.IPL',         'mall', ''),
     ('DATA\\MAPS\\washintN\\washintN.IPL', 'washintN', ''),
     ('DATA\\MAPS\\washintS\\washintS.IPL', 'washintS', ''),
     ('DATA\\MAPS\\shops\\shops.IPL',       'shops', ''),
-    ('DATA\\MAPS\\empire\\empire.IPL',     'empire', '')
+    ('DATA\\MAPS\\empire\\empire.IPL',     'empire', ''),
+    ('DATA\\MAPS\\stadium\\stadium.IPL',   'stadium', '')
 )
 
 # Export
@@ -553,7 +513,7 @@ data = {
         'IPL_paths': SA_IPL,
     },
     game_version.LCS : {
-        'structures': SA_structures,
+        'structures': VC_structures,
         'IDE_paths': LCS_IDE,
         'IPL_paths': LCS_IPL,
     },
