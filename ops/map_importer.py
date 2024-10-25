@@ -1,5 +1,6 @@
 import bpy
 import os
+import random
 from ..gtaLib import map as map_utilites
 from ..ops import dff_importer
 
@@ -33,8 +34,10 @@ class Map_Import_Operator(bpy.types.Operator):
         if hasattr(inst, 'lod') and int(inst.lod) == -1 and self.settings.skip_lod:
             return
 
+        # Assign a random, non-conflicting IDE ID if not found in _object_data
         if inst.id not in self._object_data:
-            return
+            inst.id = self.generate_non_conflicting_id()
+            print(f"Generated new ID for object: {inst.id}")
 
         model = self._object_data[inst.id].modelName
 
@@ -67,13 +70,13 @@ class Map_Import_Operator(bpy.types.Operator):
             if not os.path.isfile("%s/%s.dff" % (self.settings.dff_folder, model)):
                 return
             importer = dff_importer.import_dff({
-                'file_name'      : "%s/%s.dff" % (self.settings.dff_folder, model),
-                'image_ext'      : 'PNG',
-                'connect_bones'  : False,
-                'use_mat_split'  : True,
-                'remove_doubles' : True,
+                'file_name': "%s/%s.dff" % (self.settings.dff_folder, model),
+                'image_ext': 'PNG',
+                'connect_bones': False,
+                'use_mat_split': True,
+                'remove_doubles': True,
                 'group_materials': True,
-                'import_normals' : True
+                'import_normals': True
             })
 
             if len(importer.objects) > 0:
@@ -81,7 +84,15 @@ class Map_Import_Operator(bpy.types.Operator):
 
             self._model_cache[inst.id] = importer.objects
             print(str(inst.id) + ' loaded new')
-    
+
+    # Generates a non-conflicting ID
+    def generate_non_conflicting_id(self):
+        existing_ids = {inst.id for inst in self._object_instances}
+        while True:
+            new_id = random.randint(100000, 999999)  # Generate a random 6-digit ID
+            if new_id not in existing_ids:
+                return new_id
+
     def modal(self, context, event):
         if event.type in {'ESC'}:
             self.cancel(context)
@@ -97,12 +108,12 @@ class Map_Import_Operator(bpy.types.Operator):
                     print("Can`t import model... skipping")
 
             num = (
-                float(self._inst_index) / float(len(self._object_instances)
-                )) if self._object_instances else 0
+                float(self._inst_index) / float(len(self._object_instances))
+            ) if self._object_instances else 0
             bpy.context.window_manager.progress_update(num)
 
             dg = context.evaluated_depsgraph_get()
-            dg.update() 
+            dg.update()
 
             self._updating = False
 
@@ -120,7 +131,8 @@ class Map_Import_Operator(bpy.types.Operator):
         map_data = map_utilites.MapDataUtility.getMapData(
             self.settings.game_version_dropdown,
             self.settings.game_root,
-            self.settings.map_sections)  # Pass only three arguments
+            self.settings.map_sections
+        )
         
         self._object_instances = map_data['object_instances']
         self._object_data = map_data['object_data']
