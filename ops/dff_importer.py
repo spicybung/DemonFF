@@ -1,19 +1,3 @@
-# GTA DragonFF - Blender scripts to edit basic GTA formats
-# Copyright (C) 2019  Parik
-
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 import os
 import bpy
 import bmesh
@@ -706,10 +690,6 @@ class dff_importer:
                 if index in self.skin_data:
                     self.set_vertex_groups(obj, self.skin_data[index])
             
-            # set parent
-            # Note: I have not considered if frames could have parents
-            # that have not yet been defined. If I come across such
-            # a model, the code will be modified to support that
 
             if  frame.parent != -1:
                 obj.parent = self.objects[frame.parent]
@@ -794,9 +774,6 @@ class dff_importer:
         
         self.import_atomics()
         self.import_frames()
-
-        # Set imported version
-        self.version = "0x%05x" % self.dff.rw_version
         
         # Add collisions
         for collision in self.dff.collisions:
@@ -823,5 +800,4 @@ def import_dff(options):
 
     dff_importer.import_dff(options['file_name'])
 
-    return dff_importer
     return dff_importer
