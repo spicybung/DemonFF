@@ -184,7 +184,9 @@ SA_structures['weap'] = namedtuple("IDE_WEAP_SA", "id modelName txdName animatio
 
 # Paths to IDE files for each game
 # All IDEs should  be always loaded when importing maps
+# ANY IDEs must be re-imported via "Import IDE" function for export
 
+#GTA III
 III_IDE = (
     'DATA\\MAPS\\generic.IDE',
     'DATA\\MAPS\\INDUSTNE\\INDUSTNE.ide',
@@ -204,6 +206,7 @@ III_IDE = (
     'DATA\\MAPS\\SUBROADS\\SUBROADS.ide'
 )
 
+#GTA VC
 VC_IDE = (
     'DATA\\MAPS\\generic.IDE',
     'DATA\\MAPS\\littleha\\littleha.IDE',
@@ -238,6 +241,7 @@ VC_IDE = (
     'DATA\\MAPS\\stadint\\stadint.IDE'
 )
 
+#GTA SA
 SA_IDE = (
     'DATA\\MAPS\\generic\\vegepart.IDE',
     'DATA\\MAPS\\generic\\barriers.IDE',
@@ -294,6 +298,7 @@ SA_IDE = (
     'DATA\\MAPS\\beach\\beach.ide'
 )
 
+# GTA LCS - this uses LCS PC Edition
 LCS_IDE = (
     'DATA\\MAPS\\SUBURB.IDE',
     'DATA\\MAPS\\SUBROADS.IDE',
@@ -306,6 +311,7 @@ LCS_IDE = (
 
 )
 
+#GTA VCS - this uses VCS PC Edition
 VCS_IDE = (
     'DATA\\MAPS\\generic\\vegepart.IDE',
     'DATA\\MAPS\\generic\\barriers.IDE',
@@ -342,6 +348,47 @@ VCS_IDE = (
 
 )
 
+#GTA IV - this uses VxIV2SA(MUST be mobile version to avoid crappy Fastman92 encryption)
+IV_IDE = (
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN2.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKS.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKS2.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKS3.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXE.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXE2.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXW.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXW2.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH1.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH2.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH3.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH4.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH5.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH6.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH7.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH8.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH9.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH10.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH11.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH12.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ1.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ2.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ3.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ4e.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ4w.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ5.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJDC.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJLB.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSE.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSM.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW2.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\INTS.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\PROPS.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\XREA.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRMH.IDE',
+        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRNJ.IDE'
+)
 
 ###################
 #    IPL paths    #
@@ -349,6 +396,7 @@ VCS_IDE = (
 
 # Paths to IPL files for each game
 
+# GTA III
 III_IPL = (
     ('DATA\\MAPS\\INDUSTNE\\INDUSTNE.IPL', 'industne', ''),
     ('DATA\\MAPS\\INDUSTNW\\INDUSTNW.IPL', 'industnw', ''),
@@ -365,6 +413,7 @@ III_IPL = (
     ('DATA\\MAPS\\CULL.IPL',               'cull', '')
 )
 
+# GTA VC
 VC_IPL = (
     ('DATA\\MAPS\\littleha\\littleha.IPL', 'littleha', ''),
     ('DATA\\MAPS\\downtown\\downtown.IPL', 'downtown', ''),
@@ -401,6 +450,7 @@ VC_IPL = (
     ('DATA\\MAPS\\mansion\\mansion.IPL',   'mansion', '')
 )
 
+# GTA SA
 SA_IPL = (
 
     ('DATA\\MAPS\\LA\\LAn2.IPL',           'LAn2', ''),
@@ -451,10 +501,10 @@ SA_IPL = (
     ('DATA\\MAPS\\occluveg.ipl',           'occluveg', ''),
     ('DATA\\MAPS\\occluLA.ipl',            'occluLA', ''),
     ('DATA\\MAPS\\occluint.ipl',           'occluint', ''),
-    ('DATA\\MAPS\\audiozon.ipl',           'audiozon', ''),
-    ('DATA\\MAPS\\beach\\beach.ipl',         'Vice CS', '')
+    ('DATA\\MAPS\\audiozon.ipl',           'audiozon', '')
 )
 
+#GTA LCS - uses LCS PC Edition
 LCS_IPL = (
     ('DATA\\MAPS\\temppart.ipl',                     'temppart', ''),
     ('DATA\\MAPS\\suburb.ipl',                       'suburb', ''),
@@ -467,6 +517,7 @@ LCS_IPL = (
     ('DATA\\MAPS\\fortdestroyed.ipl',                'fort_destroyed', '')
 )
 
+# GTA VCS - uses VCS PC Edition
 VCS_IPL = (
     ('DATA\\MAPS\\littleha\\littleha.IPL', 'littleha', ''),
     ('DATA\\MAPS\\airport\\airport.IPL',   'airport', ''),
@@ -495,6 +546,49 @@ VCS_IPL = (
     ('DATA\\MAPS\\stadium\\stadium.IPL',   'stadium', '')
 )
 
+# GTA IV - uses VxIV2SA(MUST be mobile version to avoid crappy Fastman92 encryption)
+IV_IPL = (
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN.IPL', 'BKN', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN2.IPL', 'BKN2', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKS.IPL', 'BKS', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKS2.IPL', 'BKS2', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKS3.IPL', 'BKS3', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXE.IPL', 'BXE', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXE2.IPL', 'BXE2', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXW.IPL', 'BXW', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BXW2.IPL', 'BXW2', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH1.IPL', 'MH1', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH2.IPL', 'MH2', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH3.IPL', 'MH3', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH4.IPL', 'MH4', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH5.IPL', 'MH5', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH6.IPL', 'MH6', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH7.IPL', 'MH7', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH8.IPL', 'MH8', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH9.IPL', 'MH9', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH10.IPL', 'MH10', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH11.IPL', 'MH11', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\MH12.IPL', 'MH12', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ1.IPL', 'NJ1', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ2.IPL', 'NJ2', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ3.IPL', 'NJ3', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ4e.IPL', 'NJ4e', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ4w.IPL', 'NJ4w', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ5.IPL', 'NJ5', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJDC.IPL', 'NJDC', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NLJB.IPL', 'NJLB', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSE.IPL', 'QSE', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSM.IPL', 'QSM', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW.IPL', 'QSW', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW2.IPL', 'QSW2', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\INTS.IPL',    'INTS', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\PROPS.IPL',   'PROPS', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\XREA.IPL',    'XREA', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRMH.IPL',    'XRMH', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRNJ.IPL',    'XRNJ', '')
+)
+
+
 # Export
 data = {
     game_version.III : {
@@ -521,5 +615,10 @@ data = {
         'structures': SA_structures,
         'IDE_paths': VCS_IDE,
         'IPL_paths': VCS_IPL,
+    },
+    game_version.IV : {
+        'structures': SA_structures,
+        'IDE_paths': IV_IDE,
+        'IPL_paths': IV_IPL,
     },
 }
