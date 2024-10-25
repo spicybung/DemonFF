@@ -60,6 +60,36 @@ class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
         row = layout.row()
         row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
 
+# Function to set all selected objects to collision objects
+def set_collision_objects(context):
+    for obj in context.selected_objects:
+        obj.dff.type = 'COL'
+        print(f"Set {obj.name} as a collision object")
+
+# Operator to set collision objects
+class OBJECT_OT_set_collision_objects(bpy.types.Operator):
+    bl_idname = "object.set_collision_objects"
+    bl_label = "Set Collision Objects"
+    bl_description = "Set all selected objects to collision objects"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        set_collision_objects(context)
+        return {'FINISHED'}
+
+# Panel to add the Set Collision Objects button
+class OBJECT_PT_set_collision_objects_panel(bpy.types.Panel):
+    bl_label = "Set Collision Objects"
+    bl_idname = "OBJECT_PT_set_collision_objects"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'object'
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.operator("object.set_collision_objects", text="Set Collision Objects")
+
 # Function to add light info to selected light objects
 def add_light_info(context):
     for obj in context.selected_objects:
@@ -123,9 +153,9 @@ def export_info(context):
             if obj.type == 'LIGHT':
                 export_light_info(effect_stream, text_stream, obj)
             elif obj.type == 'EMPTY':
-                export_particle_info(effect_stream, obj)
+                export_particle_info(effect_stream, text_stream, obj)
             elif obj.type == 'MESH' and "Plane" in obj.name:
-                export_text_info(effect_stream, obj)
+                export_text_info(effect_stream, text_stream, obj)
 
 def export_light_info(effect_stream, text_stream, obj):
     pos = obj.location
@@ -185,7 +215,7 @@ def export_light_info(effect_stream, text_stream, obj):
     text_stream.write(f"Flags2           {flags2}\n")
     text_stream.write(f"ViewVector       {view_vector[0]} {view_vector[1]} {view_vector[2]}\n")
 
-def export_particle_info(effect_stream, obj):
+def export_particle_info(effect_stream, text_stream, obj):
     pos = obj.location
     print(f"Particle Position: {pos}")
     effect_stream.write(bytearray(struct.pack("f", pos.x)))
@@ -194,7 +224,12 @@ def export_particle_info(effect_stream, obj):
     effect_stream.write(len(obj["sdfx_psys"]).to_bytes(4, byteorder='little'))
     effect_stream.write(obj["sdfx_psys"].encode('utf-8'))
 
-def export_text_info(effect_stream, obj):
+    # Write to text file
+    text_stream.write(f"2dfxType         PARTICLE\n")
+    text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
+    text_stream.write(f"ParticleSystem   {obj['sdfx_psys']}\n")
+
+def export_text_info(effect_stream, text_stream, obj):
     pos = obj.location
     print(f"Text Position: {pos}")
     effect_stream.write(bytearray(struct.pack("f", pos.x)))
@@ -203,6 +238,11 @@ def export_text_info(effect_stream, obj):
     text_data = obj["sdfx_text1"] + obj["sdfx_text2"] + obj["sdfx_text3"] + obj["sdfx_text4"]
     effect_stream.write(len(text_data).to_bytes(4, byteorder='little'))
     effect_stream.write(text_data.encode('utf-8'))
+
+    # Write to text file
+    text_stream.write(f"2dfxType         TEXT\n")
+    text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
+    text_stream.write(f"TextData         {obj['sdfx_text1']} {obj['sdfx_text2']} {obj['sdfx_text3']} {obj['sdfx_text4']}\n")
 
 class SAEffectsPanel(bpy.types.Panel):
     bl_label = "SA Effects"
@@ -510,6 +550,7 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
 
         box.prop(settings, "export_normals", text="Export Normals")
         box.prop(settings, "export_split_normals", text="Export Custom Split Normals")
+        box.prop(settings, "export_tristrips", text="Export as TriStrips")  # Adding the TriStrips option
         box.prop(settings, "export_binsplit", text="Export Bin Mesh PLG")
         box.prop(settings, "light", text="Enable Lighting")
         box.prop(settings, "modulate_color", text="Enable Modulate Material Color")
@@ -682,6 +723,11 @@ class DFFObjectProps(bpy.types.PropertyGroup):
         default=False,
         description="Whether Custom Split Normals will be exported (Flat Shading)."
     )
+    
+    export_tristrips: bpy.props.BoolProperty(
+        default=False,
+        description="Export using TriStrips"
+    )
 
     light: bpy.props.BoolProperty(
         default=True,
@@ -751,6 +797,8 @@ def register():
     bpy.utils.register_class(DFFObjectProps)
     bpy.utils.register_class(OBJECT_OT_join_similar_named_meshes)
     bpy.utils.register_class(OBJECT_PT_join_similar_meshes_panel)
+    bpy.utils.register_class(OBJECT_OT_set_collision_objects)
+    bpy.utils.register_class(OBJECT_PT_set_collision_objects_panel)
 
 def unregister():
     unregister_saeffects()
@@ -761,6 +809,8 @@ def unregister():
     bpy.utils.unregister_class(DFFObjectProps)
     bpy.utils.unregister_class(OBJECT_OT_join_similar_named_meshes)
     bpy.utils.unregister_class(OBJECT_PT_join_similar_meshes_panel)
+    bpy.utils.unregister_class(OBJECT_OT_set_collision_objects)
+    bpy.utils.unregister_class(OBJECT_PT_set_collision_objects_panel)
 
 if __name__ == "__main__":
     register()
