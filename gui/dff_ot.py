@@ -49,7 +49,6 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         default=False
     )
 
-    # Only two col_samp.mat options: 'DEFAULT' & 'SAMP' - someone might make another but hard doubt
     export_format: bpy.props.EnumProperty(
         items=(
             ('DEFAULT', "Default", "Export with the default col format for .DFF"),
@@ -60,22 +59,21 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         default='DEFAULT'
     )
 
-    export_version      : bpy.props.EnumProperty(
-        items =
-        (
+    export_version: bpy.props.EnumProperty(
+        items=(
             ('0x33002', "GTA 3 (v3.3.0.2)", "Grand Theft Auto 3 PC (v3.3.0.2)"),
             ('0x34003', "GTA VC (v3.4.0.3)", "Grand Theft Auto VC PC (v3.4.0.3)"),
             ('0x36003', "GTA SA (v3.6.0.3)", "Grand Theft Auto SA PC (v3.6.0.3)"),
             ('custom', "Custom", "Custom RW Version")
         ),
-        name = "Version Export"
+        name="Version Export"
     )
     
     custom_version: bpy.props.StringProperty(
         maxlen=7,
         default="",
         name="Custom Version")
-    
+
     export_tristrips: bpy.props.BoolProperty(
         name="Export as TriStrips",
         description="Export the model using triangle strips",
@@ -110,7 +108,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         layout.prop(self, "only_selected")
         layout.prop(self, "export_coll")
         layout.prop(self, "export_frame_names")
-        layout.prop(self, "export_format") # Which collision format to export
+        layout.prop(self, "export_format")
         layout.prop(self, "export_version")
 
         if self.export_version == 'custom':
@@ -120,7 +118,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             
             col.prop(self, "custom_version", icon=icon)
         
-        layout.prop(self, "export_tristrips")  # Broken ... for now
+        layout.prop(self, "export_tristrips")
 
     def get_selected_rw_version(self):
         if self.export_version != "custom":
@@ -140,36 +138,30 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
 
         start = time.time()
         try:
-            if self.export_format == 'NORMAL':
-                # Call the exporter for default .DFF using dff_exporter
-                dff_exporter.export_dff({
-                    "file_name": self.filepath,
-                    "directory": self.directory,
-                    "selected": self.only_selected,
-                    "mass_export": self.mass_export,
-                    "version": self.get_selected_rw_version(),
-                    "export_coll": self.export_coll,
-                    "export_frame_names": self.export_frame_names,
-                    "export_tristrips": self.export_tristrips
-                })
+            objects_to_export = bpy.context.selected_objects if self.only_selected else bpy.context.scene.objects
+
+            export_options = {
+                "file_name": self.filepath,
+                "directory": self.directory,
+                "selected": self.only_selected,
+                "mass_export": self.mass_export,
+                "version": self.get_selected_rw_version(),
+                "export_coll": self.export_coll,
+                "export_frame_names": self.export_frame_names,
+                "export_tristrips": self.export_tristrips,
+                "objects": objects_to_export
+            }
+
+            if self.export_format == 'DEFAULT':
+                dff_exporter.export_dff(export_options)
             elif self.export_format == 'SAMP':
-                # Otherwise use the exporter for SAMP .DFF using samp_exporter
-                samp_exporter.export_dff({
-                    "file_name": self.filepath,
-                    "directory": self.directory,
-                    "selected": self.only_selected,
-                    "mass_export": self.mass_export,
-                    "version": self.get_selected_rw_version(),
-                    "export_coll": self.export_coll,
-                    "export_frame_names": self.export_frame_names,
-                    "export_tristrips": self.export_tristrips
-                })
+                samp_exporter.export_dff(export_options)
+
             self.report({"INFO"}, f"Finished export in {time.time() - start:.2f}s")
 
         except dff_exporter.DffExportException as e:
             self.report({"ERROR"}, str(e))
 
-        # Save settings of the export in scene custom properties for later
         context.scene['custom_imported_version'] = self.export_version
         context.scene['custom_custom_version'] = self.custom_version
             
@@ -185,7 +177,6 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         return {'RUNNING_MODAL'}
 
 
-
 class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):
     """Operator for exporting DFF in SAMP format."""
     bl_idname = "export_dff_samp_custom.scene"
@@ -195,7 +186,6 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):
     filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="untitled.dff")
 
     def execute(self, context):
-        # Call SAMP exporter
         start = time.time()
         try:
             samp_exporter.export_dff({
@@ -203,7 +193,7 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):
                 "directory": os.path.dirname(self.filepath),
                 "selected": True,
                 "mass_export": False,
-                "version": "0x36003",  # ONLY version for SAMP
+                "version": "0x36003",
                 "export_coll": False,
                 "export_frame_names": True,
                 "export_tristrips": False
@@ -217,7 +207,6 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
-    
 
 class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
     
@@ -313,15 +302,13 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
         layout.prop(self, "group_materials")
         
     def execute(self, context):
-        start = time.time()  # Start measuring time
+        start = time.time()
 
         for file in [os.path.join(self.directory, file.name) for file in self.files] if self.files else [self.filepath]:
             if file.endswith(".col"):
                 col_importer.import_col_file(file, os.path.basename(file))
             else:
-                image_ext = self.image_ext
-                if not self.load_images:
-                    image_ext = None
+                image_ext = self.image_ext if self.load_images else None
                     
                 importer = dff_importer.import_dff(
                     {
@@ -347,7 +334,10 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
                 else:
                     context.scene['custom_imported_version'] = "custom"
                     context.scene['custom_custom_version'] = "{}.{}.{}.{}".format(
-                        *(version[i] for i in [2, 3, 4, 6])
+                        version[2] if len(version) > 2 else '0',
+                        version[3] if len(version) > 3 else '0',
+                        version[4] if len(version) > 4 else '0',
+                        version[6] if len(version) > 6 else '0',
                     )
         
         self.report({"INFO"}, f"Finished import in {time.time() - start:.2f}s")

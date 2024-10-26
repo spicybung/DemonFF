@@ -71,7 +71,7 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         if self.mass_export:
             options["directory"] = self.directory
 
-        col_samp_exporter.export_col_samp(options)
+        col_samp_exporter.export_col(options)
 
         # Save settings of the export in scene custom properties for later
         context.scene['demonff_imported_version_col'] = self.export_version
