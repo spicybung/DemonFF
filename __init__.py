@@ -16,7 +16,7 @@
 
 import bpy
 from .gui import gui
-from .ops import map_importer
+from .ops import map_importer, map_exporter
 
 from bpy.utils import register_class, unregister_class
 
@@ -86,16 +86,29 @@ _classes = [
     gui.IMPORT_OT_dff_custom,
     gui.EXPORT_OT_dff_custom,
     gui.EXPORT_OT_col,
+    gui.OBJECT_OT_set_collision_objects,
+    gui.OBJECT_PT_set_collision_objects_panel,
     gui.MATERIAL_PT_dffMaterials,
     gui.OBJECT_PT_dffObjects,
-    gui.OBJECT_OT_join_similar_named_meshes,  # Existing operator class
-    gui.OBJECT_PT_join_similar_meshes_panel,  # Existing panel class
+    gui.OBJECT_OT_join_similar_named_meshes,
+    gui.OBJECT_PT_join_similar_meshes_panel,
     gui.DFFMaterialProps,
     gui.DFFObjectProps,
     gui.MapImportPanel,
     gui.DFFSceneProps,
     gui.DFF_MT_ExportChoice,
+    gui.SCENE_OT_duplicate_all_as_collision,
+    gui.SCENE_PT_collision_tools,
     map_importer.Map_Import_Operator,
+    map_exporter.IDE_Import_Operator,
+    map_exporter.SAMP_IDE_Import_Operator,
+    map_exporter.SAMP_Mass_IDE_Import_Operator,
+    map_exporter.RemoveBuildingForPlayerOperator,
+    map_exporter.ExportToIPLOperator,
+    map_exporter.ExportToIDEOperator,
+    map_exporter.ExportToPawnOperator,
+    map_exporter.DemonFFMapExportPanel,
+    map_exporter.DemonFFPawnPanel,
     gui.DFF2dfxPanel,
     gui.SAEFFECTS_OT_AddLightInfo,
     gui.SAEFFECTS_OT_AddParticleInfo,
@@ -104,14 +117,9 @@ _classes = [
     gui.SAEFFECTS_OT_ExportTextInfo,
     gui.SAEFFECTS_OT_CreateLightsFromOmni,
     gui.SAEFFECTS_OT_Import2dfx,
-    gui.ExportToIPLOperator,
-    gui.MapExportPanel,
-    gui.IMPORT_OT_ifp,  # Ensure the IFP class is included
-    gui.IDE_Import_Operator,  # New IDE import operator
-    gui.ExportToIDEOperator,  # New IDE export operator
-    gui.ExportToPawnOperator,
-    gui.ExportArtConfigOperator,
-    gui.DemonFFPawnPanel
+    gui.SAEFFECTS_OT_ViewLightInfo,
+    gui.OBJECT_PT_SDFXLightInfoPanel,
+    gui.IMPORT_OT_ifp
 ]
 
 
