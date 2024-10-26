@@ -2,25 +2,25 @@ from struct import unpack_from, calcsize, pack
 from collections import namedtuple
 import math
 
+
 def strlen(s):
     return len(s)
 
-# Clamp values so we can export larger models
+# Clamp values to ensure they are within a valid range
 def clamp(value, min_value, max_value):
     return max(min_value, min(value, max_value))
 
 class ColModel:
     def __init__(self):
-        # Initialize
+        # Initialise
         self.version       = None
         self.model_name    = None
         self.model_id      = 0
         self.bounds        = None
         self.spheres       = []
-        self.boxes         = []
+        self.cubes         = []
         self.mesh_verts    = []
         self.mesh_faces    = []
-        self.face_groups   = []
         self.lines         = []
         self.flags         = 0
         self.shadow_verts  = []
@@ -36,7 +36,7 @@ TFaceGroup = None
 TVertex    = None
 TFace      = None
 TVector    = namedtuple("TVector", "x y z")
-        
+
 #######################################################
 class Sections:
 
@@ -47,42 +47,41 @@ class Sections:
 
         global TSurface, TVertex, TBox, TBounds, TSphere, TFace, TFaceGroup
         
-        TSurface = namedtuple("TSurface" , "material flags brightness light")
-        TVertex  = namedtuple("TVertex"  , "x y z")
-        TBox     = namedtuple("TBox"     , "min max surface")
+        TSurface = namedtuple("TSurface", "material flags brightness light")
+        TVertex  = namedtuple("TVertex", "x y z")
+        TBox     = namedtuple("TBox", "min max surface")
 
         if version == 1:
-            
             TBounds = namedtuple("TBounds", "radius center min max")
             TSphere = namedtuple("TSphere", "radius center surface")
-            TFace   = namedtuple("TFace"  , "a b c surface")
-
+            TFace   = namedtuple("TFace", "a b c surface")
         else:
-
-            TFaceGroup = namedtuple("TFaceGroup" , "min max start end")
-            TFace      = namedtuple("TFace"      , "a b c material light")
-            TBounds    = namedtuple("TBounds"    , "min max center radius")
-            TSphere    = namedtuple("TSphere"    , "center radius surface")
+            TFaceGroup = namedtuple("TFaceGroup", "min max start end")
+            TFace      = namedtuple("TFace", "a b c material light")
+            TBounds    = namedtuple("TBounds", "min max center radius")
+            TSphere    = namedtuple("TSphere", "center radius surface")
 
         Sections.version = version
 
         Sections.__formats = {
             # V = Vector, S = Surface
-            TBounds    : [  "fVVV" , "VVVf"  ],
-            TSurface   : [  "BBBB" , "BBBB"  ],
-            TSphere    : [  "fVS"  , "VfS"   ],
-            TBox       : [  "VVS"  , "VVS"   ],
-            TFaceGroup : [  "VVHH" , "VVHH"  ],
-            TVertex    : [  "fff"  , "hhh"   ],
-            TFace      : [  "IIIS" , "HHHBB" ]
+            TBounds    : ["fVVV", "VVVf"],
+            TSurface   : ["BBBB", "BBBB"],
+            TSphere    : ["fVS", "VfS"],
+            TBox       : ["VVS", "VVS"],
+            TFaceGroup : ["VVHH", "VVHH"],
+            TVertex    : ["fff", "hhh"],
+            TFace      : ["IIIS", "HHHBB"]
         }
 
     #######################################################
     def compress_vertices(vertices):
         compressed_vertices = []
         for vertex in vertices:
-            compressed_vertices.append(TVertex._make(int(i*128) for i in vertex))
-
+            # Clamp vertices to the valid range of signed 16-bit integers
+            compressed_vertices.append(
+                TVertex._make(clamp(int((0 if math.isnan(i) else i) * 128), -32768, 32767) for i in vertex)
+            )
         return compressed_vertices
             
     #######################################################
@@ -123,6 +122,15 @@ class Sections:
             elif char == 'S':
                 _data += Sections.write_section(TSurface, data[index])
 
+            # Handle ushort ('H') and int ('I') with clamping
+            elif char == 'H':  # For ushort
+                clamped_value = clamp(data[index], 0, 65535)
+                _data += pack(char, clamped_value)
+
+            elif char == 'I':  # For unsigned 32-bit int
+                clamped_value = clamp(data[index], 0, 4294967295)
+                _data += pack(char, clamped_value)
+
             else:
                 _data += pack(char, data[index])
             
@@ -151,18 +159,19 @@ class Sections:
 
         version = 0 if Sections.version == 1 else 1
 
-        format = ''.join(Sections.__formats[type][version])
+        format = Sections.__formats[type][version]
+
+        # Convert vectors and surface to their properties
         format = format.replace("V", "fff")
         format = format.replace("S", "BBBB")
 
         return calcsize(format)
-    
+
 #######################################################
 class coll:
 
     __slots__ = [
         "models",
-        "model_map",
         "_data",
         "_pos"
     ]
@@ -205,9 +214,9 @@ class coll:
 
         # Spheres
         model.spheres += self.__read_block(TSphere)
-        self.__incr(4)  # unknown data
+        self.__incr(4)  # number of unk. data (from GTAModding)
 
-        model.boxes      += self.__read_block(TBox)
+        model.cubes      += self.__read_block(TBox)
         model.mesh_verts += self.__read_block(TVertex)
         model.mesh_faces += self.__read_block(TFace)
 
@@ -233,7 +242,7 @@ class coll:
 
         # Boxes
         self._pos = pos + box_offset + 4
-        model.boxes += self.__read_block(TBox, box_count)
+        model.cubes += self.__read_block(TBox, box_count)
         
         # Faces
         self._pos = pos + faces_offset + 4
@@ -293,15 +302,14 @@ class coll:
 
         model.model_name = header.model_name[:strlen(header.model_name)].decode(
             "ascii"
-        ).strip()
+        )
         model.model_id = header.model_id
 
-        # Determine version based on the magic number in the header
         version_headers = {
             "COLL": 1,
             "COL2": 2,
             "COL3": 3,
-            "COL4": 4  # Version 4 detected
+            "COL4": 4  # Unused San Andreas format, possibly meant for thin railings on the PS2?
         }
         
         try:
@@ -324,12 +332,7 @@ class coll:
         else:
             self.__read_new_col(model, pos)
 
-        # Store model in model_map and models list
-        self.model_map[model.model_name.lower()] = model
-        self.models.append(model)
-
-        # Set position to the next model
-        self._pos = pos + header.file_size + 8
+        self._pos = pos + header.file_size + 8  # Move to the next model
         return model
             
     #######################################################
@@ -339,7 +342,7 @@ class coll:
 
         while self._pos < len(self._data):
             try:
-                self.__read_col()
+                self.models.append(self.__read_col())
             except RuntimeError:
                 return
     
@@ -369,7 +372,7 @@ class coll:
 
         data += self.__write_block(TSphere, model.spheres)
         data += pack('<I', 0)
-        data += self.__write_block(TBox, model.boxes)
+        data += self.__write_block(TBox, model.cubes)
         data += self.__write_block(TVertex, model.mesh_verts)
         data += self.__write_block(TFace, model.mesh_faces)
 
@@ -380,8 +383,7 @@ class coll:
         data = b''
 
         flags = 0
-        flags |= 2 if model.spheres or model.boxes or model.mesh_faces else 0
-        flags |= 8 if model.face_groups else 0
+        flags |= 2 if model.spheres or model.cubes or model.mesh_faces else 0
         flags |= 16 if model.shadow_faces and model.version >= 3 else 0
         
         header_len = 104
@@ -396,7 +398,7 @@ class coll:
 
         # Boxes
         offsets.append(len(data) + header_len)
-        data += self.__write_block(TBox, model.boxes, False)
+        data += self.__write_block(TBox, model.cubes, False)
 
         offsets.append(0)  # TODO: Cones
         
@@ -408,7 +410,7 @@ class coll:
         offsets.append(len(data) + header_len)
         data += self.__write_block(TFace, model.mesh_faces, False)
 
-        offsets.append(0)  # Tristripes
+        offsets.append(0)  # Tristripes?
         
         # Shadow Mesh
 
@@ -421,13 +423,19 @@ class coll:
             offsets.append(len(data) + header_len)
             data += self.__write_block(TFace, model.shadow_faces, False)
 
+        # Clamp header values to prevent errors
+        sphere_count = clamp(len(model.spheres), 0, 65535)
+        box_count = clamp(len(model.cubes), 0, 65535)
+        face_count = clamp(len(model.mesh_faces), 0, 65535)
+        line_count = clamp(len(model.lines), 0, 65535)
+        
         # Write Header
         header_data = pack(
             "<HHHBxIIIIIII",
-            len(model.spheres),
-            len(model.boxes),
-            len(model.mesh_faces),
-            len(model.lines),
+            sphere_count,
+            box_count,
+            face_count,
+            line_count,
             flags,
             *offsets[:6]
         )
@@ -450,14 +458,15 @@ class coll:
             
         data = Sections.write_section(TBounds, model.bounds) + data
 
+        samp_header = "samp"
         header_size = 24
         header = [
             ("COL" + (str(model.version))).encode("ascii"),
             len(data) + header_size,
-            model.model_name.encode("ascii"),
+            samp_header.encode("ascii"),
             model.model_id
         ]
-
+             
         return pack("4sI22sH", *header) + data
             
     #######################################################
@@ -466,18 +475,7 @@ class coll:
         data = b''
         
         for model in self.models:
-            model_name = model.model_name.lower()
-            if model_name not in self.model_map:
-                # If the model is not found, create it and add to the map
-                print(f"Model '{model_name}' not found. Creating new entry in model_map.")
-                new_model = ColModel()  # Create a new ColModel instance
-                new_model.model_name = model.model_name  # Assign the model name
-                new_model.model_id = model.model_id  # Assign other attributes as needed
-                self.model_map[model_name] = new_model  # Add to model_map
-
-            # Retrieve the correct model and write it
-            correct_model = self.model_map[model_name]
-            data += self.__write_col(correct_model)
+            data += self.__write_col(model)
 
         return data
             
@@ -490,11 +488,9 @@ class coll:
             
     #######################################################
     def __init__(self, model=None):
-        self.models = []
-        self.model_map = {}
+        self.models = [ColModel()] * 0
         self._data = ""
         self._pos = 0
 
         if model is not None:
             self.models.append(model)
-            self.model_map[model.model_name.lower()] = model

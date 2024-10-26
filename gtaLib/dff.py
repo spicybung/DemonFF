@@ -104,10 +104,10 @@ types = {
     "Specular Material"       : 39056118,
     "2d Effect"               : 39056120,
     "Extra Vert Color"        : 39056121,
-    "Collision Model"         : 39056127,
+    "Collision Model"         : 39056122,
     "Reflection Material"     : 39056124,
     "Frame"                   : 39056126,
-    "SAMP Collision"          : 39056127,
+    "SAMP Collision"          : 39056127, # Transferred to dff_samp
 }
 
 #######################################################
