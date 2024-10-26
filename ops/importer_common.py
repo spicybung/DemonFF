@@ -23,6 +23,7 @@ game_version.VC = 'VC'
 game_version.SA = 'SA'
 game_version.LCS = 'LCS'
 game_version.VCS = 'VCS'
+game_version.IV = 'IV'
 
 #######################################################            
 def set_object_mode(obj, mode):

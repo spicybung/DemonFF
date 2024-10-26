@@ -882,51 +882,45 @@ class dff_exporter:
             self.dff.frame_list.append(frame)
 
     #######################################################
-        #######################################################
     @staticmethod
     def export_objects(objects, name=None):
         self = dff_exporter
-    
-        self.dff = dff.dff()  # Initialize a new dff instance for each export
-        previous_geometry = None  # To store the previously loaded model
+        
+        self.dff = dff.dff()
 
         # Skip empty collections
         if len(objects) < 1:
             return
-    
+        
         for obj in objects:
-            # Create atomic if it's a mesh
+
+            # create atomic in this case
             if obj.type == "MESH":
                 self.populate_atomic(obj)
 
-                # Export collision for the previous model, if it exists
-                if previous_geometry and self.export_coll:
-                    collision_data = export_col({
-                        'file_name'     : name if name is not None else os.path.basename(self.file_name),
-                        'memory'        : True,
-                        'version'       : 3,
-                        'collection'    : self.collection,
-                        'only_selected' : self.selected,
-                        'mass_export'   : False
-                    })
-                    # Attach collision data to the previous model
-                    if collision_data:
-                        previous_geometry.collisions = [collision_data]
-
-                # Update the previous model to the current one
-                previous_geometry = self.dff.geometry_list[-1]
-
-            # Create an empty frame if it's an empty object
+            # create an empty frame
             elif obj.type == "EMPTY":
                 self.create_frame(obj)
-                previous_geometry = None  # No geometry to assign collision to if it's empty
+        
+        # Collision
+        if self.export_coll:
+            mem = export_col({
+                'file_name'     : name if name is not None else
+                               os.path.basename(self.file_name),
+                'memory'        : True,
+                'version'       : 3,
+                'collection'    : self.collection,
+                'only_selected' : self.selected,
+                'mass_export'   : False
+            })
 
-        # Write the dff file for the current object or collection
+            if len(mem) != 0:
+               self.dff.collisions = [mem] 
+
         if name is None:
-            self.dff.write_file(self.file_name, self.version)
+            self.dff.write_file(self.file_name, self.version )
         else:
-            self.dff.write_file(f"{self.path}/{name}", self.version)
-
+            self.dff.write_file("%s/%s" % (self.path, name), self.version)
 
     #######################################################
     @staticmethod
