@@ -546,7 +546,7 @@ VCS_IPL = (
     ('DATA\\MAPS\\stadium\\stadium.IPL',   'stadium', '')
 )
 
-# GTA IV - uses VxIV2SA(MUST be mobile version to avoid crappy Fastman92 encryption)
+# GTA IV - uses VxIV2SA(SLOW)
 IV_IPL = (
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN.IPL', 'BKN', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN2.IPL', 'BKN2', ''),
@@ -576,7 +576,7 @@ IV_IPL = (
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ4w.IPL', 'NJ4w', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJ5.IPL', 'NJ5', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJDC.IPL', 'NJDC', ''),
-    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NLJB.IPL', 'NJLB', ''),
+    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\NJLB.IPL', 'NJLB', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSE.IPL', 'QSE', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSM.IPL', 'QSM', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW.IPL', 'QSW', ''),
