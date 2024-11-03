@@ -790,64 +790,53 @@ compatibiility with DFF Viewers"
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
-    bl_description = "Duplicate all objects in the scene as collision meshes with '.ColMesh' suffix, organize them in their own collections, and place them above the original collections"
+    bl_description = "Duplicate all objects in the scene as collision meshes with '.ColMesh' suffix, organize them in the matching collections"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        root_collection = bpy.context.scene.collection
-
-        # A list to store original .dff collections and their new .ColMesh collections
-        collection_pairs = []
-
+        # Iterate over all objects in the scene
         for obj in context.scene.objects:
-            # Skip if object does not have a collection or not a mesh
+            # Skip if object does not have a collection or is not a mesh
             if not obj.users_collection or obj.type != 'MESH':
                 continue
 
             # Duplicate the object
             duplicate = obj.copy()
-            duplicate.data = obj.data.copy() if obj.data else None  # Ensure unique mesh data if it’s a mesh object
-            duplicate.name = f"{obj.name}.ColMesh"  # Append .ColMesh to the duplicate's name
+            duplicate.data = obj.data.copy() if obj.data else None
+            duplicate.name = f"{obj.name}.samp.ColMesh"
 
-            # Create a new collection for the ColMesh object
-            colmesh_collection_name = f"{obj.name}.ColMesh_Collection"
-            colmesh_collection = bpy.data.collections.new(colmesh_collection_name)
-            context.scene.collection.children.link(colmesh_collection)
+            original_collection = obj.users_collection[0]
+
+            colmesh_collection_name = f"{original_collection.name}.dff.samp.ColMesh"
+            if colmesh_collection_name in original_collection.children:
+                colmesh_collection = original_collection.children[colmesh_collection_name]
+            else:
+                # Create a new .ColMesh collection within the original collection
+                colmesh_collection = bpy.data.collections.new(colmesh_collection_name)
+                original_collection.children.link(colmesh_collection)
+
+            # Link the duplicated object to the new .ColMesh collection
             colmesh_collection.objects.link(duplicate)
 
-            # Set collision properties if applicable
+            # Set collision properties
             if hasattr(duplicate, "dff"):
                 duplicate.dff.type = 'COL'
 
-            # Link the duplicate to the .ColMesh collection and keep it for ordering
-            original_collection = obj.users_collection[0]  # Assume it's in one collection
-            collection_pairs.append((colmesh_collection, original_collection))
-
-        # Process each pair to reorder .ColMesh collections above their .dff collections
-        for colmesh_collection, dff_collection in collection_pairs:
-            # Unlink and relink collections to place ColMesh collections above the original .dff collections
-            root_collection.children.unlink(dff_collection)
-            root_collection.children.unlink(colmesh_collection)
-            root_collection.children.link(colmesh_collection)
-            root_collection.children.link(dff_collection)
-
-        self.report({'INFO'}, "Duplicated and organized all objects as collision meshes above original collections")
+        self.report({'INFO'}, "Duplicated and organized all objects as collision meshes inside matching collections")
         return {'FINISHED'}
 
-# Panel to add the Duplicate All as Collision button in Scene Properties
 class SCENE_PT_collision_tools(bpy.types.Panel):
-    bl_label = "Collision Tools"
+    bl_label = "DemonFF - Collision Tools"
     bl_idname = "SCENE_PT_collision_tools"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
-    bl_context = 'scene'
+    bl_context = 'object'
 
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.operator("scene.duplicate_all_as_collision", text="Duplicate All as Collision")
 
-# Register the SA Effects along with DemonFF
 def register():
     register_saeffects()
     bpy.utils.register_class(MATERIAL_PT_dffMaterials)
