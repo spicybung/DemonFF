@@ -384,7 +384,6 @@ IV_IDE = (
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW.IDE',
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW2.IDE',
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\INTS.IDE',
-        'com.rockstargames.gtasa\\files\\DATA\\MAPS\\PROPS.IDE',
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\XREA.IDE',
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRMH.IDE',
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRNJ.IDE'
@@ -582,7 +581,6 @@ IV_IPL = (
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW.IPL', 'QSW', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\QSW2.IPL', 'QSW2', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\INTS.IPL',    'INTS', ''),
-    ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\PROPS.IPL',   'PROPS', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\XREA.IPL',    'XREA', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRMH.IPL',    'XRMH', ''),
     ('com.rockstargames.gtasa\\files\\DATA\\MAPS\\XRNJ.IPL',    'XRNJ', '')
