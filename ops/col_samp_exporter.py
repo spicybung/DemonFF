@@ -187,39 +187,54 @@ class col_exporter:
         col_samp.coll(self.coll).write_file(name)
 
 #######################################################
+import os
+
 def export_col(options):
-    
+    # Set exporter properties
     col_exporter.memory = options['memory']
     col_exporter.version = options['version']
     col_exporter.collection = options['collection']
     col_exporter.only_selected = options['only_selected']
 
+    # If mass export mode is enabled
     if options['mass_export']:
-        output = b'';
-        
-        root_collection = bpy.context.scene.collection
-        collections = root_collection.children.values() + [root_collection]
-        col_exporter.memory = True
+        output = b''
 
+        root_collection = bpy.context.scene.collection
+        collections = list(root_collection.children) + [root_collection]
+        col_exporter.memory = True  # To gather memory output per collection
+
+        # Ensure the directory path exists
+        base_dir = options['directory']
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)
+
+        # Process each collection
         for collection in collections:
             col_exporter.collection = collection
             name = collection.name
 
-            # Strip stuff like vehicles.col_samp. from the name so that
-            # for example vehicles.col_samp.infernus changes to just infernus
+            # Adjust the collection name for proper file naming
             try:
-                name = name[name.index(".col_samp.") + 5:]
-                
+                name = name[name.index(".col") + len(".col"):]
             except ValueError:
                 pass
             
-            output += col_exporter.export_col(name)
+            # Define the export path for each collection
+            export_path = os.path.join(base_dir, f"{name}.col")
 
+            # Perform the export and gather output if needed
+            collection_output = col_exporter.export_col(name)
+            output += collection_output
+
+            # Write each collection's output to its respective file
+            with open(export_path, mode='wb') as file:
+                file.write(collection_output)
+
+        # Return accumulated output if in-memory output is requested
         if options['memory']:
             return output
 
-        with open(options['file_name'], mode='wb') as file:
-            file.write(output)
-            return
-        
-    return col_exporter.export_col(options['file_name'])
+    else:
+        # Non-mass export: use the specified file name directly
+        return col_exporter.export_col(options['file_name'])

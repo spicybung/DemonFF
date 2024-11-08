@@ -968,13 +968,20 @@ class dff_exporter:
                 
 #######################################################
 def export_dff(options):
-
-    # Shadow Function
-    dff_exporter.selected           = options['selected']
+    # Setup options for export without changing directory structures
+    dff_exporter.selected = options['selected']
     dff_exporter.export_frame_names = options['export_frame_names']
-    dff_exporter.mass_export        = options['mass_export']
-    dff_exporter.path               = options['directory']
-    dff_exporter.version            = options['version']
-    dff_exporter.export_coll        = options['export_coll']
+    dff_exporter.mass_export = options['mass_export']
+    dff_exporter.path = options['directory']
+    dff_exporter.version = options['version']
+    dff_exporter.export_coll = options['export_coll']
 
-    dff_exporter.export_dff(options['file_name'])
+    # Normalize and attempt forced read on file path without directory checks
+    file_path = os.path.normpath(options['file_name'])
+
+    try:
+        # Bypass directory check and attempt to read directly
+        dff_exporter.export_dff(file_path)
+    except FileNotFoundError:
+        # Provide a clear notice for a missing file
+        print(f"Path '{file_path}' could not be accessed. Ensure file and directory are accessible.")

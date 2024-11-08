@@ -541,6 +541,36 @@ class RemoveBuildingForPlayerOperator(bpy.types.Operator):
             line = f"RemoveBuildingForPlayer(playerid, {obj_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, {radius:.2f});"
             print(line)
         return {'FINISHED'}
+    
+class MapImportPanel(bpy.types.Panel):
+    """Creates a Panel in the scene context of the properties editor"""
+    bl_label = "DemonFF - Map Import"
+    bl_idname = "SCENE_PT_map_import"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "scene"
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.dff
+
+        flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
+
+        col = flow.column()
+        col.prop(settings, "game_version_dropdown", text="Game")
+        col.prop(settings, "map_sections", text="Map segment")
+        col.separator()
+        col.prop(settings, "skip_lod", text="Skip LOD objects")
+
+        layout.separator()
+
+        layout.prop(settings, 'game_root')
+        layout.prop(settings, 'dff_folder')
+
+        row = layout.row()
+        row.operator("scene.demonff_map_import")
+
+#######################################################
 
 class DemonFFMapExportPanel(bpy.types.Panel):
     bl_label = "DemonFF - Map Export"
@@ -581,6 +611,7 @@ def register():
     bpy.utils.register_class(ExportToIDEOperator)
     bpy.utils.register_class(ExportToPawnOperator)
     bpy.utils.register_class(RemoveBuildingForPlayerOperator)
+    bpy.utils.register_class(MapImportPanel)
     bpy.utils.register_class(DemonFFMapExportPanel)
     bpy.utils.register_class(DemonFFPawnPanel)
     DFFSceneProps.register()
@@ -594,6 +625,7 @@ def unregister():
     bpy.utils.unregister_class(ExportToIDEOperator)
     bpy.utils.unregister_class(ExportToPawnOperator)
     bpy.utils.unregister_class(RemoveBuildingForPlayerOperator)
+    bpy.utils.unregister_class(MapImportPanel)
     bpy.utils.unregister_class(DemonFFMapExportPanel)
     bpy.utils.unregister_class(DemonFFPawnPanel)
     DFFSceneProps.unregister()

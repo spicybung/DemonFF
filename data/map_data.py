@@ -348,7 +348,7 @@ VCS_IDE = (
 
 )
 
-#GTA IV - this uses VxIV2SA(MUST be mobile version to avoid crappy Fastman92 encryption)
+#GTA IV - this uses VxIV2SA(SLOW!)
 IV_IDE = (
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN.IDE',
         'com.rockstargames.gtasa\\files\\DATA\\MAPS\\LC\\BKN2.IDE',

@@ -329,7 +329,6 @@ def unregister_saeffects():
     del bpy.types.Scene.saeffects_export_path
     del bpy.types.Scene.saeffects_text_export_path
 
-# Integrating SA Effects with DemonFF Menus
 #######################################################
 class MATERIAL_PT_dffMaterials(bpy.types.Panel):
 
@@ -499,16 +498,13 @@ class DFF_MT_ExportChoice(bpy.types.Menu):
         self.layout.operator(EXPORT_OT_col.bl_idname,
                              text="DemonFF Collision (.col)")
 
-
 #######################################################
 def import_dff_func(self, context):
     self.layout.operator(IMPORT_OT_dff_custom.bl_idname, text="DemonFF DFF (.dff)")
 
-
 #######################################################
 def export_dff_func(self, context):
     self.layout.menu("DFF_MT_ExportChoice", text="DemonFF")
-
 
 #######################################################
 class OBJECT_PT_dffObjects(bpy.types.Panel):
@@ -790,13 +786,17 @@ compatibiility with DFF Viewers"
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
-    bl_description = "Duplicate all objects in the scene as collision meshes with '.ColMesh' suffix, organize them in the matching collections"
+    bl_description = "Duplicate all objects in the scene as collision meshes with '.ColMesh' suffix, organize them in their own collections, and place them above the original collections"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        # Iterate over all objects in the scene
+        root_collection = bpy.context.scene.collection
+
+        # A list to store original .dff collections and their new .ColMesh collections
+        collection_pairs = []
+
         for obj in context.scene.objects:
-            # Skip if object does not have a collection or is not a mesh
+
             if not obj.users_collection or obj.type != 'MESH':
                 continue
 
@@ -805,24 +805,28 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
             duplicate.data = obj.data.copy() if obj.data else None
             duplicate.name = f"{obj.name}.samp.ColMesh"
 
-            original_collection = obj.users_collection[0]
-
-            colmesh_collection_name = f"{original_collection.name}.dff.samp.ColMesh"
-            if colmesh_collection_name in original_collection.children:
-                colmesh_collection = original_collection.children[colmesh_collection_name]
-            else:
-                # Create a new .ColMesh collection within the original collection
-                colmesh_collection = bpy.data.collections.new(colmesh_collection_name)
-                original_collection.children.link(colmesh_collection)
-
-            # Link the duplicated object to the new .ColMesh collection
+            # Create a new collection for the ColMesh object
+            colmesh_collection_name = f"{obj.name}.ColMesh"
+            colmesh_collection = bpy.data.collections.new(colmesh_collection_name)
+            context.scene.collection.children.link(colmesh_collection)
             colmesh_collection.objects.link(duplicate)
 
-            # Set collision properties
+
             if hasattr(duplicate, "dff"):
                 duplicate.dff.type = 'COL'
 
-        self.report({'INFO'}, "Duplicated and organized all objects as collision meshes inside matching collections")
+
+            original_collection = obj.users_collection[0]
+            collection_pairs.append((colmesh_collection, original_collection))
+
+        for colmesh_collection, dff_collection in collection_pairs:
+
+            root_collection.children.unlink(dff_collection)
+            root_collection.children.unlink(colmesh_collection)
+            root_collection.children.link(colmesh_collection)
+            root_collection.children.link(dff_collection)
+
+        self.report({'INFO'}, "Duplicated and organized all objects as collision meshes above original collections")
         return {'FINISHED'}
 
 class SCENE_PT_collision_tools(bpy.types.Panel):
