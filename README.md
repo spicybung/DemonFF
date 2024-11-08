@@ -58,8 +58,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 - Special thanks to the Blender community and contributors.
-- Inspired by the Renderware engine and GTA modding community.
-- GTA Mods Wiki for being a huge considerate help in figuring things out
+- The GTA modding community.
+- GTA Mods Wiki for being a huge considerate help in figuring things out.
 - Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible.
 
 
