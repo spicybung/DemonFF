@@ -41,6 +41,7 @@ DemonFF is a powerful Blender addon designed to enhance your workflow by providi
 4. Use DemonFF to import .IFP animation.
 5. Import/edit maps via .IPL & IDE files.
 6. Export your map to Pawn, & artconfig.
+7. Export your map to LUA for MTA(WIP).
 
 ## Documentation
 
@@ -58,7 +59,8 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - Special thanks to the Blender community and contributors.
 - Inspired by the Renderware engine and GTA modding community.
-- Parik27 for his DragonFF Blender Add-on, which without would have made this impossible.
+- GTA Mods Wiki for being a huge considerate help in figuring things out
+- Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible.
 
 
 ---
