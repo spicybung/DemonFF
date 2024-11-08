@@ -4,7 +4,7 @@
 
 ## Introduction
 
-DemonFF is a powerful Blender addon designed to enhance your workflow by providing advanced features for working with Renderware DFF files. Whether you're creating custom models or working with GTA game assets, DemonFF simplifies the process of exporting and importing DFF files, as well as .IFP animation, and map editing(IPL/IDE/PWN).
+DemonFF is a powerful Blender addon designed to enhance your workflow by providing advanced features for working with Renderware DFF files. Whether you're creating custom models or working with GTA game assets, DemonFF simplifies the process of exporting and importing DFF files, as well as .IFP animation, and map editing(IPL/IDE/PWN/LUA).
 
 
 
