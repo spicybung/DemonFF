@@ -10,7 +10,7 @@ DemonFF is a powerful Blender addon designed to enhance your workflow by providi
 
 ## Features
 
-- **Renderware Compatibility**: DemonFF is planned to work with all Renderware DFF files, offering support for various versions and features.
+- **Renderware File Compatibility**: DemonFF is planned to work with all Renderware DFF files, offering support for various versions and features.
 
 - **Export and Import**: Easily export your Blender models, maps, etc and import existing DFF files into Blender for further editing.
 
@@ -23,6 +23,8 @@ DemonFF is a powerful Blender addon designed to enhance your workflow by providi
 - **Custom Section IDs**: DemonFF supports Rockstar's custom section IDs, allowing you to work with specific RW plugins seamlessly.
 
 - **SAMP/open.mp Compatibility**: DemonFF is designed for compatibility with San Andreas Multiplayer (SAMP) and open.mp, and comes with Pawn features.
+  
+- **MTA Compatibility**: DemonFF is planned to support LUA scripts for Multi Theft Auto, allowing ease during map creation.
 
 ## Getting Started
 
