@@ -11,6 +11,19 @@ from .importer_common import (
     hide_object)
 from .col_importer import import_col_mem
 
+from ..gui.tdfx_ot import add_light_info
+
+entries = [
+    {
+        'corona_far_clip': 120.0,
+        'pointlight_range': 20.0,
+        'color': (255, 200, 150, 255),
+        'shadow_size': 10.0,
+        'corona_tex_name': "coronastar",
+    },
+    # Add more entries as needed
+]
+
 #######################################################
 class ext_2dfx_importer:
 
@@ -20,9 +33,9 @@ class ext_2dfx_importer:
     # make any sense being there.
     
     #######################################################
-    def __init__(self, effects):
+    def __init__(self, effects, context):
         self.effects = effects
-
+        self.context = context
     #######################################################
     def import_light(self, entry):
         pass
@@ -254,11 +267,6 @@ class dff_importer:
             empty.empty_display_size = 0.05
         pass
 
-    ##################################################################
-    def import_2dfx(self, effects):
-        
-        for effect in effects.entries:
-            pass
 
     ##################################################################
     def generate_material_name(material, fallback):
@@ -611,17 +619,29 @@ class dff_importer:
             modifier.use_edge_angle = False
             
             bm.to_mesh(self.meshes[frame])
-                
+    
+    # Example usage
+    def process_2dfx_lights(data, offset, context):
+        """
+        Process 2DFX lights and call add_light_info for each parsed LightEntry.
+        """
+        # Read and parse the 2DFX entries
+        entries = dff_instance.read_2dfx(data, offset, context)
+
+        # Process each LightEntry
+        for i, entry in enumerate(entries):
+            print(f"Processing Light Entry {i + 1}/{len(entries)}...")
+            add_light_info(context, entry)
+
+
     #######################################################
-    def import_frames():
+    def import_frames(context):
         self = dff_importer
 
-        # Initialise bone indices for use in armature construction
+        # Initialize bone indices for use in armature construction
         self.construct_bone_dict()
-        #self.import_2dfx(self.dff.ext_2dfx)
-        
-        for index, frame in enumerate(self.dff.frame_list):
 
+        for index, frame in enumerate(self.dff.frame_list):
             # Check if the mesh for the frame has been loaded
             mesh = None
             if index in self.meshes:
@@ -637,11 +657,10 @@ class dff_importer:
                     frame.rotation_matrix.at
                 )
             )
-            
             matrix.transpose()
 
+            # Handle bone data
             if frame.bone_data is not None:
-                
                 # Construct an armature
                 if frame.bone_data.header.bone_count > 0:
                     try:
@@ -649,49 +668,60 @@ class dff_importer:
                     except Exception as e:
                         print(e)
                         continue
-                    
+
                 # Skip bones
                 elif frame.bone_data.header.id in self.bones and mesh is None:
                     continue
-                    
+
             # Create and link the object to the scene
             if obj is None:
-                obj = bpy.data.objects.new(frame.name, mesh)
-                link_object(obj, dff_importer.current_collection)
+                    if "Omni" in frame.name:  # Check if the frame should be a light
+                        bpy.ops.object.light_add(type='POINT', location=frame.position)
+                        obj = bpy.context.object  # Get the newly created light
+                        obj.name = frame.name + "_Light"
+                        print(f"Converted frame to Point light: {obj.name}")
+                    else:
+                        # Create a standard object
+                        obj = bpy.data.objects.new(frame.name, mesh)
+                        link_object(obj, dff_importer.current_collection)
+                        print(f"Created standard object: {obj.name}")
 
-                obj.rotation_mode       = 'QUATERNION'
-                obj.rotation_quaternion = matrix.to_quaternion()
-                obj.location            = frame.position
-                obj.scale               = matrix.to_scale()
+                    obj = bpy.data.objects.new(frame.name, mesh)
+                    link_object(obj, dff_importer.current_collection)
 
+                    obj.rotation_mode = 'QUATERNION'
+                    obj.rotation_quaternion = matrix.to_quaternion()
+                    obj.location = frame.position
+                    obj.scale = matrix.to_scale()
 
-                # Set empty display properties to something decent
-                if mesh is None:
-                    self.set_empty_draw_properties(obj)                        
+                    if mesh is None:
+                        self.set_empty_draw_properties(obj)
+                    else:
+                        # Set object properties from mesh properties
+                        obj.dff.pipeline = mesh['dragon_pipeline']
+                        obj.dff.export_normals = mesh['dragon_normals']
+                        obj.dff.light = mesh['dragon_light']
+                        obj.dff.modulate_color = mesh['dragon_modulate_color']
 
-                else:
-                    # Set object properties from mesh properties
-                    obj.dff.pipeline       = mesh['dragon_pipeline']
-                    obj.dff.export_normals = mesh['dragon_normals']
-                    obj.dff.light          = mesh['dragon_light']
-                    obj.dff.modulate_color = mesh['dragon_modulate_color']
+                        if obj.dff.pipeline == 'CUSTOM':
+                            obj.dff.custom_pipeline = mesh['dragon_cust_pipeline']
 
-                    if obj.dff.pipeline == 'CUSTOM':
-                        obj.dff.custom_pipeline = mesh['dragon_cust_pipeline']
-                    
-                    # Delete temporary properties used earlier
-                    del mesh['dragon_pipeline'      ]
-                    del mesh['dragon_normals'       ]
-                    del mesh['dragon_cust_pipeline' ]
-                    del mesh['dragon_light'         ]
-                    del mesh['dragon_modulate_color']
-                    
-                # Set vertex groups
-                if index in self.skin_data:
-                    self.set_vertex_groups(obj, self.skin_data[index])
-            
+                        # Delete temporary properties used earlier
+                        del mesh['dragon_pipeline']
+                        del mesh['dragon_normals']
+                        del mesh['dragon_cust_pipeline']
+                        del mesh['dragon_light']
+                        del mesh['dragon_modulate_color']
 
-            if  frame.parent != -1:
+                    # Set vertex groups
+                    if index in self.skin_data:
+                        self.set_vertex_groups(obj, self.skin_data[index])
+
+            frames = context.scene.collection.children 
+            add_light_info(frames, entries)
+
+            # Assign parent if applicable
+            if frame.parent != -1:
                 obj.parent = self.objects[frame.parent]
 
             # Add shape keys by delta morph
@@ -711,17 +741,19 @@ class dff_importer:
                     for i, vi in enumerate(dm.indices):
                         if positions:
                             sk.data[vi].co = verts[vi].co + mathutils.Vector(positions[i])
-                        # TODO: normals, prelits and uvs
 
+            # Append object to the imported objects list
             self.objects.append(obj)
 
-            # Set a collision model used for export
+            # Set collision model used for export
             obj["gta_coll"] = self.dff.collisions
             if frame.user_data is not None:
                 obj["dff_user_data"] = frame.user_data.to_mem()[12:]
 
+        # Remove doubles if specified
         if self.remove_doubles:
             self.remove_object_doubles()
+
 
     #######################################################
     def preprocess_atomics():
@@ -756,7 +788,7 @@ class dff_importer:
                     
             
     #######################################################
-    def import_dff(file_name):
+    def import_dff(file_name, context):
         self = dff_importer
         self._init()
 
@@ -764,6 +796,10 @@ class dff_importer:
         self.dff = dff.dff()
         self.dff.load_file(file_name)
         self.file_name = file_name
+        # Check for and process the 2DFX extension
+        if self.dff.ext_2dfx:  # Ensure ext_2dfx is populated
+            ext_importer = ext_2dfx_importer(self.dff.ext_2dfx, context)
+            ext_importer.get_objects()  # Process the 2DFX entries
 
         self.preprocess_atomics()
         
@@ -773,7 +809,7 @@ class dff_importer:
         )
         
         self.import_atomics()
-        self.import_frames()
+        self.import_frames(context)
         
         # Add collisions
         for collision in self.dff.collisions:
@@ -787,8 +823,10 @@ class dff_importer:
                     for object in collection.objects:
                         hide_object(object)
 
+
+
 #######################################################
-def import_dff(options):
+def import_dff(options, context):
 
     # Shadow function
     dff_importer.image_ext        = options['image_ext']
@@ -798,6 +836,6 @@ def import_dff(options):
     dff_importer.group_materials  = options['group_materials']
     dff_importer.import_normals   = options['import_normals']
 
-    dff_importer.import_dff(options['file_name'])
+    dff_importer.import_dff(options['file_name'], context)
 
     return dff_importer

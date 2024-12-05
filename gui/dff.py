@@ -18,27 +18,30 @@ from collections import namedtuple
 from struct import unpack_from, calcsize, pack
 from enum import Enum, IntEnum
 
-from .pyffi.utils import tristrip
 
 # Data types
-Chunk       = namedtuple("Chunk"       , "type size version")
-Clump       = namedtuple("Clump"       , "atomics lights cameras")
-Vector      = namedtuple("Vector"      , "x y z")
-Matrix      = namedtuple("Matrix"      , "right up at")
-HAnimHeader = namedtuple("HAnimHeader" , "version id bone_count")
-Bone        = namedtuple("Bone"        , "id index type")
-RGBA        = namedtuple("RGBA"        , "r g b a")
-GeomSurfPro = namedtuple("GeomSurfPro" , "ambient specular diffuse")
-TexCoords   = namedtuple("TexCoords"   , "u v")
-Sphere      = namedtuple("Sphere"      , "x y z radius")
-Triangle    = namedtuple("Triangle"    , "b a material c")
-Atomic      = namedtuple("Atomic"      , "frame geometry flags unk")
-UVFrame     = namedtuple("UVFrame"     , "time uv prev")
-BumpMapFX   = namedtuple("BumpMapFX"   , "intensity bump_map height_map")
-EnvMapFX    = namedtuple("EnvMapFX"    , "coefficient use_fb_alpha env_map")
-DualFX      = namedtuple("DualFX"      , "src_blend dst_blend texture")
-ReflMat     = namedtuple("ReflMat"     , "s_x s_y o_x o_y intensity")
-SpecularMat = namedtuple("SpecularMap" , "level texture")
+Chunk         = namedtuple("Chunk"         , "type size version")
+Clump         = namedtuple("Clump"         , "atomics lights cameras")
+Vector        = namedtuple("Vector"        , "x y z")
+Matrix        = namedtuple("Matrix"        , "right up at")
+HAnimHeader   = namedtuple("HAnimHeader"   , "version id bone_count")
+Bone          = namedtuple("Bone"          , "id index type")
+RGBA          = namedtuple("RGBA"          , "r g b a")
+GeomSurfPro   = namedtuple("GeomSurfPro"   , "ambient specular diffuse")
+TexCoords     = namedtuple("TexCoords"     , "u v")
+Sphere        = namedtuple("Sphere"        , "x y z radius")
+Triangle      = namedtuple("Triangle"      , "b a material c")
+UVFrame       = namedtuple("UVFrame"       , "time uv prev")
+BumpMapFX     = namedtuple("BumpMapFX"     , "intensity bump_map height_map")
+EnvMapFX      = namedtuple("EnvMapFX"      , "coefficient use_fb_alpha env_map")
+DualFX        = namedtuple("DualFX"        , "src_blend dst_blend texture")
+ReflMat       = namedtuple("ReflMat"       , "s_x s_y o_x o_y intensity")
+SpecularMat   = namedtuple("SpecularMap"   , "level texture")
+GeomBone      = namedtuple("GeomBone"      , "start_vertex vertices_count bone_id")
+RightToRender = namedtuple("RightToRender" , "value1 value2")
+
+TexDict = namedtuple("TexDict", "texture_count device_id")
+PITexDict = namedtuple("PITexDict", "texture_count device_id")
 
 UserDataSection = namedtuple("UserDataSection", "name data")
 
@@ -75,7 +78,20 @@ class UserDataType(IntEnum):
     USERDATAINT = 1
     USERDATAFLOAT = 2
     USERDATASTRING = 3
-    
+
+# Native Platform Type
+class NativePlatformType(IntEnum):
+    D3D7        = 0x1
+    OGL         = 0x2
+    MAC         = 0x3
+    PS2         = 0x4
+    XBOX        = 0x5
+    GC          = 0x6
+    SOFTRAS     = 0x7
+    D3D8        = 0x8
+    D3D9        = 0x9
+    PS2FOURCC   = 0x00325350
+
 # Block types
 types = {
     "Struct"                  : 1,
@@ -88,11 +104,17 @@ types = {
     "Geometry"                : 15,
     "Clump"                   : 16,
     "Atomic"                  : 20,
+    "Texture Native"          : 21,
+    "Texture Dictionary"      : 22,
+    "Image"                   : 24,
     "Geometry List"           : 26,
     "Animation Anim"          : 27,
     "Right to Render"         : 31,
+    "PI Texture Dictionary"   : 35,
     "UV Animation Dictionary" : 43,
     "Morph PLG"               : 261,
+    "Animation PLG"           : 264,
+    "Bone PLG"                : 270,
     "Skin PLG"                : 278,
     "HAnim PLG"               : 286,
     "User Data PLG"           : 287,
@@ -100,6 +122,7 @@ types = {
     "Delta Morph PLG"         : 290,
     "UV Animation PLG"        : 309,
     "Bin Mesh PLG"            : 1294,
+    "Native Data PLG"         : 1296,
     "Pipeline Set"            : 39056115,
     "Specular Material"       : 39056118,
     "2d Effect"               : 39056120,
@@ -107,7 +130,6 @@ types = {
     "Collision Model"         : 39056122,
     "Reflection Material"     : 39056124,
     "Frame"                   : 39056126,
-    "SAMP Collision"          : 39056127,
 }
 
 #######################################################
@@ -131,19 +153,23 @@ class Sections:
 
     # Unpack/pack format for above data types
     formats =  {
-        Chunk       : "<3I",
-        Clump       : "<3I",
-        Vector      : "<3f",
-        HAnimHeader : "<3i",
-        Bone        : "<3i",
-        RGBA        : "<4B",
-        GeomSurfPro : "<3f",
-        Sphere      : "<4f",
-        Triangle    : "<4H",
-        Atomic      : "<4I",
-        TexCoords   : "<2f",
-        ReflMat     : "<5f4x",
-        SpecularMat : "<f24s"
+        Chunk         : "<3I",
+        Clump         : "<3I",
+        Vector        : "<3f",
+        HAnimHeader   : "<3i",
+        Bone          : "<3i",
+        RGBA          : "<4B",
+        GeomSurfPro   : "<3f",
+        Sphere        : "<4f",
+        Triangle      : "<4H",
+        TexCoords     : "<2f",
+        ReflMat       : "<5f4x",
+        SpecularMat   : "<f24s",
+        GeomBone      : "<3I",
+        RightToRender : "<II",
+
+        TexDict : "<2H",
+        PITexDict: "<2H"
     }
 
     library_id = 0 # used for writing
@@ -243,24 +269,27 @@ class Texture:
 
     __slots__ = [
         'filters',
+        'uv_addressing',
         'name',
         'mask'
     ]
-    
+
     def __init__(self):
         self.filters            = 0
+        self.uv_addressing      = 0
         self.name               = ""
         self.mask               = ""
-    
+
     #######################################################
     def from_mem(data):
 
         self = Texture()
-        
-        _Texture = namedtuple("_Texture", "filters unk")
-        _tex = _Texture._make(unpack_from("<2H", data))
- 
+
+        _Texture = namedtuple("_Texture", "filters uv_addressing unk")
+        _tex = _Texture._make(unpack_from("<2BH", data))
+
         self.filters = _tex.filters
+        self.uv_addressing = _tex.uv_addressing
 
         return self
 
@@ -268,7 +297,7 @@ class Texture:
     def to_mem(self):
 
         data = b''
-        data += pack("<H2x", self.filters)
+        data += pack("<2B2x", self.filters, self.uv_addressing)
 
         data  = Sections.write_chunk(data, types["Struct"])
         data += Sections.write_chunk(Sections.pad_string(self.name),
@@ -276,7 +305,7 @@ class Texture:
         data += Sections.write_chunk(Sections.pad_string(self.mask),
                                      types["String"])
         data += Sections.write_chunk(b'', types["Extension"])
-        
+
         return Sections.write_chunk(data, types["Texture"])
 
 #######################################################
@@ -469,6 +498,54 @@ class Material:
         return hash(self.to_mem())
 
 #######################################################
+class Atomic:
+
+    __slots__ = [
+        'frame',
+        'geometry',
+        'flags',
+        'unk',
+        'extensions'
+    ]
+
+    ##################################################################
+    def __init__(self):
+        self.frame      = 0
+        self.geometry   = 0
+        self.flags      = 0
+        self.unk        = 0
+        self.extensions = {}
+
+    ##################################################################
+    def from_mem(data):
+
+        self = Atomic()
+
+        # Atomic with embedded geometry
+        if len(data) == 12:
+            _Atomic = namedtuple("_Atomic", "frame flags unk")
+            _atomic = _Atomic._make(unpack_from("<3I", data))
+
+        else:
+            _Atomic = namedtuple("_Atomic", "frame geometry flags unk")
+            _atomic = _Atomic._make(unpack_from("<4I", data))
+
+            self.geometry = _atomic.geometry
+
+        self.frame    = _atomic.frame
+        self.flags    = _atomic.flags
+        self.unk      = _atomic.unk
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+
+        data = b''
+        data += pack("<4I", self.frame, self.geometry, self.flags, self.unk)
+        return data
+
+#######################################################
 class UserData:
 
     __slots__ = ['sections']
@@ -553,7 +630,7 @@ class UserData:
                     data += pack("<I%ds" % len(string), len(string), string.encode("ascii"))
 
         return Sections.write_chunk(data, types["User Data PLG"])
-    
+
 #######################################################
 class Frame:
 
@@ -571,8 +648,8 @@ class Frame:
     def __init__(self):
         self.rotation_matrix = None
         self.position        = None
-        self.parent          = None
-        self.creation_flags  = None
+        self.parent          = -1
+        self.creation_flags  = 0
         self.name            = None
         self.bone_data       = None
         self.user_data       = None
@@ -603,7 +680,7 @@ class Frame:
 
         data = b''
 
-        if self.name is not None and self.name != "b":
+        if self.name is not None and self.name != "unknown":
             data += Sections.write_chunk(Sections.pad_string(self.name),
                                          types["Frame"])
 
@@ -768,16 +845,21 @@ class SkinPLG:
 
         oldver = Sections.get_rw_version() < 0x34000
 
-        self.calc_max_weights_per_vertex ()
-        self.calc_used_bones ()
+        if not oldver:
+            self.calc_max_weights_per_vertex ()
+            self.calc_used_bones ()
+        else:
+            self.max_weights_per_vertex = 0
+            self.bones_used = []
 
         data = b''
         data += pack("<3Bx", self.num_bones, len(self.bones_used),
                      self.max_weights_per_vertex)
 
         # Used Bones
-        data += pack(f"<{len(self.bones_used)}B", *self.bones_used)
-        
+        if self.bones_used:
+            data += pack(f"<{len(self.bones_used)}B", *self.bones_used)
+
         # 4x Indices
         for indices in self.vertex_bone_indices:
             data += pack("<4B", *indices)
@@ -807,58 +889,73 @@ class SkinPLG:
 
         self = SkinPLG()
 
-        _data = unpack_from("<3Bx", data)
-        self.num_bones, self._num_used_bones, self.max_weights_per_vertex = _data
+        if geometry.flags & rpGEOMETRYNATIVE == 0:
+            _data = unpack_from("<3Bx", data)
+            self.num_bones, self._num_used_bones, self.max_weights_per_vertex = _data
 
-        # num used bones and max weights per vertex apparently didn't exist in old versions.
-        oldver = self._num_used_bones == 0
-        
-        # Used bones array starts at offset 4
-        for pos in range(4, self._num_used_bones + 4):
-            self.bones_used.append(unpack_from("<B", data, pos)[0])
+            # num used bones and max weights per vertex apparently didn't exist in old versions.
+            oldver = self._num_used_bones == 0
 
-        pos = 4 + self._num_used_bones
-        vertices_count = len(geometry.vertices)
+            # Used bones array starts at offset 4
+            for pos in range(4, self._num_used_bones + 4):
+                self.bones_used.append(unpack_from("<B", data, pos)[0])
 
-        # Read vertex bone indices
-        _data = unpack_from("<%dB" % (vertices_count * 4), data, pos)
-        self.vertex_bone_indices = list(
-            _data[i : i+4] for i in range(0, 4 * vertices_count, 4)
-        )
-        pos += vertices_count * 4
-        
-        # Read vertex bone weights        
-        _data = unpack_from("<%df" % (vertices_count * 4), data, pos)
-        self.vertex_bone_weights = list(
-            _data[i : i+4] for i in range(0, 4 * vertices_count, 4)
-        )
-        pos += vertices_count * 4 * 4 #floats have size 4 bytes
+            pos = 4 + self._num_used_bones
+            vertices_count = len(geometry.vertices)
 
-        # Old version has additional 4 bytes 0xdeaddead
-        unpack_format = "<16f"
-        if oldver:
-            unpack_format = "<4x16f"
-
-        # Read bone matrices
-        for i in range(self.num_bones):
-
-            _data = list(unpack_from(unpack_format, data, pos))
-            _data[ 3] = 0.0
-            _data[ 7] = 0.0
-            _data[11] = 0.0
-            _data[15] = 1.0
-            
-            self.bone_matrices.append(
-                [_data[0:4], _data[4:8], _data[8:12],
-                 _data[12:16]]
+            # Read vertex bone indices
+            _data = unpack_from("<%dB" % (vertices_count * 4), data, pos)
+            self.vertex_bone_indices = list(
+                _data[i : i+4] for i in range(0, 4 * vertices_count, 4)
             )
+            pos += vertices_count * 4
 
-            pos += calcsize(unpack_format)
+            # Read vertex bone weights
+            _data = unpack_from("<%df" % (vertices_count * 4), data, pos)
+            self.vertex_bone_weights = list(
+                _data[i : i+4] for i in range(0, 4 * vertices_count, 4)
+            )
+            pos += vertices_count * 4 * 4 #floats have size 4 bytes
 
-        # TODO: (maybe) read skin split data for new version
-        # if not oldver:
-        #     readSkinSplit(...)
-            
+            # Old version has additional 4 bytes 0xdeaddead
+            unpack_format = "<16f"
+            if oldver:
+                unpack_format = "<4x16f"
+
+            # Read bone matrices
+            for _ in range(self.num_bones):
+
+                _data = list(unpack_from(unpack_format, data, pos))
+                _data[ 3] = 0.0
+                _data[ 7] = 0.0
+                _data[11] = 0.0
+                _data[15] = 1.0
+
+                self.bone_matrices.append(
+                    [_data[0:4], _data[4:8], _data[8:12],
+                    _data[12:16]]
+                )
+
+                pos += calcsize(unpack_format)
+
+            # TODO: (maybe) read skin split data for new version
+            # if not oldver:
+            #     readSkinSplit(...)
+
+        else:
+            native_chunk = unpack_from("<3I", data)
+            platform = unpack_from("<I", data, 12)[0]
+
+            if platform == NativePlatformType.PS2:
+                from .native_ps2 import NativePS2Skin
+                NativePS2Skin.unpack(self, data[16:], geometry)
+            elif platform == NativePlatformType.XBOX:
+                from .native_xbox import NativeXboxSkin
+                NativeXboxSkin.unpack(self, data[16:], geometry)
+            elif platform == NativePlatformType.GC:
+                from .native_gc import NativeGSSkin
+                NativeGSSkin.unpack(self, data[16:], geometry)
+
         return self
 
 #######################################################
@@ -1358,7 +1455,10 @@ class Geometry:
         'materials',
         'extensions',
         'export_flags',
-        'pipeline',
+        'native_platform_type',
+        '_num_triangles',
+        '_num_vertices',
+        '_vertex_bone_weights',
         '_hasMatFX'
     ]
     
@@ -1376,7 +1476,12 @@ class Geometry:
         self.normals            = []
         self.materials          = []
         self.extensions         = {}
-        self.pipeline           = None
+
+        # user for native plg
+        self.native_platform_type = 0
+        self._num_triangles = 0
+        self._num_vertices = 0
+        self._vertex_bone_weights = []
 
         # used for export
         self.export_flags = {
@@ -1385,6 +1490,7 @@ class Geometry:
             "export_normals"     : True,
             "write_mesh_plg"     : True,
             "triangle_strip"     : False,
+            "exclude_geo_faces"  : False,
         }
         self._hasMatFX = False
 
@@ -1401,8 +1507,8 @@ class Geometry:
         self = Geometry()
         
         self.flags    = unpack_from("<I", data)[0]
-        num_triangles = unpack_from("<I", data,4)[0]
-        num_vertices  = unpack_from("<I", data,8)[0]
+        self._num_triangles = unpack_from("<I", data,4)[0]
+        self._num_vertices  = unpack_from("<I", data,8)[0]
         rw_version    = Sections.get_rw_version(parent_chunk.version)
         
         # read surface properties (only on rw below 0x34000)
@@ -1417,7 +1523,7 @@ class Geometry:
             if self.flags & rpGEOMETRYPRELIT:
                 self.prelit_colors = []
                 
-                for i in range(num_vertices):
+                for i in range(self._num_vertices):
                     prelit_color = Sections.read(RGBA, data, pos)
                     self.prelit_colors.append(prelit_color)
 
@@ -1435,14 +1541,14 @@ class Geometry:
 
                     self.uv_layers.append([]) #add empty new layer
                     
-                    for j in range(num_vertices):
+                    for j in range(self._num_vertices):
                         
                         tex_coord = Sections.read(TexCoords, data, pos)
                         self.uv_layers[i].append(tex_coord)
                         pos += 8
 
             # Read Triangles
-            for i in range(num_triangles):
+            for i in range(self._num_triangles):
                 triangle = Sections.read(Triangle, data, pos)
                 self.triangles.append(triangle)
                 
@@ -1458,14 +1564,14 @@ class Geometry:
 
         # read vertices
         if self.has_vertices:
-            for i in range(num_vertices):
+            for i in range(self._num_vertices):
                 vertice = Sections.read(Vector, data, pos)
                 self.vertices.append(vertice)
                 pos += 12
             
         # read normals
         if self.has_normals:
-            for i in range(num_vertices):
+            for i in range(self._num_vertices):
                 normal = Sections.read(Vector, data, pos)
                 self.normals.append(normal)
                 pos += 12
@@ -1491,7 +1597,6 @@ class Geometry:
         return Sections.write_chunk(data, types["Material List"])
 
     #######################################################
-    # TODO: Triangle Strips support
     def write_bin_split(self):
 
         data = b''
@@ -1533,7 +1638,7 @@ class Geometry:
         data = b''
 
         # Write Bin Mesh PLG
-        if self.export_flags['write_mesh_plg']:
+        if self.export_flags['write_mesh_plg'] or self.export_flags['exclude_geo_faces']:
             data += self.write_bin_split()
         
         for extension in self.extensions:
@@ -1568,7 +1673,11 @@ class Geometry:
         flags |= (len(self.uv_layers) & 0xff) << 16
 
         data = b''
-        data += pack("<IIII", flags, len(self.triangles), len(self.vertices), 1)
+        data += pack("<IIII",
+                     flags,
+                     len(self.triangles) if not self.export_flags["exclude_geo_faces"] else 0,
+                     len(self.vertices),
+                     1)
 
         # Only present in older RW
         if Sections.get_rw_version() < 0x34000:
@@ -1585,8 +1694,9 @@ class Geometry:
                 data += Sections.write(TexCoords, tex_coord)
 
         # Write Triangles
-        for triangle in self.triangles:
-            data += Sections.write(Triangle, triangle)
+        if not self.export_flags["exclude_geo_faces"]:
+            for triangle in self.triangles:
+                data += Sections.write(Triangle, triangle)
 
         # Bounding sphere and has_vertices, has_normals
         data += Sections.write(Sphere, self.bounding_sphere)
@@ -1682,6 +1792,10 @@ class dff:
                     self.frame_list[i].bone_data = bone_data
                 if user_data is not None:
                     self.frame_list[i].user_data = user_data
+                    for section in user_data.sections:
+                        if section.name == "name\0":
+                            self.frame_list[i].name = section.data[0]
+                            break
 
             if self.frame_list[i].name is None:
                 self.frame_list[i].name = "unnamed"
@@ -1701,7 +1815,10 @@ class dff:
         # calculate if the indices are stored in 32 bit or 16 bit
         calculated_size = 12 + header.mesh_count * 8 + (header.total_indices * 2)
         opengl = calculated_size >= parent_chunk.size
-        
+
+        if geometry.flags & rpGEOMETRYNATIVE != 0:
+            geometry.extensions['split_headers'] = []
+
         is_tri_strip = header.flags == 1
         for i in range(header.mesh_count):
             
@@ -1709,6 +1826,10 @@ class dff:
             split_header = _SplitHeader._make(unpack_from("<II",
                                                           self.data,
                                                           self._read(8)))
+
+            if geometry.flags & rpGEOMETRYNATIVE != 0:
+                geometry.extensions['split_headers'].append(split_header)
+                continue
 
             unpack_format = "<H" if opengl else "<H2x"
             total_iterations = split_header.indices_count
@@ -1775,6 +1896,41 @@ class dff:
                 triangles.append(triangle)
 
         geometry.extensions['mat_split'] = triangles
+
+    #######################################################
+    def read_native_data_plg(self, parent_chunk, geometry):
+        native_chunk = self.read_chunk() # wrong size
+        chunk_size = parent_chunk.size - 16
+
+        platform = unpack_from("<I", self.data, self._read(4))[0]
+
+        if platform == NativePlatformType.PS2:
+            from .native_ps2 import NativePS2Geometry
+            NativePS2Geometry.unpack(geometry, self.raw(chunk_size))
+        elif platform == NativePlatformType.XBOX:
+            from .native_xbox import NativeXboxGeometry
+            NativeXboxGeometry.unpack(geometry, self.raw(chunk_size))
+        elif platform == NativePlatformType.GC:
+            from .native_gc import NativeGCGeometry
+            NativeGCGeometry.unpack(geometry, self.raw(chunk_size))
+        else:
+            print("Unsupported native platform %d" % (platform))
+
+        geometry.native_platform_type = platform
+
+        self._read(chunk_size)
+
+    #######################################################
+    def read_bone_plg(self, parent_chunk, geometry):
+        chunk_end = self.pos + parent_chunk.size
+
+        geom_bones = []
+        while self.pos < chunk_end:
+            bone = Sections.read(GeomBone, self.data, self._read(12))
+            if bone.vertices_count > 0:
+                geom_bones.append(bone)
+
+        geometry.extensions['bones'] = geom_bones
 
     #######################################################
     def read_matfx_bumpmap(self):
@@ -2027,97 +2183,249 @@ class dff:
             geometries = unpack_from("<I", self.data, self._read(4))[0]
 
             # Read geometries
-            for i in range(geometries):
+            for _ in range(geometries):
                 chunk = self.read_chunk()
 
                 # GEOMETRY
-                if chunk.type == types["Geometry"]:  
-                    chunk_end = self.pos + chunk.size
+                if chunk.type == types["Geometry"]:
+                    self.read_geometry(chunk)
 
-                    chunk = self.read_chunk()
-                    geometry = Geometry.from_mem(self.data[self.pos:], parent_chunk)
+    #######################################################
+    def read_geometry(self, parent_chunk):
 
+        chunk_end = self.pos + parent_chunk.size
+
+        chunk = self.read_chunk()
+        geometry = Geometry.from_mem(self.data[self.pos:], parent_chunk)
+
+        self._read(chunk.size)
+
+        self.geometry_list.append(geometry)
+
+        while self.pos < chunk_end:
+
+            chunk = self.read_chunk()
+
+            if chunk.type == types["Material List"]:
+                self.read_material_list(chunk)
+
+            elif chunk.type == types["Extension"]:
+                pass
+
+            elif chunk.type == types["Delta Morph PLG"]:
+                delta_morph = DeltaMorphPLG.from_mem(self.data[self.pos:])
+                geometry.extensions["delta_morph"] = delta_morph
+
+                self._read(chunk.size)
+
+            elif chunk.type == types["Skin PLG"]:
+
+                skin = SkinPLG.from_mem(self.data[self.pos:], geometry)
+                geometry.extensions["skin"] = skin
+
+                self._read(chunk.size)
+
+            elif chunk.type == types["Extra Vert Color"]:
+
+                geometry.extensions['extra_vert_color'] = \
+                    ExtraVertColorExtension.from_mem (
+                        self.data, self._read(chunk.size), geometry
+                    )
+
+            elif chunk.type == types["User Data PLG"]:
+                geometry.extensions['user_data'] = \
+                    UserData.from_mem(self.data[self.pos:])
+
+                self._read(chunk.size)
+
+            # 2dfx (usually at the last geometry index)
+            elif chunk.type == types["2d Effect"]:
+                self.ext_2dfx += Extension2dfx.from_mem(
+                    self.data,
                     self._read(chunk.size)
+                )
 
-                    self.geometry_list.append(geometry)
+            elif chunk.type == types["Bin Mesh PLG"]:
+                self.read_mesh_plg(chunk,geometry)
 
-                    while self.pos < chunk_end:
+            elif chunk.type == types["Native Data PLG"]:
+                self.read_native_data_plg(chunk,geometry)
 
-                        chunk = self.read_chunk()
+            elif chunk.type == types["Bone PLG"]:
+                self.read_bone_plg(chunk,geometry)
 
-                        if chunk.type == types["Material List"]:  
-                            self.read_material_list(chunk)
+            else:
+                self._read(chunk.size)
 
-                        elif chunk.type == types["Extension"]:
-                            pass
+        self.pos = chunk_end
+    #######################################################
+    def read_2dfx(self, data, offset):
+        """
+        Reads and parses the 2DFX effects data from the given offset.
+        """
+        # Read the number of 2DFX entries
+        num_entries = struct.unpack_from('<I', data, offset)[0]
+        offset += 4
+        print(f"Number of 2DFX entries: {num_entries}")
 
-                        elif chunk.type == types["Delta Morph PLG"]:
-                            delta_morph = DeltaMorphPLG.from_mem(self.data[self.pos:])
-                            geometry.extensions["delta_morph"] = delta_morph
+        entries = []
+        for entry_index in range(num_entries):
+            if offset + 20 > len(data):
+                print(f"Entry {entry_index + 1}: Incomplete header. Stopping.")
+                break
 
-                            self._read(chunk.size)
+            # Parse common 2DFX entry header
+            pos_x, pos_y, pos_z = struct.unpack_from('<3f', data, offset)
+            entry_type = struct.unpack_from('<I', data, offset + 12)[0]
+            data_size = struct.unpack_from('<I', data, offset + 16)[0]
+            offset += 20
 
-                        elif chunk.type == types["Skin PLG"]:
-                            
-                            skin = SkinPLG.from_mem(self.data[self.pos:], geometry)
-                            geometry.extensions["skin"] = skin
-                            
-                            self._read(chunk.size)
+            print(f"\n### Entry {entry_index + 1} ###")
+            print(f"Position: ({pos_x:.6f}, {pos_y:.6f}, {pos_z:.6f})")
+            print(f"Entry Type: {entry_type}")
+            print(f"Data Size: {data_size} bytes")
 
-                        elif chunk.type == types["Extra Vert Color"]:
-                            
-                            geometry.extensions['extra_vert_color'] = \
-                                ExtraVertColorExtension.from_mem (
-                                    self.data, self._read(chunk.size), geometry
-                                )
+            if offset + data_size > len(data):
+                print(f"Entry {entry_index + 1}: Incomplete data. Skipping.")
+                offset += data_size
+                continue
 
-                        elif chunk.type == types["User Data PLG"]:
-                            geometry.extensions['user_data'] = \
-                                UserData.from_mem(self.data[self.pos:])
+            # Handle specific entry types
+            if entry_type == 0:  # Light
+                try:
+                    light_data = data[offset:offset + data_size]
+                    data_length = len(light_data)
 
-                            self._read(chunk.size)
+                    if data_length not in (76, 80):
+                        print(f"Invalid Light entry size: {data_length} bytes. Skipping.")
+                        offset += data_size
+                        continue
 
-                        # 2dfx (usually at the last geometry index)
-                        elif chunk.type == types["2d Effect"]:
-                            self.ext_2dfx += Extension2dfx.from_mem(
-                                self.data,
-                                self._read(chunk.size)
-                            )
-                            
-                        elif chunk.type == types["Bin Mesh PLG"]: 
-                           self.read_mesh_plg(chunk,geometry)
+                    # Extract common fields
+                    color = struct.unpack('<4B', light_data[:4])
+                    corona_far_clip, pointlight_range, corona_size, shadow_size = struct.unpack('<4f', light_data[4:20])
+                    corona_show_mode, corona_enable_reflection, corona_flare_type, shadow_color_multiplier = struct.unpack('<4B', light_data[20:24])
+                    flags1 = struct.unpack('<B', light_data[24:25])[0]
+                    corona_tex_name = self.parse_string(light_data[25:49])
+                    shadow_tex_name = self.parse_string(light_data[49:73])
+                    shadow_z_distance = struct.unpack('<B', light_data[73:74])[0]
+                    flags2 = struct.unpack('<B', light_data[74:75])[0]
 
-                        else:
-                            self._read(chunk.size)
+                    # Extract optional look direction
+                    look_direction = None
+                    if data_length == 80:
+                        look_direction = struct.unpack('<3B', light_data[75:78])
 
-                    self.pos = chunk_end
+                    # Add parsed Light entry to results
+                    entry = {
+                        'type': 'light',
+                        'position': (pos_x, pos_y, pos_z),
+                        'color': color,
+                        'corona_far_clip': corona_far_clip,
+                        'pointlight_range': pointlight_range,
+                        'corona_size': corona_size,
+                        'shadow_size': shadow_size,
+                        'corona_show_mode': corona_show_mode,
+                        'corona_enable_reflection': corona_enable_reflection,
+                        'corona_flare_type': corona_flare_type,
+                        'shadow_color_multiplier': shadow_color_multiplier,
+                        'flags1': flags1,
+                        'corona_tex_name': corona_tex_name,
+                        'shadow_tex_name': shadow_tex_name,
+                        'shadow_z_distance': shadow_z_distance,
+                        'flags2': flags2,
+                        'look_direction': look_direction
+                    }
+                    entries.append(entry)
+
+                    # Print the added entry details
+                    print(f"Added Light Entry {len(entries)}: {entry}")
+
+                except Exception as e:
+                    print(f"Error parsing Light entry: {e}")
+
+            else:
+                print(f"Unsupported entry type {entry_type}. Skipping.")
+
+            offset += data_size
+
+        return entries
+
+
+    #######################################################
+    def parse_string(self, data):
+        """
+        Parse a null-terminated string from a fixed-length byte array.
+        """
+        return data.split(b'\x00', 1)[0].decode('ascii', errors='ignore').strip()
+
+    #######################################################
+    def read_geometry(self, parent_chunk):
+        """
+        Extend the geometry reading method to handle 2d Effect sections.
+        """
+        chunk_end = self.pos + parent_chunk.size
+        geometry = Geometry.from_mem(self.data[self.pos:], parent_chunk)
+        self._read(parent_chunk.size)
+
+        while self.pos < chunk_end:
+            chunk = self.read_chunk()
+            if chunk.type == types["2d Effect"]:
+                entries = self.read_2dfx(self.data, self.pos)
+                if entries:
+                    self.geometry_list[-1].extensions['2d_effect'] = entries
+                self._read(chunk.size)
+            else:
+                # Handle other types...
+                self._read(chunk.size)
+
+        self.geometry_list.append(geometry)
 
     #######################################################
     def read_atomic(self, parent_chunk):
 
         chunk_end = self.pos + parent_chunk.size
-        
+
         atomic = None
-        pipeline = None
-        
+
         while self.pos < chunk_end:
             chunk = self.read_chunk()
 
             # STRUCT
             if chunk.type == types["Struct"]:
-                atomic = Sections.read(Atomic, self.data, self.pos)
-                self.atomic_list.append(atomic)
+                atomic = Atomic.from_mem(
+                    self.data[self.pos:self.pos+chunk.size]
+                )
+                self.pos += chunk.size
 
-            if chunk.type == types["Extension"]:
-                self.pos -= chunk.size
+            elif chunk.type == types["Geometry"]:
+                self.read_geometry(chunk)
+                atomic.geometry = len(self.geometry_list) - 1
 
-            if chunk.type == types["Pipeline Set"]:
-                pipeline = unpack_from("<I", self.data, self.pos)[0]               
-            self.pos += chunk.size
+            elif chunk.type == types["Extension"]:
+                _chunk_end = chunk.size + self.pos
 
-        # Set geometry's pipeline
-        if pipeline and atomic:
-            self.geometry_list[atomic.geometry].pipeline = pipeline
+                while self.pos < _chunk_end:
+                    chunk = self.read_chunk()
+
+                    if chunk.type == types["Right to Render"]:
+                        right_to_render = Sections.read(RightToRender, self.data, self._read(chunk.size))
+                        atomic.extensions["right_to_render"] = right_to_render
+
+                    elif chunk.type == types["Pipeline Set"]:
+                        pipeline = unpack_from("<I", self.data, self._read(chunk.size))[0]
+                        atomic.extensions["pipeline"] = pipeline
+
+                    else:
+                        self._read(chunk.size)
+
+                self.pos = _chunk_end
+
+            else:
+                self.pos += chunk.size
+
+        if atomic:
+            self.atomic_list.append(atomic)
 
     #######################################################
     def read_clump(self, root_chunk):
@@ -2192,7 +2500,10 @@ class dff:
 
             elif chunk.type == types["UV Animation Dictionary"]:
                 self.read_uv_anim_dict()
-                
+
+            elif chunk.type == types["Atomic"]:
+                self.read_atomic(chunk)
+                self.rw_version = Sections.get_rw_version(chunk.version)
 
     #######################################################
     def clear(self):
@@ -2253,27 +2564,33 @@ class dff:
     #######################################################
     def write_atomic(self, atomic):
 
-        data = Sections.write(Atomic, atomic, types["Struct"])
+        data = atomic.to_mem()
+        data = Sections.write_chunk(data, types["Struct"])
         geometry = self.geometry_list[atomic.geometry]
-        
+
         ext_data = b''
         if "skin" in geometry.extensions:
+            right_to_render = atomic.extensions.get("right_to_render")
+            if not right_to_render:
+                right_to_render = RightToRender._make((0x0116, 1))
             ext_data += Sections.write_chunk(
-                pack("<II", 0x0116, 1),
+                pack("<II", right_to_render.value1, right_to_render.value2),
                 types["Right to Render"]
             )
+
         if geometry._hasMatFX:
             ext_data += Sections.write_chunk(
                 pack("<I", 1),
                 types["Material Effects PLG"]
             )
-        if geometry.pipeline is not None:
+
+        pipeline = atomic.extensions.get("pipeline")
+        if pipeline is not None:
             ext_data += Sections.write_chunk(
-                pack("<I", geometry.pipeline),
+                pack("<I", pipeline),
                 types["Pipeline Set"]
             )
-            pass
-        
+
         data += Sections.write_chunk(ext_data, types["Extension"])
         return Sections.write_chunk(data, types["Atomic"])
 
@@ -2298,10 +2615,9 @@ class dff:
 
         # Old RW versions didn't have cameras and lights in their clump structure
         if Sections.get_rw_version() < 0x33000:
-            data = Sections.write_chunk(Clump,
-                                        pack("<I",
+            data = Sections.write_chunk(pack("<I",
                                              len(self.atomic_list)),
-                                        types["Clump"])
+                                        types["Struct"])
             
         data += self.write_frame_list()
         data += self.write_geometry_list()

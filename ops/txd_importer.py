@@ -2,137 +2,115 @@ import bpy
 import os
 from ..gtaLib import txd
 
-class TextureImporter:
-    """
-    The TextureImporter handles the loading and importing of TXD textures into Blender.
-    """
+#######################################################
+class txd_importer:
 
-    def __init__(self, skip_mipmaps=True):
-        """
-        Initializes the TextureImporter.
+    skip_mipmaps = True
+    pack = True
 
-        :param skip_mipmaps: Boolean to determine whether to import mipmaps.
-        """
-        self.txd = None  # TXD file data
-        self.images = {}  # Dictionary to store the imported textures
-        self.file_name = ""  # Path to the TXD file
-        self.skip_mipmaps = skip_mipmaps  # Option to skip mipmap import
+    __slots__ = [
+        'txd',
+        'images',
+        'file_name'
+    ]
 
-    def _create_image(self, name, rgba_data, width, height):
-        """
-        Creates and returns a new Blender image using provided RGBA data.
+    #######################################################
+    def _init():
+        self = txd_importer
 
-        :param name: The image name to create.
-        :param rgba_data: The RGBA pixel data.
-        :param width: The width of the image.
-        :param height: The height of the image.
-        :return: Created image in Blender.
-        """
+        # Variables
+        self.txd = None
+        self.images = {}
+        self.file_name = ""
+
+    #######################################################
+    def _create_image(name, rgba, width, height, pack=False):
         pixels = []
-        # Convert RGBA data for Blender's bottom-to-top row format
         for h in range(height - 1, -1, -1):
             offset = h * width * 4
-            pixels += [b / 255.0 for b in rgba_data[offset:offset + width * 4]]
+            pixels += list(map(lambda b: b / 0xff, rgba[offset:offset+width*4]))
 
-        # Create a new image in Blender
         image = bpy.data.images.new(name, width, height)
         image.pixels = pixels
+
+        if pack:
+            image.pack()
+
         return image
 
-    def _get_unique_image_name(self, image_name):
-        """
-        Ensures that the image name is unique by adding a suffix if needed.
+    #######################################################
+    def import_textures():
+        self = txd_importer
 
-        :param image_name: The original image name.
-        :return: A unique image name.
-        """
-        suffix = 1
-        unique_name = image_name
-        while bpy.data.images.get(unique_name):
-            unique_name = f"{image_name}_{suffix}"
-            suffix += 1
-        return unique_name
-
-    def _load_textures(self):
-        """
-        Loads textures from the TXD file into Blender as images.
-        """
         txd_name = os.path.basename(self.file_name)
 
-        # Handle native textures in TXD
-        for texture in self.txd.native_textures:
-            image_list = []
-            mip_levels = texture.num_levels if not self.skip_mipmaps else 1
+        # Import native textures
+        for tex in self.txd.native_textures:
+            images = []
+            num_levels = tex.num_levels if not self.skip_mipmaps else 1
 
-            for level in range(mip_levels):
-                image_name = f"{txd_name}/{texture.name}/{level}"
-                # Ensure unique image names if needed
-                image_name = self._get_unique_image_name(image_name)
+            for level in range(num_levels):
+                image_name = "%s/%s/%d" % (txd_name, tex.name, level)
+                image = bpy.data.images.get(image_name)
+                if not image:
+                    image = txd_importer._create_image(image_name,
+                                                        tex.to_rgba(level),
+                                                        tex.get_width(level),
+                                                        tex.get_height(level),
+                                                        self.pack)
+                images.append(image)
 
-                # Retrieve existing image or create a new one
-                image = bpy.data.images.get(image_name) or self._create_image(
-                    image_name,
-                    texture.to_rgba(level),
-                    texture.get_width(level),
-                    texture.get_height(level)
-                )
+            self.images[tex.name] = images
 
-                # Append the image to the list
-                image_list.append(image)
+        # Import textures
+        for tex, imgs in zip(self.txd.textures, self.txd.images):
+            images = []
+            num_levels = len(imgs) if not self.skip_mipmaps else 1
 
-            # Store the final image list for this texture
-            self.images[texture.name] = image_list
+            for level in range(num_levels):
+                img = imgs[level]
+                image_name = "%s/%s/%d" % (txd_name, tex.name, level)
+                image = txd_importer._create_image(image_name,
+                                                    img.to_rgba(),
+                                                    img.width,
+                                                    img.height,
+                                                    self.pack)
+                images.append(image)
 
-        # Handle standard textures in TXD
-        for texture, images in zip(self.txd.textures, self.txd.images):
-            image_list = []
-            mip_levels = len(images) if not self.skip_mipmaps else 1
+            self.images[tex.name] = images
 
-            for level in range(mip_levels):
-                img_data = images[level]
-                image_name = f"{txd_name}/{texture.name}/{level}"
-                # Ensure unique image names if needed
-                image_name = self._get_unique_image_name(image_name)
+    #######################################################
+    def import_txd(file_name):
+        self = txd_importer
+        self._init()
 
-                # Create the image if not found
-                image = bpy.data.images.get(image_name) or self._create_image(
-                    image_name, img_data.to_rgba(), img_data.width, img_data.height
-                )
+        self.txd = txd.txd()
+        self.txd.load_file(file_name)
+        self.file_name = file_name
 
-                # Append the image to the list
-                image_list.append(image)
+        self.import_textures()
+        self.check_missing_images()
 
-            # Store the final image list for this texture
-            self.images[texture.name] = image_list
+    #######################################################
+    def check_missing_images():
+        missing_images = []
+        for mat in bpy.data.materials:
+            if mat.name not in txd_importer.images:
+                missing_images.append(mat.name)
 
-    def load_txd(self, file_name):
-        """
-        Loads the TXD file and imports its textures into Blender.
+        if missing_images:
+            print("Missing images in TXD import for the following materials:")
+            for material_name in missing_images:
+                print(f" - {material_name}")
+        else:
+            print("All required images are present in the TXD.")
 
-        :param file_name: Path to the TXD file to be loaded.
-        """
-        try:
-            self.txd = txd.txd()  # Create a TXD object
-            self.txd.load_file(file_name)  # Load the TXD data
-            self.file_name = file_name  # Store file name
-            self._load_textures()  # Load textures into Blender
-            print(f"Successfully imported textures from TXD file: {file_name}")
-        except Exception as error:
-            print(f"Failed to load TXD file '{file_name}': {error}")
+#######################################################
+def import_txd(options):
 
-def import_texture(options):
-    """
-    A function to import TXD files into Blender based on given options.
+    txd_importer.skip_mipmaps = options['skip_mipmaps']
+    txd_importer.pack = options['pack']
 
-    :param options: Dictionary with the following keys:
-                    - 'file_name' (str): Path to the TXD file.
-                    - 'skip_mipmaps' (bool): Skip mipmap levels if True.
-    :return: An instance of TextureImporter.
-    """
-    # Initialize TextureImporter with the mipmap option
-    importer = TextureImporter(skip_mipmaps=options.get('skip_mipmaps', True))
-    
-    # Load and import textures from the TXD file
-    importer.load_txd(options['file_name'])
-    
-    return importer
+    txd_importer.import_txd(options['file_name'])
+
+    return txd_importer

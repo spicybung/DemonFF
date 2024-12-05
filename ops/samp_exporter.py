@@ -611,8 +611,10 @@ class dff_exporter:
         self.triangulate_mesh(mesh)
         # NOTE: Mesh.calc_normals is no longer needed and has been removed
         if bpy.app.version < (4, 0, 0):
-            mesh.calc_normals()
-        mesh.calc_normals_split()
+
+            # Blender 4.0 and newer
+            if hasattr(mesh, 'calc_loop_triangles'):
+                mesh.calc_loop_triangles()  # Then set tristrips
 
         vcols = self.get_vertex_colors (mesh)
         verts_indices = {}

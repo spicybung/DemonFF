@@ -17,8 +17,14 @@
 from collections import namedtuple
 from struct import unpack_from, calcsize, pack
 from enum import Enum, IntEnum
+import struct
+import bpy
+
 
 from .pyffi.utils import tristrip
+
+entries = []
+
 
 # Data types
 Chunk       = namedtuple("Chunk"       , "type size version")
@@ -1617,10 +1623,13 @@ class dff:
 
     #######################################################
     def _read(self, size):
+        # Clamp size to available data
+        size = min(size, len(self.data) - self.pos)
+    
         current_pos = self.pos
         self.pos += size
-        
         return current_pos
+
 
     #######################################################
     def raw(self, size, offset=None):
@@ -1632,8 +1641,26 @@ class dff:
 
     #######################################################
     def read_chunk(self):
-        chunk = Sections.read(Chunk, self.data, self._read(12))
+        # Clamp position to ensure it's within bounds
+        self.pos = min(self.pos, len(self.data))
+
+        # Ensure we don't exceed buffer limits
+        if self.pos + 12 > len(self.data):
+            # Clamp the chunk read to the available size
+            clamped_size = len(self.data) - self.pos
+            chunk_data = self.data[self.pos:self.pos + clamped_size]
+            # Fill the remainder with zeros or default
+            chunk_data += b'\x00' * (12 - len(chunk_data))
+            chunk = Sections.read(Chunk, chunk_data, 0)
+        else:
+            chunk = Sections.read(Chunk, self.data, self._read(12))
+
+        # Clamp chunk size to remaining data
+        chunk_size = min(chunk.size, len(self.data) - self.pos)
+        chunk = chunk._replace(size=chunk_size)
+
         return chunk
+
 
     #######################################################
     def read_frame_list(self, parent_chunk):
@@ -2077,12 +2104,16 @@ class dff:
 
                             self._read(chunk.size)
 
-                        # 2dfx (usually at the last geometry index)
                         elif chunk.type == types["2d Effect"]:
-                            self.ext_2dfx += Extension2dfx.from_mem(
-                                self.data,
+                            try:
+                                entries = self.read_2dfx(self.data, self.pos, bpy.context)
+                                if entries:
+                                    geometry.extensions['2d_effect'] = entries
                                 self._read(chunk.size)
-                            )
+                            except Exception as e:
+                                print(f"Error reading 2d Effect section: {e}")
+
+
                             
                         elif chunk.type == types["Bin Mesh PLG"]: 
                            self.read_mesh_plg(chunk,geometry)
@@ -2091,6 +2122,135 @@ class dff:
                             self._read(chunk.size)
 
                     self.pos = chunk_end
+
+    
+    #######################################################
+    def read_2dfx(self, data, offset, context):
+        """
+        Reads and parses the 2DFX effects data from the given offset
+        and stores the parsed entries in the global `entries` list.
+        """
+
+        # Define the structure of a LightEntry using namedtuple
+        LightEntry = namedtuple('LightEntry', [
+            'type', 'position', 'color', 'corona_far_clip', 'pointlight_range',
+            'corona_size', 'shadow_size', 'corona_show_mode', 'corona_enable_reflection',
+            'corona_flare_type', 'shadow_color_multiplier', 'flags1',
+            'corona_tex_name', 'shadow_tex_name', 'shadow_z_distance', 'flags2',
+            'look_direction'
+        ])
+
+        # Read the number of 2DFX entries
+        num_entries = struct.unpack_from('<I', data, offset)[0]
+        offset += 4
+        print(f"NumEntries: {num_entries}")
+
+        global entries  # Use global to store parsed entries
+
+        for entry_index in range(num_entries):
+            if offset + 20 > len(data):
+                print(f"Entry {entry_index + 1}: Incomplete header. Stopping.")
+                break
+
+            # Parse the common 2DFX entry header
+            pos_x, pos_y, pos_z = struct.unpack_from('<3f', data, offset)
+            entry_type = struct.unpack_from('<I', data, offset + 12)[0]
+            data_size = struct.unpack_from('<I', data, offset + 16)[0]
+            offset += 20
+
+            print(f"\n######################### {entry_index + 1} #########################")
+            print(f"2dfxType: LIGHT")
+            print(f"Position: {pos_x:.6f} {pos_y:.6f} {pos_z:.6f}")
+
+            if offset + data_size > len(data):
+                print(f"Entry {entry_index + 1}: Incomplete data. Skipping.")
+                offset += data_size
+                continue
+
+            if entry_type == 0:  # LIGHT Entry
+                try:
+                    light_data = data[offset:offset + data_size]
+                    data_length = len(light_data)
+
+                    if data_length not in (76, 80):
+                        print(f"Invalid Light entry size: {data_length} bytes. Skipping.")
+                        offset += data_size
+                        continue
+
+                    # Extract fields
+                    color = struct.unpack('<4B', light_data[:4])  # RGBA color
+                    corona_far_clip, pointlight_range, corona_size, shadow_size = struct.unpack('<4f', light_data[4:20])
+                    corona_show_mode, corona_enable_reflection, corona_flare_type, shadow_color_multiplier = struct.unpack('<4B', light_data[20:24])
+                    flags1 = struct.unpack('<B', light_data[24:25])[0]
+                    corona_tex_name = self.parse_string(light_data[25:49])
+                    shadow_tex_name = self.parse_string(light_data[49:73])
+                    shadow_z_distance = struct.unpack('<B', light_data[73:74])[0]
+                    flags2 = struct.unpack('<B', light_data[74:75])[0]
+
+                    look_direction = None
+                    if data_length == 80:
+                        look_direction = struct.unpack('<3B', light_data[75:78])
+
+                    # Construct the namedtuple entry
+                    entry = LightEntry(
+                        type='light',
+                        position=(pos_x, pos_y, pos_z),
+                        color=color,
+                        corona_far_clip=corona_far_clip,
+                        pointlight_range=pointlight_range,
+                        corona_size=corona_size,
+                        shadow_size=shadow_size,
+                        corona_show_mode=corona_show_mode,
+                        corona_enable_reflection=corona_enable_reflection,
+                        corona_flare_type=corona_flare_type,
+                        shadow_color_multiplier=shadow_color_multiplier,
+                        flags1=flags1,
+                        corona_tex_name=corona_tex_name,
+                        shadow_tex_name=shadow_tex_name,
+                        shadow_z_distance=shadow_z_distance,
+                        flags2=flags2,
+                        look_direction=look_direction
+                    )
+
+                    entries.append(entry)
+
+                    # Print details for debugging
+                    print(f"Color: {color[0]} {color[1]} {color[2]} {color[3]}")
+                    print(f"CoronaFarClip: {corona_far_clip:.6f}")
+                    print(f"PointlightRange: {pointlight_range:.6f}")
+                    print(f"CoronaSize: {corona_size:.6f}")
+                    print(f"ShadowSize: {shadow_size:.6f}")
+                    print(f"CoronaTexName: {corona_tex_name}")
+                    print(f"ShadowTexName: {shadow_tex_name}")
+
+                except Exception as e:
+                    print(f"Error parsing Light entry: {e}")
+
+            else:
+                print(f"Unsupported entry type {entry_type}. Skipping.")
+
+            offset += data_size
+
+        print(f"Stored {len(entries)} entries.")
+        return entries
+    #######################################################
+    def get_entries(self):
+        """Returns the parsed 2DFX entries."""
+        return entries
+    #######################################################
+    def add_2dfx_entry(self, entry):
+        self._2dfx_entries.append(entry)
+    #######################################################
+    def get_2dfx_entries(self):
+        return self._2dfx_entries
+
+
+    #######################################################
+    def parse_string(self, data):
+        """
+        Parse a null-terminated string from a fixed-length byte array.
+        """
+        return data.split(b'\x00', 1)[0].decode('ascii', errors='ignore').strip()
 
     #######################################################
     def read_atomic(self, parent_chunk):
@@ -2142,6 +2302,10 @@ class dff:
                 # GEOMETRYLIST
                 elif chunk.type == types["Geometry List"]:  
                     self.read_geometry_list(chunk)
+                
+                # 2d Effect
+                elif chunk.type == types["2d Effect"]:  
+                    self.read_2dfx(chunk)
 
                 # ATOMIC
                 elif chunk.type == types["Atomic"]:  
@@ -2164,6 +2328,7 @@ class dff:
     #######################################################
     def read_uv_anim_dict(self):
         chunk = self.read_chunk()
+        num_anims = 0
         
         if chunk.type == types["Struct"]:
             num_anims = unpack_from("<I", self.data, self._read(4))[0]

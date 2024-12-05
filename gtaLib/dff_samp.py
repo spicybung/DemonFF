@@ -39,6 +39,8 @@ EnvMapFX    = namedtuple("EnvMapFX"    , "coefficient use_fb_alpha env_map")
 DualFX      = namedtuple("DualFX"      , "src_blend dst_blend texture")
 ReflMat     = namedtuple("ReflMat"     , "s_x s_y o_x o_y intensity")
 SpecularMat = namedtuple("SpecularMap" , "level texture")
+TexDict     = namedtuple("TexDict"     , "texture_count device_id")
+PITexDict   = namedtuple("PITexDict"   , "texture_count device_id")
 
 UserDataSection = namedtuple("UserDataSection", "name data")
 
@@ -1632,6 +1634,16 @@ class dff:
     def read_chunk(self):
         chunk = Sections.read(Chunk, self.data, self._read(12))
         return chunk
+
+
+    def read_texdict(data, offset=0):
+        """Reads a TexDict or PITexDict from data."""
+        return TexDict._make(unpack_from("<2H", data, offset))
+
+    def write_texdict(texdict):
+        """Writes a TexDict or PITexDict into bytes."""
+        return pack("<2H", texdict.texture_count, texdict.device_id)
+
 
     #######################################################
     def read_frame_list(self, parent_chunk):

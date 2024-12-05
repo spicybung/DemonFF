@@ -244,6 +244,18 @@ def export_text_info(effect_stream, text_stream, obj):
     text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
     text_stream.write(f"TextData         {obj['sdfx_text1']} {obj['sdfx_text2']} {obj['sdfx_text3']} {obj['sdfx_text4']}\n")
 
+class SAEEFFECTS_PT_Panel(bpy.types.Panel):
+    bl_label = "DemonFF - 2DFX"
+    bl_idname = "SAEEFFECTS_PT_panel"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "DemonFF"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("saeeffects.create_lights_from_entries", text="Create Lights from Entries")
+
+
 class SAEffectsPanel(bpy.types.Panel):
     bl_label = "SA Effects"
     bl_idname = "OBJECT_PT_saeffects"
@@ -786,7 +798,7 @@ compatibiility with DFF Viewers"
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
-    bl_description = "Duplicate all objects in the scene as collision meshes with '.ColMesh' suffix, organize them in their own collections, and place them above the original collections"
+    bl_description = "Duplicate all objects in the scene as collision meshes, organize them in their own collections, and place them above the original collections"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
@@ -800,12 +812,11 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
             if not obj.users_collection or obj.type != 'MESH':
                 continue
 
-            # Duplicate the object
+
             duplicate = obj.copy()
             duplicate.data = obj.data.copy() if obj.data else None
-            duplicate.name = f"{obj.name}.samp.ColMesh"
+            duplicate.name = f"{obj.name}.001"
 
-            # Create a new collection for the ColMesh object
             colmesh_collection_name = f"{obj.name}.ColMesh"
             colmesh_collection = bpy.data.collections.new(colmesh_collection_name)
             context.scene.collection.children.link(colmesh_collection)
@@ -853,6 +864,7 @@ def register():
     bpy.utils.register_class(OBJECT_OT_set_collision_objects)
     bpy.utils.register_class(OBJECT_PT_set_collision_objects_panel)
     bpy.utils.register_class(SCENE_OT_duplicate_all_as_collision)
+    bpy.utils.register_class(SAEEFFECTS_PT_Panel)
     bpy.utils.register_class(SCENE_PT_collision_tools)
 
 def unregister():
@@ -867,6 +879,7 @@ def unregister():
     bpy.utils.unregister_class(OBJECT_OT_set_collision_objects)
     bpy.utils.unregister_class(OBJECT_PT_set_collision_objects_panel)
     bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_collision)
+    bpy.utils.unregister_class(SAEEFFECTS_PT_Panel)
     bpy.utils.unregister_class(SCENE_PT_collision_tools)
 
 if __name__ == "__main__":
