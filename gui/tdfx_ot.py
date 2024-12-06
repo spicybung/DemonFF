@@ -13,14 +13,48 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""  # New variable to hold the path to the .txt file
 
+def import_light(entry, collection):
+    """Create a light in Blender from a single 2DFX entry and link it to the specified collection."""
+    light_data = bpy.data.lights.new(name="Omni_Light", type='POINT')
+    light_object = bpy.data.objects.new(name=f"Omni_Light", object_data=light_data)
+    collection.objects.link(light_object)
+
+    # Assign light properties
+    light_data.color = (
+        entry.color[0] / 255,
+        entry.color[1] / 255,
+        entry.color[2] / 255,
+    )
+    light_object.location = entry.position
+
+    # Add custom properties
+    light_object["sdfx_drawdis"] = entry.corona_far_clip
+    light_object["sdfx_outerrange"] = entry.pointlight_range
+    light_object["sdfx_size"] = entry.corona_size
+    light_object["sdfx_innerrange"] = entry.shadow_size
+    light_object["sdfx_corona"] = entry.corona_tex_name
+    light_object["sdfx_shad"] = entry.shadow_tex_name
+    light_object["sdfx_lighttype"] = entry.flags1
+    light_object["sdfx_color"] = entry.color
+    light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
+    light_object["sdfx_showmode"] = entry.corona_show_mode
+    light_object["sdfx_reflection"] = entry.corona_enable_reflection
+    light_object["sdfx_flaretype"] = entry.corona_flare_type
+    light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
+    light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
+    light_object["sdfx_flags2"] = entry.flags2
+    light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
+
+    return light_object
+
 
 class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
     """Create lights in Blender from the parsed 2DFX entries."""
     bl_idname = "saeeffects.create_lights_from_entries"
     bl_label = "Create Lights from Entries"
-    entries = []
 
     def execute(self, context):
+        global entries
 
         if not entries:  # Check if entries exist
             self.report({'ERROR'}, "No 2DFX entries available. Import first!")
@@ -29,21 +63,50 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
         # Create lights for each entry
         collection = context.scene.collection
         for entry in entries:
+            # Create a Point Light
             light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
             light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
             collection.objects.link(light_object)
 
-            # Assign light properties
-
-            light_data.color = (
-                entry.color[0] / 255,  # Access color tuple using dot notation
-                entry.color[1] / 255,
-                entry.color[2] / 255,
+            # Assign light color from entry and set custom property
+            sdfx_color = (
+                entry.color[0],  # RGB values in range 0-255
+                entry.color[1],
+                entry.color[2],
+                entry.color[3],  # Alpha value
             )
+            light_object["sdfx_color"] = sdfx_color  # Store raw color data in custom property
 
+            # Normalize RGB values for Light Color
+            normalized_color = (
+                sdfx_color[0] / 255,
+                sdfx_color[1] / 255,
+                sdfx_color[2] / 255,
+            )
+            light_data.color = normalized_color  # Set Blender's Light Color property
+
+            # Assign other light properties
             light_object.location = entry.position
+            light_object["sdfx_drawdis"] = entry.corona_far_clip
+            light_object["sdfx_outerrange"] = entry.pointlight_range
+            light_object["sdfx_size"] = entry.corona_size
+            light_object["sdfx_innerrange"] = entry.shadow_size
+            light_object["sdfx_corona"] = entry.corona_tex_name
+            light_object["sdfx_shad"] = entry.shadow_tex_name
+            light_object["sdfx_lighttype"] = entry.flags1
+            light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
+            light_object["sdfx_showmode"] = entry.corona_show_mode
+            light_object["sdfx_reflection"] = entry.corona_enable_reflection
+            light_object["sdfx_flaretype"] = entry.corona_flare_type
+            light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
+            light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
+            light_object["sdfx_flags2"] = entry.flags2
+            light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
+
         self.report({'INFO'}, f"Created {len(entries)} lights from entries.")
         return {'FINISHED'}
+
+
 
 
 def add_light_info(frames, entries):
@@ -75,28 +138,6 @@ def add_light_info(frames, entries):
         light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
         collection.objects.link(light_object)
 
-        # Set light properties from the entry dictionary
-        light_data.energy = entry.get('pointlight_range', 10.0) * 10  # Scaled energy
-        light_data.shadow_soft_size = entry.get('shadow_size', 1.0)
-        light_data.color = (
-            entry.get('color', (255, 255, 255, 255))[0] / 255,
-            entry.get('color', (255, 255, 255, 255))[1] / 255,
-            entry.get('color', (255, 255, 255, 255))[2] / 255,
-        )
-
-        # Position the light (assuming this is set externally or fixed to (0, 0, 0))
-        light_object.location = entry.get('position', (0.0, 0.0, 0.0))  # Default if no position is provid
-
-        color = entry.get('color', (255, 255, 255, 255))
-
-        light_object["color_red"] = color[0]
-        light_object["color_green"] = color[1]
-        light_object["color_blue"] = color[2]
-        light_object["color_alpha"] = color[3]
-
-        # Attach custom properties for debugging or further use
-        light_object["corona_far_clip"] = entry.get('corona_far_clip', 120.0)
-        light_object["corona_tex_name"] = entry.get('corona_tex_name', "default_corona")
 
         # Debugging information
         print(f"Added Point Light: {light_object.name}")
@@ -120,23 +161,25 @@ def add_light_info(frames, entries):
             continue
 
         for obj in light_objects:
-            obj["sdfx_drawdis"] = entry.get('corona_far_clip', 100.0)
-            obj["sdfx_outerrange"] = entry.get('pointlight_range', 18.0)
-            obj["sdfx_size"] = entry.get('corona_size', 1.0)
-            obj["sdfx_innerrange"] = entry.get('shadow_size', 8.0)
-            obj["sdfx_corona"] = entry.get('corona_tex_name', "coronastar")
-            obj["sdfx_shad"] = entry.get('shadow_tex_name', "shad_exp")
-            obj["sdfx_lighttype"] = entry.get('flags1', 1)
-            obj["sdfx_color"] = entry.get('color', (15, 230, 0, 200))
-            obj["sdfx_OnAllDay"] = entry.get('corona_enable_reflection', 1)
-            obj["sdfx_showmode"] = entry.get('corona_show_mode', 4)
-            obj["sdfx_reflection"] = entry.get('corona_enable_reflection', 0)
-            obj["sdfx_flaretype"] = entry.get('corona_flare_type', 0)
-            obj["sdfx_shadcolormp"] = entry.get('shadow_color_multiplier', 40)
-            obj["sdfx_shadowzdist"] = entry.get('shadow_z_distance', 0)
-            obj["sdfx_flags2"] = entry.get('flags2', 0)
-            obj["sdfx_viewvector"] = entry.get('look_direction', (0, 156, 0))
+            obj["sdfx_drawdis"] = getattr(entry, 'corona_far_clip', 100.0)
+            obj["sdfx_outerrange"] = getattr(entry, 'pointlight_range', 18.0)
+            obj["sdfx_size"] = getattr(entry, 'corona_size', 1.0)
+            obj["sdfx_innerrange"] = getattr(entry, 'shadow_size', 8.0)
+            obj["sdfx_corona"] = getattr(entry, 'corona_tex_name', "coronastar")
+            obj["sdfx_shad"] = getattr(entry, 'shadow_tex_name', "shad_exp")
+            obj["sdfx_lighttype"] = getattr(entry, 'flags1', 1)
+            obj["sdfx_color"] = getattr(entry, 'color', (15, 230, 0, 200))
+            obj["sdfx_OnAllDay"] = getattr(entry, 'corona_enable_reflection', 1)
+            obj["sdfx_showmode"] = getattr(entry, 'corona_show_mode', 4)
+            obj["sdfx_reflection"] = getattr(entry, 'corona_enable_reflection', 0)
+            obj["sdfx_flaretype"] = getattr(entry, 'corona_flare_type', 0)
+            obj["sdfx_shadcolormp"] = getattr(entry, 'shadow_color_multiplier', 40)
+            obj["sdfx_shadowzdist"] = getattr(entry, 'shadow_z_distance', 0)
+            obj["sdfx_flags2"] = getattr(entry, 'flags2', 0)
+            obj["sdfx_viewvector"] = getattr(entry, 'look_direction', (0, 156, 0))
+
             print(f"Added 2DFX light info to {obj.name} in frame {frame.name}")
+
 
 
 
@@ -546,6 +589,7 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout = self.layout
         obj = context.object
         
+        # Draw custom properties
         layout.prop(obj, '["sdfx_drawdis"]', text="Draw Distance")
         layout.prop(obj, '["sdfx_outerrange"]', text="Outer Range")
         layout.prop(obj, '["sdfx_size"]', text="Size")
@@ -553,7 +597,7 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_corona"]', text="Corona")
         layout.prop(obj, '["sdfx_shad"]', text="Shadow")
         layout.prop(obj, '["sdfx_lighttype"]', text="Light Type")
-        layout.prop(obj, "color", text="Light Color")
+        
         layout.prop(obj, '["sdfx_OnAllDay"]', text="On All Day")
         layout.prop(obj, '["sdfx_showmode"]', text="Show Mode")
         layout.prop(obj, '["sdfx_reflection"]', text="Reflection")
@@ -562,6 +606,24 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_shadowzdist"]', text="Shadow Z Distance")
         layout.prop(obj, '["sdfx_flags2"]', text="Flags 2")
         layout.prop(obj, '["sdfx_viewvector"]', text="View Vector")
+
+    def set_light_color(obj, color):
+        """
+        Safely set the color of a Blender light object.
+        
+        Args:
+            obj: The Blender light object.
+            color: A tuple (R, G, B) where values are between 0 and 255.
+        """
+        if obj and obj.type == 'LIGHT':
+            # Ensure color is normalized and set in the correct context
+            normalized_color = (
+                color[0] / 255,  # Normalize R
+                color[1] / 255,  # Normalize G
+                color[2] / 255,  # Normalize B
+            )
+            obj.data.color = normalized_color
+
 
 #######################################################
 

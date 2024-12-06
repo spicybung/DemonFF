@@ -23,6 +23,7 @@ import bpy
 
 from .pyffi.utils import tristrip
 
+global entries  # Use global to store parsed entries
 entries = []
 
 
@@ -2145,8 +2146,6 @@ class dff:
         offset += 4
         print(f"NumEntries: {num_entries}")
 
-        global entries  # Use global to store parsed entries
-
         for entry_index in range(num_entries):
             if offset + 20 > len(data):
                 print(f"Entry {entry_index + 1}: Incomplete header. Stopping.")
@@ -2192,27 +2191,27 @@ class dff:
                         look_direction = struct.unpack('<3B', light_data[75:78])
 
                     # Construct the namedtuple entry
-                    entry = LightEntry(
-                        type='light',
-                        position=(pos_x, pos_y, pos_z),
-                        color=color,
-                        corona_far_clip=corona_far_clip,
-                        pointlight_range=pointlight_range,
-                        corona_size=corona_size,
-                        shadow_size=shadow_size,
-                        corona_show_mode=corona_show_mode,
-                        corona_enable_reflection=corona_enable_reflection,
-                        corona_flare_type=corona_flare_type,
-                        shadow_color_multiplier=shadow_color_multiplier,
-                        flags1=flags1,
-                        corona_tex_name=corona_tex_name,
-                        shadow_tex_name=shadow_tex_name,
-                        shadow_z_distance=shadow_z_distance,
-                        flags2=flags2,
-                        look_direction=look_direction
+                    entries.append(
+                        LightEntry(
+                            type='light',
+                            position=(pos_x, pos_y, pos_z),
+                            color=color,
+                            corona_far_clip=corona_far_clip,
+                            pointlight_range=pointlight_range,
+                            corona_size=corona_size,
+                            shadow_size=shadow_size,
+                            corona_show_mode=corona_show_mode,
+                            corona_enable_reflection=corona_enable_reflection,
+                            corona_flare_type=corona_flare_type,
+                            shadow_color_multiplier=shadow_color_multiplier,
+                            flags1=flags1,
+                            corona_tex_name=corona_tex_name,
+                            shadow_tex_name=shadow_tex_name,
+                            shadow_z_distance=shadow_z_distance,
+                            flags2=flags2,
+                            look_direction=look_direction,
+                        )
                     )
-
-                    entries.append(entry)
 
                     # Print details for debugging
                     print(f"Color: {color[0]} {color[1]} {color[2]} {color[3]}")

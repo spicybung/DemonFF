@@ -5,24 +5,15 @@ import math
 import mathutils
 
 from ..gtaLib import dff
+from ..gtaLib.dff import entries
 from .importer_common import (
     link_object, create_collection,
     material_helper, set_object_mode,
     hide_object)
 from .col_importer import import_col_mem
 
-from ..gui.tdfx_ot import add_light_info
+from ..gui.tdfx_ot import add_light_info, import_light
 
-entries = [
-    {
-        'corona_far_clip': 120.0,
-        'pointlight_range': 20.0,
-        'color': (255, 200, 150, 255),
-        'shadow_size': 10.0,
-        'corona_tex_name': "coronastar",
-    },
-    # Add more entries as needed
-]
 
 #######################################################
 class ext_2dfx_importer:
@@ -38,7 +29,47 @@ class ext_2dfx_importer:
         self.context = context
     #######################################################
     def import_light(self, entry):
-        pass
+        """Create a light in Blender from a 2DFX entry and link it to the specified collection."""
+        # Create a Point light
+        light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
+        light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
+
+        # Assign light properties
+        light_data.color = (
+            entry.color[0] / 255,  # Access color tuple using dot notation
+            entry.color[1] / 255,
+            entry.color[2] / 255,
+        )
+        light_object.location = entry.position
+
+        # Add custom properties using entry data
+        light_object["sdfx_drawdis"] = entry.corona_far_clip
+        light_object["sdfx_outerrange"] = entry.pointlight_range
+        light_object["sdfx_size"] = entry.corona_size
+        light_object["sdfx_innerrange"] = entry.shadow_size
+        light_object["sdfx_corona"] = entry.corona_tex_name
+        light_object["sdfx_shad"] = entry.shadow_tex_name
+        light_object["sdfx_lighttype"] = entry.flags1
+        light_object["sdfx_color"] = entry.color
+        light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
+        light_object["sdfx_showmode"] = entry.corona_show_mode
+        light_object["sdfx_reflection"] = entry.corona_enable_reflection
+        light_object["sdfx_flaretype"] = entry.corona_flare_type
+        light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
+        light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
+        light_object["sdfx_flags2"] = entry.flags2
+        light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
+
+        # Sync sdfx_color with the Light Color wheel
+        if "sdfx_color" in light_object:
+            sdfx_color = light_object["sdfx_color"]
+            light_data.color = (
+                sdfx_color[0] / 255,
+                sdfx_color[1] / 255,
+                sdfx_color[2] / 255,
+            )
+
+        return light_object
     
     #######################################################
     def get_objects(self):
@@ -46,14 +77,14 @@ class ext_2dfx_importer:
         """ Import and return the list of imported objects """
 
         functions = {
-            0: self.import_light
+            "light": self.import_light
         }
 
         objects = []
         
         for entry in self.effects.entries:
             if entry.effect_id in functions:
-                objects.append(functions[entry.effect_id](entry))
+                objects.append(functions[entry.type](entry))
 
         return objects
     
@@ -675,11 +706,12 @@ class dff_importer:
 
             # Create and link the object to the scene
             if obj is None:
-                    if "Omni" in frame.name:  # Check if the frame should be a light
-                        bpy.ops.object.light_add(type='POINT', location=frame.position)
-                        obj = bpy.context.object  # Get the newly created light
-                        obj.name = frame.name + "_Light"
-                        print(f"Converted frame to Point light: {obj.name}")
+                    if "2DFX" in frame.name:  # Check if the frame should be a light
+                        for entry in entries:
+                            obj = bpy.context.object  # Get the newly created light
+                            obj.name = frame.name + "_Light"
+                            link_object(obj, dff_importer.current_collection)
+                            print(f"Converted frame to Point light: {obj.name}")
                     else:
                         # Create a standard object
                         obj = bpy.data.objects.new(frame.name, mesh)
@@ -718,7 +750,6 @@ class dff_importer:
                         self.set_vertex_groups(obj, self.skin_data[index])
 
             frames = context.scene.collection.children 
-            add_light_info(frames, entries)
 
             # Assign parent if applicable
             if frame.parent != -1:
@@ -808,6 +839,9 @@ class dff_importer:
             os.path.basename(file_name)
         )
         
+        for entry in entries:
+            import_light(entry, dff_importer.current_collection)
+
         self.import_atomics()
         self.import_frames(context)
         

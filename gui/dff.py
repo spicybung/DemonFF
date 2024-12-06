@@ -2260,97 +2260,100 @@ class dff:
         self.pos = chunk_end
     #######################################################
     def read_2dfx(self, data, offset):
-        """
-        Reads and parses the 2DFX effects data from the given offset.
-        """
-        # Read the number of 2DFX entries
-        num_entries = struct.unpack_from('<I', data, offset)[0]
-        offset += 4
-        print(f"Number of 2DFX entries: {num_entries}")
+            
+            target_sequence = bytes.fromhex("F8 F2 53 02")
 
-        entries = []
-        for entry_index in range(num_entries):
-            if offset + 20 > len(data):
-                print(f"Entry {entry_index + 1}: Incomplete header. Stopping.")
-                break
+            # Search for the target sequence in the data
+            offset = data.find(target_sequence)
+            if offset == -1:
+                print(f"Target sequence {target_sequence.hex()} not found in DFF file.")
+                return
 
-            # Parse common 2DFX entry header
-            pos_x, pos_y, pos_z = struct.unpack_from('<3f', data, offset)
-            entry_type = struct.unpack_from('<I', data, offset + 12)[0]
-            data_size = struct.unpack_from('<I', data, offset + 16)[0]
-            offset += 20
 
-            print(f"\n### Entry {entry_index + 1} ###")
-            print(f"Position: ({pos_x:.6f}, {pos_y:.6f}, {pos_z:.6f})")
-            print(f"Entry Type: {entry_type}")
-            print(f"Data Size: {data_size} bytes")
+            # Read the number of 2d Effect entries
+            num_entries = struct.unpack_from('<I', data, offset)[0]
+            offset += 4
+            print(f"Number of 2d Effect entries: {num_entries}")
 
-            if offset + data_size > len(data):
-                print(f"Entry {entry_index + 1}: Incomplete data. Skipping.")
+            entries = []
+            for entry_index in range(num_entries):
+                if offset + 20 > len(data):
+                    print(f"Entry {entry_index + 1}: Incomplete header. Stopping.")
+                    break
+
+                # Parse common 2d Effect entry header
+                pos_x, pos_y, pos_z = struct.unpack_from('<3f', data, offset)
+                entry_type = struct.unpack_from('<I', data, offset + 12)[0]
+                data_size = struct.unpack_from('<I', data, offset + 16)[0]
+                offset += 20
+
+                print(f"\n### Entry {entry_index + 1} ###")
+                print(f"Position: ({pos_x:.6f}, {pos_y:.6f}, {pos_z:.6f})")
+                print(f"Entry Type: {entry_type}")
+                print(f"Data Size: {data_size} bytes")
+
+                if offset + data_size > len(data):
+                    print(f"Entry {entry_index + 1}: Incomplete data. Skipping.")
+                    offset += data_size
+                    continue
+
+                # Handle specific entry types
+                if entry_type == 0:  # Light
+                    try:
+                        light_data = data[offset:offset + data_size]
+                        data_length = len(light_data)
+
+                        if data_length not in (76, 80):
+                            print(f"Invalid Light entry size: {data_length} bytes. Skipping.")
+                            offset += data_size
+                            continue
+
+                        # Extract common fields
+                        color = struct.unpack('<4B', light_data[:4])
+                        corona_far_clip, pointlight_range, corona_size, shadow_size = struct.unpack('<4f', light_data[4:20])
+                        corona_show_mode, corona_enable_reflection, corona_flare_type, shadow_color_multiplier = struct.unpack('<4B', light_data[20:24])
+                        flags1 = struct.unpack('<B', light_data[24:25])[0]
+                        corona_tex_name = self.parse_string(light_data[25:49])
+                        shadow_tex_name = self.parse_string(light_data[49:73])
+                        shadow_z_distance = struct.unpack('<B', light_data[73:74])[0]
+                        flags2 = struct.unpack('<B', light_data[74:75])[0]
+
+                        # Extract optional look direction
+                        look_direction = None
+                        if data_length == 80:
+                            look_direction = struct.unpack('<3B', light_data[75:78])
+
+                        # Add parsed Light entry to results
+                        entries.append(
+                            LightEntry(
+                                type='light',
+                                position=(pos_x, pos_y, pos_z),
+                                color=color,
+                                corona_far_clip=corona_far_clip,
+                                pointlight_range=pointlight_range,
+                                corona_size=corona_size,
+                                shadow_size=shadow_size,
+                                corona_show_mode=corona_show_mode,
+                                corona_enable_reflection=corona_enable_reflection,
+                                corona_flare_type=corona_flare_type,
+                                shadow_color_multiplier=shadow_color_multiplier,
+                                flags1=flags1,
+                                corona_tex_name=corona_tex_name,
+                                shadow_tex_name=shadow_tex_name,
+                                shadow_z_distance=shadow_z_distance,
+                                flags2=flags2,
+                                look_direction=look_direction,
+                            )
+                        )
+                    except Exception as e:
+                        print(f"Error parsing Light entry: {e}")
+
+                else:
+                    print(f"Unsupported entry type {entry_type}. Skipping.")
+
                 offset += data_size
-                continue
 
-            # Handle specific entry types
-            if entry_type == 0:  # Light
-                try:
-                    light_data = data[offset:offset + data_size]
-                    data_length = len(light_data)
-
-                    if data_length not in (76, 80):
-                        print(f"Invalid Light entry size: {data_length} bytes. Skipping.")
-                        offset += data_size
-                        continue
-
-                    # Extract common fields
-                    color = struct.unpack('<4B', light_data[:4])
-                    corona_far_clip, pointlight_range, corona_size, shadow_size = struct.unpack('<4f', light_data[4:20])
-                    corona_show_mode, corona_enable_reflection, corona_flare_type, shadow_color_multiplier = struct.unpack('<4B', light_data[20:24])
-                    flags1 = struct.unpack('<B', light_data[24:25])[0]
-                    corona_tex_name = self.parse_string(light_data[25:49])
-                    shadow_tex_name = self.parse_string(light_data[49:73])
-                    shadow_z_distance = struct.unpack('<B', light_data[73:74])[0]
-                    flags2 = struct.unpack('<B', light_data[74:75])[0]
-
-                    # Extract optional look direction
-                    look_direction = None
-                    if data_length == 80:
-                        look_direction = struct.unpack('<3B', light_data[75:78])
-
-                    # Add parsed Light entry to results
-                    entry = {
-                        'type': 'light',
-                        'position': (pos_x, pos_y, pos_z),
-                        'color': color,
-                        'corona_far_clip': corona_far_clip,
-                        'pointlight_range': pointlight_range,
-                        'corona_size': corona_size,
-                        'shadow_size': shadow_size,
-                        'corona_show_mode': corona_show_mode,
-                        'corona_enable_reflection': corona_enable_reflection,
-                        'corona_flare_type': corona_flare_type,
-                        'shadow_color_multiplier': shadow_color_multiplier,
-                        'flags1': flags1,
-                        'corona_tex_name': corona_tex_name,
-                        'shadow_tex_name': shadow_tex_name,
-                        'shadow_z_distance': shadow_z_distance,
-                        'flags2': flags2,
-                        'look_direction': look_direction
-                    }
-                    entries.append(entry)
-
-                    # Print the added entry details
-                    print(f"Added Light Entry {len(entries)}: {entry}")
-
-                except Exception as e:
-                    print(f"Error parsing Light entry: {e}")
-
-            else:
-                print(f"Unsupported entry type {entry_type}. Skipping.")
-
-            offset += data_size
-
-        return entries
-
+            return entries
 
     #######################################################
     def parse_string(self, data):
