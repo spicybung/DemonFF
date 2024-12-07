@@ -2557,7 +2557,7 @@ class dff:
 
             # Append 2dfx to extra extensions in the last geometry
             extra_extensions = []
-            if index == len(self.geometry_list):
+            if index == len(self.ext_2dfx):
                 extra_extensions.append(self.ext_2dfx)
             
             data += geometry.to_mem()

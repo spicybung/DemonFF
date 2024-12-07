@@ -7,6 +7,7 @@ import os.path
 from collections import defaultdict
 
 from ..gtaLib import dff
+from ..gtaLib.dff import write_2dfx_effect_section
 from .col_exporter import export_col
 
 #######################################################
@@ -905,6 +906,9 @@ class dff_exporter:
             # create an empty frame
             elif obj.type == "EMPTY":
                 self.create_frame(obj)
+
+            elif obj.type == "LIGHT":
+                write_2dfx_effect_section(obj)
         
         # Collision
         if self.export_coll:
@@ -920,6 +924,7 @@ class dff_exporter:
 
             if len(mem) != 0:
                self.dff.collisions = [mem] 
+
 
         if name is None:
             self.dff.write_file(self.file_name, self.version )

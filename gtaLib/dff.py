@@ -132,7 +132,67 @@ def strlen(bytes, offset=0):
         i += 1
         
     return i-offset
+#######################################################
+def write_2dfx_effect_section(obj):
 
+    # Prepare 2DFX entry data
+    position = obj.location
+    light_data = obj.data
+    color = light_data.color  # RGB values normalized (0.0 to 1.0)
+    sdfx_props = {key: obj[key] for key in obj.keys() if key.startswith('sdfx_')}
+
+    # Start constructing binary data for this light
+    entry_data = []
+
+    # Write the position of the light (X, Y, Z as floats)
+    entry_data.append(pack('<3f', position.x, position.y, position.z))
+
+    # Write entry type (0 for lights)
+    entry_data.append(pack('<I', 0))
+
+    # Placeholder for data size (will calculate dynamically)
+    entry_data.append(pack('<I', 0))  # Placeholder
+
+    # Write light properties (e.g., RGBA color)
+    entry_data.append(pack(
+        '<4B',
+        int(color[0] * 255), int(color[1] * 255), int(color[2] * 255), 255  # RGBA color
+    ))
+
+    # Write other properties (Draw Distance, Outer Range, Corona Size, Inner Range)
+    entry_data.append(pack(
+        '<4f',
+        sdfx_props.get('sdfx_drawdis', 100.0),    # Draw Distance
+        sdfx_props.get('sdfx_outerrange', 18.0),  # Outer Range
+        sdfx_props.get('sdfx_size', 1.0),        # Corona Size
+        sdfx_props.get('sdfx_innerrange', 8.0)   # Inner Range
+    ))
+
+    # Write Flags and other attributes
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_showmode', 0)))  # Show Mode
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_OnAllDay', 0)))  # Enable Reflection
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_flaretype', 0)))  # Flare Type
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_shadcolormp', 0)))  # Shadow Color Multiplier
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_flags1', 0)))  # Flags 1
+
+    # Write Corona and Shadow Texture Names
+    corona_tex = sdfx_props.get('sdfx_corona', '').encode('ascii').ljust(24, b'\x00')
+    shadow_tex = sdfx_props.get('sdfx_shad', '').encode('ascii').ljust(24, b'\x00')
+    entry_data.append(corona_tex)
+    entry_data.append(shadow_tex)
+
+    # Write Shadow Z Distance and Flags 2
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_shadowzdist', 0)))  # Shadow Z Distance
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_flags2', 0)))  # Flags 2
+
+    # Calculate the data size
+    data_size = sum(len(data) for data in entry_data) - 4  # Subtract placeholder size
+
+    # Update the placeholder size
+    entry_data[2] = pack('<I', data_size)  # Replace placeholder with actual size
+
+    # Combine all data into a single binary structure
+    return b''.join(entry_data)
 #######################################################
 class Sections:
 
@@ -1098,73 +1158,177 @@ class SunGlare2dfx:
     #######################################################
     def to_mem(self):
         return b''
-        
+
+class LightEntry:
+    def __init__(self, position, color, corona_far_clip, pointlight_range,
+                 corona_size, shadow_size, corona_show_mode, corona_enable_reflection,
+                 corona_flare_type, shadow_color_multiplier, flags1,
+                 corona_tex_name, shadow_tex_name, shadow_z_distance, flags2,
+                 look_direction):
+        self.position = position
+        self.color = color
+        self.corona_far_clip = corona_far_clip
+        self.pointlight_range = pointlight_range
+        self.corona_size = corona_size
+        self.shadow_size = shadow_size
+        self.corona_show_mode = corona_show_mode
+        self.corona_enable_reflection = corona_enable_reflection
+        self.corona_flare_type = corona_flare_type
+        self.shadow_color_multiplier = shadow_color_multiplier
+        self.flags1 = flags1
+        self.corona_tex_name = corona_tex_name
+        self.shadow_tex_name = shadow_tex_name
+        self.shadow_z_distance = shadow_z_distance
+        self.flags2 = flags2
+        self.look_direction = look_direction
+
+    def to_mem(self):
+        """
+        Serialize this light entry into binary format.
+        """
+        entry_data = b''
+
+        # Position (X, Y, Z)
+        entry_data += struct.pack('<3f', *self.position)
+
+        # Color (RGBA)
+        entry_data += struct.pack('<4B', *self.color)
+
+        # Float properties
+        entry_data += struct.pack('<4f',
+                                   self.corona_far_clip,
+                                   self.pointlight_range,
+                                   self.corona_size,
+                                   self.shadow_size)
+
+        # Byte properties
+        entry_data += struct.pack('<5B',
+                                   self.corona_show_mode,
+                                   self.corona_enable_reflection,
+                                   self.corona_flare_type,
+                                   self.shadow_color_multiplier,
+                                   self.flags1)
+
+        # Texture names
+        entry_data += self.corona_tex_name.encode('ascii').ljust(24, b'\x00')
+        entry_data += self.shadow_tex_name.encode('ascii').ljust(24, b'\x00')
+
+        # Shadow Z Distance and Flags2
+        entry_data += struct.pack('<B', self.shadow_z_distance)
+        entry_data += struct.pack('<B', self.flags2)
+
+        # Look direction (optional)
+        if self.look_direction:
+            entry_data += struct.pack('<3B', *self.look_direction)
+
+        return entry_data
+
 #######################################################
 class Extension2dfx:
+    entries = []
 
     #######################################################
     def __init__(self):
-        self.entries = []
-
+        global entries
+        print("[DEBUG] Extension2dfx initialized with global entries.")
+    #######################################################        
+    def __len__(self):
+        """
+        Return the number of entries in the 2DFX extension.
+        """
+        print(f"[DEBUG] Calculating number of entries: {len(entries)}")
+        return len(entries)
     #######################################################
     def append_entry(self, entry):
-        self.entries.append(entry)
+        global entries
+        entries.append(entry)
 
     #######################################################
     @staticmethod
-    def from_mem(data, offset):
-
+    def from_mem(collection):
+        """
+        Parse a collection for LIGHT entries and populate the global `entries` list.
+        """
+        global entries
         self = Extension2dfx()
-        entries_count = unpack_from("<I", data, offset)[0]
+        entries.clear()  # Clear existing entries
 
-        pos = 4 + offset
-        for i in range(entries_count):
+        # Parse LIGHT objects in the collection
+        light_objects = [obj for obj in collection.objects if obj.type == 'LIGHT']
+        print(f"[DEBUG] Found {len(light_objects)} LIGHT objects in the collection.")
 
-            # Stores classes for each effect
-            entries_funcs = {
-                0: Light2dfx,
-                1: Particle2dfx,
-                3: PedAttractor2dfx,
-                4: SunGlare2dfx
-            }
-            
-            loc = Sections.read(Vector, data, pos)
-            entry_type, size = unpack_from("<II", data, pos + 12)
+        for obj in light_objects:
+            # Extract position and color
+            position = obj.location
+            light_data = obj.data
+            color = light_data.color  # RGB normalized (0.0 to 1.0)
+            sdfx_props = {key: obj[key] for key in obj.keys() if key.startswith('sdfx_')}
 
-            pos += 20
-            if entry_type in entries_funcs:
-                self.append_entry(
-                    entries_funcs[entry_type].from_mem(loc, data, pos, size)
-                )
-            else:
-                print("Unimplemented Effect: %d" % (entry_type))
+            # Create LightEntry instance
+            light_entry = LightEntry(
+                position=(position.x, position.y, position.z),
+                color=(int(color[0] * 255), int(color[1] * 255), int(color[2] * 255), 255),
+                corona_far_clip=sdfx_props.get('sdfx_drawdis', 100.0),
+                pointlight_range=sdfx_props.get('sdfx_outerrange', 18.0),
+                corona_size=sdfx_props.get('sdfx_size', 1.0),
+                shadow_size=sdfx_props.get('sdfx_innerrange', 8.0),
+                corona_show_mode=sdfx_props.get('sdfx_showmode', 0),
+                corona_enable_reflection=sdfx_props.get('sdfx_OnAllDay', 0),
+                corona_flare_type=sdfx_props.get('sdfx_flaretype', 0),
+                shadow_color_multiplier=sdfx_props.get('sdfx_shadcolormp', 0),
+                flags1=sdfx_props.get('sdfx_flags1', 0),
+                corona_tex_name=sdfx_props.get('sdfx_corona', "coronastar"),
+                shadow_tex_name=sdfx_props.get('sdfx_shad', "shad_exp"),
+                shadow_z_distance=sdfx_props.get('sdfx_shadowzdist', 0),
+                flags2=sdfx_props.get('sdfx_flags2', 0),
+                look_direction=sdfx_props.get('sdfx_viewvector', (0, 0, 0))
+            )
+            self.append_entry(light_entry)
+            print(f"[DEBUG] Parsed LIGHT entry: {light_entry}")
 
-            pos += size
-
+        # Update the global entries list
+        entries = entries
+        print(f"[DEBUG] Total parsed entries: {len(entries)}")
         return self
 
     #######################################################
     def to_mem(self):
+        """
+        Serialize the entries stored in global entries to the 2D Effect chunk format.
+        """
+        global entries
 
-        # Write only if there are entries
-        if len(self.entries) == 0:
+        # Debug the number of entries
+        print(f"[DEBUG] Starting to_mem. Total entries: {len(entries)}")
+
+        if len(entries) == 0:
+            print("[DEBUG] No entries found. Skipping 2D Effect chunk serialization.")
             return b''
-        
-        # Entries length
-        data = pack("<I", len(self.entries))
 
-        # Entries
-        for entry in self.entries:
-            entry_data = entry.to_mem()
+        # Entries length (number of entries)
+        data = pack("<I", len(entries))
+        print(f"[DEBUG] Serialized number of entries: {len(entries)}")
 
-            data += pack("<II", entry.effect_id)
-            data += entry_data
+        # Serialize each entry
+        for idx, entry in enumerate(entries):
+            try:
+                print(f"[DEBUG] Serializing entry {idx + 1} of {len(entries)}...")
+                entry_data = entry.to_mem()
+                data += pack("<II", 0, len(entry_data))  # Effect ID, size
+                data += entry_data
+            except Exception as e:
+                print(f"[ERROR] Failed to serialize entry {idx + 1}: {e}")
 
-        return Sections.write_chunk(data, types['2d Effect'])
+        # Write the 2D Effect chunk
+        chunk_data = Sections.write_chunk(data, types['2d Effect'])
+        print(f"[DEBUG] 2D Effect chunk written. Total size: {len(chunk_data)} bytes.")
+
+        return chunk_data
             
     #######################################################
     def __add__(self, other):
-        self.entries += other.entries # concatinate entries
+        global entries
+        entries += other.entries # concatinate entries
         return self
 
 #######################################################
@@ -1535,23 +1699,38 @@ class Geometry:
         return Sections.write_chunk(data, types["Bin Mesh PLG"])
     
     #######################################################
-    def extensions_to_mem(self, extra_extensions = []):
-
+    def extensions_to_mem(self, extra_extensions=[]):
+        """
+        Serialize all extensions, including any Extension2dfx (2D Effects) entries.
+        """
         data = b''
 
         # Write Bin Mesh PLG
-        if self.export_flags['write_mesh_plg']:
+        if self.export_flags.get('write_mesh_plg', False):
             data += self.write_bin_split()
-        
-        for extension in self.extensions:
-            if self.extensions[extension] is not None:
-                data += self.extensions[extension].to_mem()
+
+        # Serialize all extensions dynamically
+        for extension_name, extension_object in self.extensions.items():
+            if extension_object is not None:
+                print(f"[DEBUG] Serializing extension: {extension_name}")
+                if hasattr(extension_object, 'to_mem') and callable(extension_object.to_mem):
+                    data += extension_object.to_mem()
+                    data += Extension2dfx.to_mem(self)
+                else:
+                    print(f"[WARNING] Extension {extension_name} has no valid 'to_mem' method and will be skipped.")
 
         # Write extra extensions
         for extra_extension in extra_extensions:
-            data += extra_extension.to_mem()
-            
-        return Sections.write_chunk(data, types["Extension"])
+            if hasattr(extra_extension, 'to_mem') and callable(extra_extension.to_mem):
+                print("[DEBUG] Serializing extra extension.")
+                data += extra_extension.to_mem()
+            else:
+                print("[WARNING] Extra extension has no valid 'to_mem' method and will be skipped.")
+        
+        # Serialize and return the Extension chunk
+        serialized_chunk = Sections.write_chunk(data, types["Extension"])
+        print(f"[DEBUG] Serialized Extension chunk size: {len(serialized_chunk)} bytes.")
+        return serialized_chunk
         
     #######################################################
     def to_mem(self, extra_extensions = []):
@@ -1630,7 +1809,7 @@ class dff:
         current_pos = self.pos
         self.pos += size
         return current_pos
-
+    
 
     #######################################################
     def raw(self, size, offset=None):
@@ -2129,19 +2308,11 @@ class dff:
     def read_2dfx(self, data, offset, context):
         """
         Reads and parses the 2DFX effects data from the given offset
-        and stores the parsed entries in the global `entries` list.
+        and stores the parsed entries in the global `entries` list using the LightEntry class.
         """
 
-        # Define the structure of a LightEntry using namedtuple
-        LightEntry = namedtuple('LightEntry', [
-            'type', 'position', 'color', 'corona_far_clip', 'pointlight_range',
-            'corona_size', 'shadow_size', 'corona_show_mode', 'corona_enable_reflection',
-            'corona_flare_type', 'shadow_color_multiplier', 'flags1',
-            'corona_tex_name', 'shadow_tex_name', 'shadow_z_distance', 'flags2',
-            'look_direction'
-        ])
-
-        # Read the number of 2DFX entries
+        global entries
+        entries.clear()  # Clear existing entries
         num_entries = struct.unpack_from('<I', data, offset)[0]
         offset += 4
         print(f"NumEntries: {num_entries}")
@@ -2190,30 +2361,31 @@ class dff:
                     if data_length == 80:
                         look_direction = struct.unpack('<3B', light_data[75:78])
 
-                    # Construct the namedtuple entry
-                    entries.append(
-                        LightEntry(
-                            type='light',
-                            position=(pos_x, pos_y, pos_z),
-                            color=color,
-                            corona_far_clip=corona_far_clip,
-                            pointlight_range=pointlight_range,
-                            corona_size=corona_size,
-                            shadow_size=shadow_size,
-                            corona_show_mode=corona_show_mode,
-                            corona_enable_reflection=corona_enable_reflection,
-                            corona_flare_type=corona_flare_type,
-                            shadow_color_multiplier=shadow_color_multiplier,
-                            flags1=flags1,
-                            corona_tex_name=corona_tex_name,
-                            shadow_tex_name=shadow_tex_name,
-                            shadow_z_distance=shadow_z_distance,
-                            flags2=flags2,
-                            look_direction=look_direction,
-                        )
+                    # Create a LightEntry instance
+                    light_entry = LightEntry(
+                        position=(pos_x, pos_y, pos_z),
+                        color=color,
+                        corona_far_clip=corona_far_clip,
+                        pointlight_range=pointlight_range,
+                        corona_size=corona_size,
+                        shadow_size=shadow_size,
+                        corona_show_mode=corona_show_mode,
+                        corona_enable_reflection=corona_enable_reflection,
+                        corona_flare_type=corona_flare_type,
+                        shadow_color_multiplier=shadow_color_multiplier,
+                        flags1=flags1,
+                        corona_tex_name=corona_tex_name,
+                        shadow_tex_name=shadow_tex_name,
+                        shadow_z_distance=shadow_z_distance,
+                        flags2=flags2,
+                        look_direction=look_direction,
                     )
 
+                    # Append to entries
+                    entries.append(light_entry)
+
                     # Print details for debugging
+                    print(f"Parsed LightEntry: {light_entry}")
                     print(f"Color: {color[0]} {color[1]} {color[2]} {color[3]}")
                     print(f"CoronaFarClip: {corona_far_clip:.6f}")
                     print(f"PointlightRange: {pointlight_range:.6f}")
@@ -2232,6 +2404,7 @@ class dff:
 
         print(f"Stored {len(entries)} entries.")
         return entries
+
     #######################################################
     def get_entries(self):
         """Returns the parsed 2DFX entries."""
@@ -2394,6 +2567,70 @@ class dff:
             data += frame.extensions_to_mem()
 
         return Sections.write_chunk(data, types["Frame List"])
+    #######################################################
+    def serialize_light_to_2dfx(light):
+        """
+        Serialize a single light object into the binary format for 2D Effect.
+        :param light: Blender light object to serialize.
+        :return: A binary representation of the light's 2D Effect data.
+        """
+        pos = light.location
+        color = light.get("sdfx_color", (255, 255, 255, 255))
+        corona_far_clip = light.get("sdfx_drawdis", 100.0)
+        pointlight_range = light.get("sdfx_outerrange", 18.0)
+        corona_size = light.get("sdfx_size", 1.0)
+        shadow_size = light.get("sdfx_innerrange", 8.0)
+        corona_show_mode = light.get("sdfx_showmode", 4)
+        corona_enable_reflection = light.get("sdfx_reflection", 0)
+        corona_flare_type = light.get("sdfx_flaretype", 0)
+        shadow_color_multiplier = light.get("sdfx_shadcolormp", 40)
+        flags1 = light.get("sdfx_OnAllDay", 1)
+        corona_tex_name = light.get("sdfx_corona", "coronastar")
+        shadow_tex_name = light.get("sdfx_shad", "shad_exp")
+        shadow_z_distance = light.get("sdfx_shadowzdist", 0)
+        flags2 = light.get("sdfx_flags2", 0)
+
+        # Construct binary data for this light
+        light_data = b''
+        light_data += struct.pack("3f", pos.x, pos.y, pos.z)  # Position
+        light_data += struct.pack("4B", int(color[0]), int(color[1]), int(color[2]), int(color[3]))  # RGBA
+        light_data += struct.pack("f", corona_far_clip)  # Draw Distance
+        light_data += struct.pack("f", pointlight_range)  # Outer Range
+        light_data += struct.pack("f", corona_size)  # Corona Size
+        light_data += struct.pack("f", shadow_size)  # Shadow Size
+        light_data += struct.pack("B", corona_show_mode)  # Corona Show Mode
+        light_data += struct.pack("B", corona_enable_reflection)  # Enable Reflection
+        light_data += struct.pack("B", corona_flare_type)  # Flare Type
+        light_data += struct.pack("B", shadow_color_multiplier)  # Shadow Color Multiplier
+        light_data += struct.pack("B", flags1)  # Flags 1
+        light_data += corona_tex_name.encode('utf-8').ljust(24, b'\0')  # Corona Texture Name
+        light_data += shadow_tex_name.encode('utf-8').ljust(24, b'\0')  # Shadow Texture Name
+        light_data += struct.pack("B", shadow_z_distance)  # Shadow Z Distance
+        light_data += struct.pack("B", flags2)  # Flags 2
+        light_data += struct.pack("B", 0)  # Padding
+
+        return light_data
+    #######################################################
+    def write_2dfx_chunk(self, collection):
+        """
+        Write the 2D Effect chunk for lights in the given collection.
+        :param collection: Blender collection containing the lights.
+        :return: A binary chunk representing the 2D Effect section.
+        """
+        # Filter lights in the collection
+        lights = [obj for obj in collection.objects if obj.type == "LIGHT"]
+
+        if not lights:
+            return b''  # No lights, return an empty chunk
+
+        # Serialize all lights into binary data
+        data = b''
+        data += struct.pack("<I", len(lights))  # Write the number of entries (header)
+        for light in lights:
+            data += self.serialize_light_to_2dfx(light)  # Serialize each light
+
+        # Wrap the data into a 2D Effect chunk
+        return Sections.write_chunk(data, types["2d Effect"])
 
     #######################################################
     def write_geometry_list(self):
@@ -2404,13 +2641,17 @@ class dff:
         data = Sections.write_chunk(data, types["Struct"])
         
         for index, geometry in enumerate(self.geometry_list):
+            # Serialize the geometry
+            geometry_data = geometry.to_mem()
 
-            # Append 2dfx to extra extensions in the last geometry
-            extra_extensions = []
-            if index == len(self.geometry_list):
-                extra_extensions.append(self.ext_2dfx)
+            # Add 2DFX chunk to the last geometry if lights exist in the collection
+            if index == len(self.ext_2dfx) - 1:
+                ext_2dfx_data = self.write_2dfx_chunk(self.ext_2dfx)
+                if ext_2dfx_data:
+                    geometry_data += ext_2dfx_data
+            # Add the geometry data to the chunk
+            data += geometry_data
             
-            data += geometry.to_mem()
         
         return Sections.write_chunk(data, types["Geometry List"])
 
