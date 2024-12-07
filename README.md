@@ -37,7 +37,7 @@ DemonFF is a neat little fork of DragonFF made to enhance your workflow by provi
 
 ### Usage
 
-1. Open Blender, make sure you have the DemonFF add-on enabled.
+1. Open Blender, make sure you have the DemonFF add-on enabled in Preferences.
 2. Import or create your own .DFF/.COL model.
 3. Import/export or modify 2DFX/2D Effects for your model.
 4. Use DemonFF tools to edit collision models, export, and import DFF files.
