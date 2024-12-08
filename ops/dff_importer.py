@@ -82,7 +82,7 @@ class ext_2dfx_importer:
 
         objects = []
         
-        for entry in self.effects.entries:
+        for entry in entries:
             if entry.effect_id in functions:
                 objects.append(functions[entry.type](entry))
 

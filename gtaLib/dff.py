@@ -150,9 +150,6 @@ def write_2dfx_effect_section(obj):
     # Write entry type (0 for lights)
     entry_data.append(pack('<I', 0))
 
-    # Placeholder for data size (will calculate dynamically)
-    entry_data.append(pack('<I', 0))  # Placeholder
-
     # Write light properties (e.g., RGBA color)
     entry_data.append(pack(
         '<4B',
@@ -1160,12 +1157,13 @@ class SunGlare2dfx:
         return b''
 
 class LightEntry:
-    def __init__(self, position, color, corona_far_clip, pointlight_range,
+    def __init__(self, position, effect_id, color, corona_far_clip, pointlight_range,
                  corona_size, shadow_size, corona_show_mode, corona_enable_reflection,
                  corona_flare_type, shadow_color_multiplier, flags1,
                  corona_tex_name, shadow_tex_name, shadow_z_distance, flags2,
                  look_direction):
         self.position = position
+        self.effect_id = effect_id
         self.color = color
         self.corona_far_clip = corona_far_clip
         self.pointlight_range = pointlight_range
@@ -1186,28 +1184,38 @@ class LightEntry:
         """
         Serialize this light entry into binary format.
         """
+    
+
+        # Start with an empty bytes object
         entry_data = b''
+        
+        actual_size = len(entry_data)
+        data_size = min(actual_size, 80) # Clamp if larger than 80 bytes
 
         # Position (X, Y, Z)
         entry_data += struct.pack('<3f', *self.position)
+
+        # Effect ID and Data Size
+        effect_id = 0  
+        entry_data += struct.pack('<II', effect_id, data_size)
 
         # Color (RGBA)
         entry_data += struct.pack('<4B', *self.color)
 
         # Float properties
         entry_data += struct.pack('<4f',
-                                   self.corona_far_clip,
-                                   self.pointlight_range,
-                                   self.corona_size,
-                                   self.shadow_size)
+                                self.corona_far_clip,
+                                self.pointlight_range,
+                                self.corona_size,
+                                self.shadow_size)
 
         # Byte properties
         entry_data += struct.pack('<5B',
-                                   self.corona_show_mode,
-                                   self.corona_enable_reflection,
-                                   self.corona_flare_type,
-                                   self.shadow_color_multiplier,
-                                   self.flags1)
+                                self.corona_show_mode,
+                                self.corona_enable_reflection,
+                                self.corona_flare_type,
+                                self.shadow_color_multiplier,
+                                self.flags1)
 
         # Texture names
         entry_data += self.corona_tex_name.encode('ascii').ljust(24, b'\x00')
@@ -1217,11 +1225,13 @@ class LightEntry:
         entry_data += struct.pack('<B', self.shadow_z_distance)
         entry_data += struct.pack('<B', self.flags2)
 
-        # Look direction (optional)
+        # Look direction
         if self.look_direction:
             entry_data += struct.pack('<3B', *self.look_direction)
+            entry_data += b'\x00'  # Padding to align to 80 bytes
 
         return entry_data
+
 
 #######################################################
 class Extension2dfx:
@@ -1314,7 +1324,6 @@ class Extension2dfx:
             try:
                 print(f"[DEBUG] Serializing entry {idx + 1} of {len(entries)}...")
                 entry_data = entry.to_mem()
-                data += pack("<II", 0, len(entry_data))  # Effect ID, size
                 data += entry_data
             except Exception as e:
                 print(f"[ERROR] Failed to serialize entry {idx + 1}: {e}")
@@ -2364,6 +2373,7 @@ class dff:
                     # Create a LightEntry instance
                     light_entry = LightEntry(
                         position=(pos_x, pos_y, pos_z),
+                        effect_id=0,
                         color=color,
                         corona_far_clip=corona_far_clip,
                         pointlight_range=pointlight_range,
@@ -2703,10 +2713,9 @@ class dff:
 
         # Old RW versions didn't have cameras and lights in their clump structure
         if Sections.get_rw_version() < 0x33000:
-            data = Sections.write_chunk(Clump,
-                                        pack("<I",
+            data = Sections.write_chunk(pack("<I",
                                              len(self.atomic_list)),
-                                        types["Clump"])
+                                        types["Struct"])
             
         data += self.write_frame_list()
         data += self.write_geometry_list()

@@ -6,15 +6,17 @@ from bpy.props import StringProperty, FloatProperty, IntProperty, FloatVectorPro
 from bpy.types import Operator, Panel, PropertyGroup
 
 from ..gtaLib.dff import entries
+#Information taken from https://gtamods.com/wiki/2DFX
+# & https://gtamods.com/wiki/2d_Effect_(RW_Section)
+
 
 # Global variables
 fx_images = ["coronastar", "shad_exp"]
 fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
-textfile = ""  # New variable to hold the path to the .txt file
+textfile = "" 
 
 def import_light(entry, collection):
-    """Create a light in Blender from a single 2DFX entry and link it to the specified collection."""
     light_data = bpy.data.lights.new(name="Omni_Light", type='POINT')
     light_object = bpy.data.objects.new(name=f"Omni_Light", object_data=light_data)
     collection.objects.link(light_object)
@@ -63,27 +65,27 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
         # Create lights for each entry
         collection = context.scene.collection
         for entry in entries:
-            # Create a Point Light
+
             light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
             light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
             collection.objects.link(light_object)
 
-            # Assign light color from entry and set custom property
+
             sdfx_color = (
                 entry.color[0],  # RGB values in range 0-255
                 entry.color[1],
                 entry.color[2],
                 entry.color[3],  # Alpha value
             )
-            light_object["sdfx_color"] = sdfx_color  # Store raw color data in custom property
+            light_object["sdfx_color"] = sdfx_color 
 
-            # Normalize RGB values for Light Color
+
             normalized_color = (
                 sdfx_color[0] / 255,
                 sdfx_color[1] / 255,
                 sdfx_color[2] / 255,
             )
-            light_data.color = normalized_color  # Set Blender's Light Color property
+            light_data.color = normalized_color
 
             # Assign other light properties
             light_object.location = entry.position
@@ -110,13 +112,6 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
 
 
 def add_light_info(frames, entries):
-    """
-    Add light information to Blender Point Lights based on 2DFX LightEntry dictionary data.
-
-    Args:
-        frames: A bpy.context, bpy.types.Collection, or list of Blender objects.
-        entries: A list of dictionaries containing data for 2DFX light entries.
-    """
     # Determine the collection to which objects will be linked
     if isinstance(frames, bpy.types.Context):
         collection = frames.scene.collection
@@ -127,13 +122,12 @@ def add_light_info(frames, entries):
     elif isinstance(frames, (list, tuple)) and all(isinstance(obj, bpy.types.Object) for obj in frames):
         collection = bpy.context.scene.collection
     else:
-        # Default to the active scene's collection
         print(f"Warning: Unrecognized 'frames' type ({type(frames)}). Defaulting to scene collection.")
         collection = bpy.context.scene.collection
 
     # Process each light entry
     for entry in entries:
-        # Create a Point Light
+
         light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
         light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
         collection.objects.link(light_object)
@@ -143,18 +137,8 @@ def add_light_info(frames, entries):
         print(f"Added Point Light: {light_object.name}")
         print(f"  Position: {light_object.location}")
         print(f"  Color: {light_data.color}")
-        """
-    Add light information to Blender light objects per frame based on 2DFX entries.
-
-    Args:
-        frames: List of Blender frames containing light objects.
-        entries: List of 2DFX light entries to assign to objects.
-    """
-    # Define entries from your parsed data or source
-
 
     for frame, entry in zip(frames, entries):
-        # Assuming `frame` is a collection or an object with light data
         light_objects = [obj for obj in frame.objects if obj.type == 'LIGHT']
         if not light_objects:
             print(f"No light objects found in frame: {frame.name}")
@@ -180,14 +164,6 @@ def add_light_info(frames, entries):
 
             print(f"Added 2DFX light info to {obj.name} in frame {frame.name}")
 
-
-
-
-
-
-
-
-# Function to add particle info to selected empty objects
 def process_2dfx_lights(self, effects, context):
     """
     Process each 2DFX light entry and add it to Blender using add_light_info.
@@ -200,7 +176,7 @@ def process_2dfx_lights(self, effects, context):
         if entry.effect_id == 0:  # Only process light entries (effect_id = 0)
             print(f"Processing Light Entry {i + 1}/{len(effects.entries)}...")
             add_light_info(context, entry)
-# Function to add particle info to selected empty objects
+
 def import_2dfx(self, effects, context):
     """
     Import 2DFX effects into Blender.
@@ -213,7 +189,6 @@ def import_2dfx(self, effects, context):
     self.process_2dfx_lights(effects, context)
 
 
-# Function to add particle info to selected empty objects
 def add_particle_info(context, obj=None):
     if obj is None:
         objs = context.selected_objects
@@ -224,7 +199,6 @@ def add_particle_info(context, obj=None):
             obj["sdfx_psys"] = fx_psystems[0]  # Default particle system
             print(f"Added GTA Particle system info to {obj.name}")
 
-# Function to add 2D text info to selected plane objects
 def add_text_info(context, obj=None):
     if obj is None:
         objs = context.selected_objects
@@ -238,7 +212,6 @@ def add_text_info(context, obj=None):
             obj["sdfx_text4"] = ""
             print(f"Added GTA 2D Text info to {obj.name}")
 
-# Function to export info to a binary file
 def export_info(context):
     global effectfile
     global textfile
@@ -261,7 +234,6 @@ def export_info(context):
             elif obj.type == 'MESH' and "Plane" in obj.name:
                 export_text_info(effect_stream, None, obj)
 
-# Function to export info to a text file
 def export_text(context):
     global textfile
     obj_to_exp = [obj for obj in context.selected_objects if any(key.startswith("sdfx_") for key in obj.keys()) or obj.type in ['LIGHT', 'EMPTY', 'MESH']]
@@ -326,7 +298,6 @@ def export_light_info(effect_stream, text_stream, obj):
         effect_stream.write(bytearray(struct.pack("B", 0)))  # padding
 
     if text_stream:
-        # Write to text file
         text_stream.write(f"2dfxType         LIGHT\n")
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"Color            {int(color[0])} {int(color[1])} {int(color[2])} {int(color[3])}\n")
@@ -382,7 +353,6 @@ def export_text_info(effect_stream, text_stream, obj):
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"TextData         {text_data}\n")
 
-# Function to create lights from frames named "Omni"
 def create_lights_from_omni_frames():
     for obj in bpy.data.objects:
         if "Omni" in obj.name:
@@ -395,7 +365,6 @@ def create_lights_from_omni_frames():
             add_light_info(bpy.context, light)
             print(f"Created light for frame: {obj.name}, at location {obj.location}")
 
-# Function to import 2DFX files and create lights
 def import_2dfx(filepath):
     with open(filepath, 'r', encoding='latin-1') as file:
         obj = None
@@ -447,8 +416,6 @@ def import_2dfx(filepath):
             elif obj and parts[0] == "ViewVector":
                 obj["sdfx_viewvector"] = (float(parts[1]), float(parts[2]), float(parts[3]))
 
-            # Add logic for PARTICLE and TEXT types if required
-
 class SAEFFECTS_OT_Import2dfx(Operator):
     bl_idname = "saeffects.import_2dfx"
     bl_label = "Import 2DFX File"
@@ -477,7 +444,6 @@ class DFF2dfxPanel(Panel):
     def draw(self, context):
         layout = self.layout
 
-        # Adding SA Effects options
         box = layout.box()
         row = box.row()
         row.operator("saeffects.add_light_info", text="Add Light Info")
@@ -616,7 +582,7 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
             color: A tuple (R, G, B) where values are between 0 and 255.
         """
         if obj and obj.type == 'LIGHT':
-            # Ensure color is normalized and set in the correct context
+            # Ensure color is normalized
             normalized_color = (
                 color[0] / 255,  # Normalize R
                 color[1] / 255,  # Normalize G
