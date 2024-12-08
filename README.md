@@ -20,7 +20,7 @@ DemonFF is a neat little fork of DragonFF made to enhance your workflow by provi
 
 - **Map Editing**: Easily import your IPL & IDE's, and create your own map for singleplayer and/or SAMP/open.mp.
 
-- **Custom Section IDs**: DemonFF supports Rockstar's custom section IDs, allowing you to work with specific RW plugins seamlessly.
+- **Rockstar Section IDs**: DemonFF supports Rockstar's custom section IDs, allowing you to work with specific RW plugins seamlessly.
 
 - **SAMP/open.mp Compatibility**: DemonFF is designed for compatibility with San Andreas Multiplayer (SAMP) and open.mp, and comes with Pawn features.
   
