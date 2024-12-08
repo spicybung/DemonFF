@@ -2309,8 +2309,7 @@ class dff:
         # Old RW versions didn't have cameras and lights in their clump structure
         if Sections.get_rw_version() < 0x33000:
             data = Sections.write_chunk(Clump,
-                                        pack("<I",
-                                             len(self.atomic_list)),
+                                             len((self.atomic_list)),
                                         types["Clump"])
             
         data += self.write_frame_list()
