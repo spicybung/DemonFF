@@ -42,10 +42,9 @@ DemonFF is a neat little fork of DragonFF made to enhance your workflow by provi
 3. Import/export or modify 2DFX/2D Effects for your model.
 4. Use DemonFF tools to edit collision models, export, and import DFF files.
 5. Use DemonFF to import .IFP animation.
-6. Import or export 2DFX/light for your model.
-7. Import/edit maps via .IPL & IDE files.
-8. Export your map to Pawn, & artconfig.
-9. Export your map to LUA for MTA(WIP).
+6. Import/edit maps via .IPL & IDE files.
+7. Export your map to Pawn, & artconfig.
+8. Export your map to LUA for MTA(WIP).
 
 ## Contributing
 
