@@ -1,3 +1,18 @@
+# GTA DragonFF - Blender scripts to edit basic GTA formats
+# Copyright (C) 2019  Parik
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
 import bmesh
@@ -7,7 +22,6 @@ import os.path
 from collections import defaultdict
 
 from ..gtaLib import dff
-from ..gtaLib.dff import write_2dfx_effect_section
 from .col_exporter import export_col
 
 #######################################################
@@ -270,6 +284,7 @@ class dff_exporter:
     parent_queue = {}
     collection = None
     export_coll = False
+    exclude_geo_faces = False
 
     #######################################################
     @staticmethod
@@ -567,7 +582,8 @@ class dff_exporter:
     @staticmethod
     def convert_slinear_to_srgb (col):
         color = mathutils.Color (col[:3])
-        return tuple(color.from_scene_linear_to_srgb ()) + (col[3],)
+        color_srgb = color.from_scene_linear_to_srgb()
+        return tuple(max(0, min(1, channel)) for channel in color_srgb) + (col[3],)  # Including alpha unchanged
 
     #######################################################
     @staticmethod
@@ -611,13 +627,12 @@ class dff_exporter:
 
         self.triangulate_mesh(mesh)
         # NOTE: Mesh.calc_normals is no longer needed and has been removed
-        # Blender API version check
         if bpy.app.version < (4, 0, 0):
-            # Older versions of Blender (3.x and below)
+            mesh.calc_normals()
+
+        # NOTE: Mesh.calc_normals_split is no longer needed and has been removed
+        if bpy.app.version < (4, 1, 0):
             mesh.calc_normals_split()
-        mesh.calc_normals_split()
-
-
 
         vcols = self.get_vertex_colors (mesh)
         verts_indices = {}
@@ -767,6 +782,8 @@ class dff_exporter:
         geometry.export_flags['write_mesh_plg'] = obj.dff.export_binsplit
         geometry.export_flags['light'] = obj.dff.light
         geometry.export_flags['modulate_color'] = obj.dff.modulate_color
+        geometry.export_flags['triangle_strip'] = obj.dff.triangle_strip
+        geometry.export_flags['exclude_geo_faces'] = self.exclude_geo_faces
         
         if "dff_user_data" in obj.data:
             geometry.extensions['user_data'] = dff.UserData.from_mem(
@@ -906,9 +923,6 @@ class dff_exporter:
             # create an empty frame
             elif obj.type == "EMPTY":
                 self.create_frame(obj)
-
-            elif obj.type == "LIGHT":
-                write_2dfx_effect_section(obj)
         
         # Collision
         if self.export_coll:
@@ -924,7 +938,6 @@ class dff_exporter:
 
             if len(mem) != 0:
                self.dff.collisions = [mem] 
-
 
         if name is None:
             self.dff.write_file(self.file_name, self.version )
@@ -981,6 +994,7 @@ def export_dff(options):
     # Shadow Function
     dff_exporter.selected           = options['selected']
     dff_exporter.export_frame_names = options['export_frame_names']
+    dff_exporter.exclude_geo_faces  = options['exclude_geo_faces']
     dff_exporter.mass_export        = options['mass_export']
     dff_exporter.path               = options['directory']
     dff_exporter.version            = options['version']

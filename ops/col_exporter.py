@@ -45,15 +45,15 @@ class col_exporter:
             except IndexError:
                 pass
 
-            if col.Sections.version == 1:
-                faces.append(col.TFace._make(
+            if col_samp.Sections.version == 1:
+                faces.append(col_samp.TFace._make(
                     [vert.index + vert_offset for vert in face.verts] + [
-                        col.TSurface(*surface)
+                        col_samp.TSurface(*surface)
                     ]
                 ))
 
             else:
-                faces.append(col.TFace._make(
+                faces.append(col_samp.TFace._make(
                     [vert.index + vert_offset for vert in face.verts] + [
                         surface[0], surface[3]
                     ]
@@ -103,9 +103,9 @@ class col_exporter:
                 mathutils.Vector(rect_min) - mathutils.Vector(rect_max)
             ).magnitude / 2
 
-        self.coll.bounds = col.TBounds(max = col.TVector(*rect_min),
-                                       min = col.TVector(*rect_max),
-                                       center = col.TVector(*center),
+        self.coll.bounds = col_samp.TBounds(max = col_samp.TVector(*rect_min),
+                                       min = col_samp.TVector(*rect_max),
+                                       center = col_samp.TVector(*center),
                                        radius = radius
         )   
         
@@ -116,15 +116,15 @@ class col_exporter:
         self = col_exporter
         
         radius = max(x * obj.empty_display_size for x in obj.scale)
-        centre = col.TVector(*obj.location)
-        surface = col.TSurface(
+        centre = col_samp.TVector(*obj.location)
+        surface = col_samp.TSurface(
             obj.dff.col_material,
             obj.dff.col_flags,
             obj.dff.col_brightness,
             obj.dff.col_light
         )
 
-        self.coll.spheres.append(col.TSphere(radius=radius,
+        self.coll.spheres.append(col_samp.TSphere(radius=radius,
                                          surface=surface,
                                          center=centre
         ))
@@ -160,9 +160,9 @@ class col_exporter:
         self = col_exporter
         self.file_name = name
 
-        col.Sections.init_sections(self.version)
+        col_samp.Sections.init_sections(self.version)
 
-        self.coll = col.ColModel()
+        self.coll = col_samp.ColModel()
         self.coll.version = self.version
         self.coll.model_name = os.path.basename(name)
 
@@ -181,45 +181,60 @@ class col_exporter:
         
         if self.memory:
             if total_objects > 0:
-                return col.coll(self.coll).write_memory()
+                return col_samp.coll(self.coll).write_memory()
             return b''
 
-        col.coll(self.coll).write_file(name)
+        col_samp.coll(self.coll).write_file(name)
 
 #######################################################
+import os
+
 def export_col(options):
-    
+    # Set exporter properties
     col_exporter.memory = options['memory']
     col_exporter.version = options['version']
     col_exporter.collection = options['collection']
     col_exporter.only_selected = options['only_selected']
 
+    # If mass export mode is enabled
     if options['mass_export']:
-        output = b'';
-        
-        root_collection = bpy.context.scene.collection
-        collections = root_collection.children.values() + [root_collection]
-        col_exporter.memory = True
+        output = b''
 
+        root_collection = bpy.context.scene.collection
+        collections = list(root_collection.children) + [root_collection]
+        col_exporter.memory = True  # To gather memory output per collection
+
+        # Ensure the directory path exists
+        base_dir = options['directory']
+        if not os.path.exists(base_dir):
+            os.makedirs(base_dir)
+
+        # Process each collection
         for collection in collections:
             col_exporter.collection = collection
             name = collection.name
 
-            # Strip stuff like vehicles.col. from the name so that
-            # for example vehicles.col.infernus changes to just infernus
+            # Adjust the collection name for proper file naming
             try:
-                name = name[name.index(".col.") + 5:]
-                
+                name = name[name.index(".col") + len(".col"):]
             except ValueError:
                 pass
             
-            output += col_exporter.export_col(name)
+            # Define the export path for each collection
+            export_path = os.path.join(base_dir, f"{name}.col")
 
+            # Perform the export and gather output if needed
+            collection_output = col_exporter.export_col(name)
+            output += collection_output
+
+            # Write each collection's output to its respective file
+            with open(export_path, mode='wb') as file:
+                file.write(collection_output)
+
+        # Return accumulated output if in-memory output is requested
         if options['memory']:
             return output
 
-        with open(options['file_name'], mode='wb') as file:
-            file.write(output)
-            return
-        
-    return col_exporter.export_col(options['file_name'])
+    else:
+        # Non-mass export: use the specified file name directly
+        return col_exporter.export_col(options['file_name'])

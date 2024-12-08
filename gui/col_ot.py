@@ -1,6 +1,6 @@
 import bpy
 from bpy_extras.io_utils import ExportHelper
-from ..ops import col_samp_exporter
+from ..ops import col_exporter
 
 #######################################################
 class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
@@ -25,7 +25,7 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
     directory: bpy.props.StringProperty(
         maxlen=1024,
         default="",
-        subtype='DIR_PATH'
+        subtype='FILE_PATH'
     )
 
     only_selected: bpy.props.BoolProperty(
@@ -33,19 +33,19 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         default=False
     )
     
-    export_version  : bpy.props.EnumProperty(
-        items =
-        (
-            ('1', "GTA 3/VC (COLL)", "Grand Theft Auto 3 and Vice City (PC) - Version 1"),
-            ('2', "GTA SA PS2 (COL2)", "Grand Theft Auto SA (PS2) - Version 2"),
-            ('3', "GTA SA PC/Xbox/Mobile (COL3)", "Grand Theft Auto SA (PC/Xbox/Mobile) - Version 3"),
-        ),
-        name = "Version Export"
-    )
-
     mass_export: bpy.props.BoolProperty(
         name="Mass Export",
+        description="Export all collision objects in the scene",
         default=False
+    )
+    
+    export_version: bpy.props.EnumProperty(
+        items=[
+            ('1', "GTA 3/VC (COLL)", "Grand Theft Auto 3 and Vice City (PC) - Version 1"),
+            ('3', "GTA SA PC/Xbox (COL3)", "Grand Theft Auto SA (PC/Xbox) - Version 3"),
+            ('2', "GTA SA PS2 (COL2)", "Grand Theft Auto SA (PS2) - Version 2")
+        ],
+        name="Version Export"
     )
 
     #######################################################
@@ -54,12 +54,13 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         layout.prop(self, "export_version")
         layout.prop(self, "only_selected")
         layout.prop(self, "mass_export")
-        layout.prop(self, "directory")
         return None
 
     #######################################################
     def execute(self, context):
-        options = {
+        
+        # Decide if we are doing mass export or only exporting selected objects
+        export_data = {
             "file_name": self.filepath,
             "version": int(self.export_version),
             "collection": None,
@@ -68,29 +69,30 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
             "only_selected": self.only_selected
         }
 
+        # Check mass export setting
         if self.mass_export:
-            options["directory"] = self.directory
-
-        col_samp_exporter.export_col(options)
+            for obj in context.scene.objects:
+                if obj.type == 'MESH' and obj.get("collision"):  # Replace with actual check for collision property
+                    export_data["file_name"] = f"{self.directory}/{obj.name}.col"
+                    col_exporter.export_col(export_data)
+        else:
+            col_exporter.export_col(export_data)
 
         # Save settings of the export in scene custom properties for later
-        context.scene['demonff_imported_version_col'] = self.export_version
+        context.scene['dragonff_imported_version_col'] = self.export_version
             
         return {'FINISHED'}
 
     #######################################################
     def invoke(self, context, event):
-        if 'demonff_imported_version_col' in context.scene:
-            self.export_version = context.scene['demonff_imported_version_col']
-        
+        if 'dragonff_imported_version_col' in context.scene:
+            self.export_version = context.scene['dragonff_imported_version_col']
+
+        if not self.filepath:
+            if context.blend_data.filepath:
+                self.filepath = context.blend_data.filepath
+            else:
+                self.filepath = "untitled"
+
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
-def register():
-    bpy.utils.register_class(EXPORT_OT_col)
-
-def unregister():
-    bpy.utils.unregister_class(EXPORT_OT_col)
-
-if __name__ == "__main__":
-    register()

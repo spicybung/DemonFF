@@ -1,194 +1,41 @@
 import bpy
 import struct
-import math
-import mathutils
-from bpy.props import StringProperty, FloatProperty, IntProperty, FloatVectorProperty, BoolProperty
+from bpy.props import StringProperty, FloatProperty, FloatVectorProperty
 from bpy.types import Operator, Panel, PropertyGroup
-
-from ..gtaLib.dff import entries
-#Information taken from https://gtamods.com/wiki/2DFX
-# & https://gtamods.com/wiki/2d_Effect_(RW_Section)
-
 
 # Global variables
 fx_images = ["coronastar", "shad_exp"]
 fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
-textfile = "" 
+textfile = ""  # New variable to hold the path to the .txt file
 
-def import_light(entry, collection):
-    light_data = bpy.data.lights.new(name="Omni_Light", type='POINT')
-    light_object = bpy.data.objects.new(name=f"Omni_Light", object_data=light_data)
-    collection.objects.link(light_object)
-
-    # Assign light properties
-    light_data.color = (
-        entry.color[0] / 255,
-        entry.color[1] / 255,
-        entry.color[2] / 255,
-    )
-    light_object.location = entry.position
-
-    # Add custom properties
-    light_object["sdfx_drawdis"] = entry.corona_far_clip
-    light_object["sdfx_outerrange"] = entry.pointlight_range
-    light_object["sdfx_size"] = entry.corona_size
-    light_object["sdfx_innerrange"] = entry.shadow_size
-    light_object["sdfx_corona"] = entry.corona_tex_name
-    light_object["sdfx_shad"] = entry.shadow_tex_name
-    light_object["sdfx_lighttype"] = entry.flags1
-    light_object["sdfx_color"] = entry.color
-    light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
-    light_object["sdfx_showmode"] = entry.corona_show_mode
-    light_object["sdfx_reflection"] = entry.corona_enable_reflection
-    light_object["sdfx_flaretype"] = entry.corona_flare_type
-    light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
-    light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
-    light_object["sdfx_flags2"] = entry.flags2
-    light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
-
-    return light_object
-
-
-class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
-    """Create lights in Blender from the parsed 2DFX entries."""
-    bl_idname = "saeeffects.create_lights_from_entries"
-    bl_label = "Create Lights from Entries"
-
-    def execute(self, context):
-        global entries
-
-        if not entries:  # Check if entries exist
-            self.report({'ERROR'}, "No 2DFX entries available. Import first!")
-            return {'CANCELLED'}
-
-        # Create lights for each entry
-        collection = context.scene.collection
-        for entry in entries:
-
-            light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
-            light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
-            collection.objects.link(light_object)
-
-
-            sdfx_color = (
-                entry.color[0],  # RGB values in range 0-255
-                entry.color[1],
-                entry.color[2],
-                entry.color[3],  # Alpha value
-            )
-            light_object["sdfx_color"] = sdfx_color 
-
-
-            normalized_color = (
-                sdfx_color[0] / 255,
-                sdfx_color[1] / 255,
-                sdfx_color[2] / 255,
-            )
-            light_data.color = normalized_color
-
-            # Assign other light properties
-            light_object.location = entry.position
-            light_object["sdfx_drawdis"] = entry.corona_far_clip
-            light_object["sdfx_outerrange"] = entry.pointlight_range
-            light_object["sdfx_size"] = entry.corona_size
-            light_object["sdfx_innerrange"] = entry.shadow_size
-            light_object["sdfx_corona"] = entry.corona_tex_name
-            light_object["sdfx_shad"] = entry.shadow_tex_name
-            light_object["sdfx_lighttype"] = entry.flags1
-            light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
-            light_object["sdfx_showmode"] = entry.corona_show_mode
-            light_object["sdfx_reflection"] = entry.corona_enable_reflection
-            light_object["sdfx_flaretype"] = entry.corona_flare_type
-            light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
-            light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
-            light_object["sdfx_flags2"] = entry.flags2
-            light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
-
-        self.report({'INFO'}, f"Created {len(entries)} lights from entries.")
-        return {'FINISHED'}
-
-
-
-
-def add_light_info(frames, entries):
-    # Determine the collection to which objects will be linked
-    if isinstance(frames, bpy.types.Context):
-        collection = frames.scene.collection
-    elif isinstance(frames, bpy.types.Collection):
-        collection = frames
-    elif hasattr(frames, "objects"):  # Handles bpy.context.scene.objects or similar
-        collection = bpy.context.scene.collection
-    elif isinstance(frames, (list, tuple)) and all(isinstance(obj, bpy.types.Object) for obj in frames):
-        collection = bpy.context.scene.collection
+# Function to add light info to selected light objects
+def add_light_info(context, obj=None):
+    if obj is None:
+        objs = context.selected_objects
     else:
-        print(f"Warning: Unrecognized 'frames' type ({type(frames)}). Defaulting to scene collection.")
-        collection = bpy.context.scene.collection
+        objs = [obj]
+    for obj in objs:
+        if obj.type == 'LIGHT':
+            obj["sdfx_drawdis"] = 100.0
+            obj["sdfx_outerrange"] = 18.0
+            obj["sdfx_size"] = 1.0
+            obj["sdfx_innerrange"] = 8.0
+            obj["sdfx_corona"] = "coronastar"
+            obj["sdfx_shad"] = "shad_exp"
+            obj["sdfx_lighttype"] = 1
+            obj["sdfx_color"] = (15, 230, 0, 200)  # Default color (RGBA)
+            obj["sdfx_OnAllDay"] = 1  # Default value for OnAllDay
+            obj["sdfx_showmode"] = 4
+            obj["sdfx_reflection"] = 0
+            obj["sdfx_flaretype"] = 0
+            obj["sdfx_shadcolormp"] = 40
+            obj["sdfx_shadowzdist"] = 0
+            obj["sdfx_flags2"] = 0
+            obj["sdfx_viewvector"] = (0, 156, 0)
+            print(f"Added GTA Light info to {obj.name}")
 
-    # Process each light entry
-    for entry in entries:
-
-        light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
-        light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
-        collection.objects.link(light_object)
-
-
-        # Debugging information
-        print(f"Added Point Light: {light_object.name}")
-        print(f"  Position: {light_object.location}")
-        print(f"  Color: {light_data.color}")
-
-    for frame, entry in zip(frames, entries):
-        light_objects = [obj for obj in frame.objects if obj.type == 'LIGHT']
-        if not light_objects:
-            print(f"No light objects found in frame: {frame.name}")
-            continue
-
-        for obj in light_objects:
-            obj["sdfx_drawdis"] = getattr(entry, 'corona_far_clip', 100.0)
-            obj["sdfx_outerrange"] = getattr(entry, 'pointlight_range', 18.0)
-            obj["sdfx_size"] = getattr(entry, 'corona_size', 1.0)
-            obj["sdfx_innerrange"] = getattr(entry, 'shadow_size', 8.0)
-            obj["sdfx_corona"] = getattr(entry, 'corona_tex_name', "coronastar")
-            obj["sdfx_shad"] = getattr(entry, 'shadow_tex_name', "shad_exp")
-            obj["sdfx_lighttype"] = getattr(entry, 'flags1', 1)
-            obj["sdfx_color"] = getattr(entry, 'color', (15, 230, 0, 200))
-            obj["sdfx_OnAllDay"] = getattr(entry, 'corona_enable_reflection', 1)
-            obj["sdfx_showmode"] = getattr(entry, 'corona_show_mode', 4)
-            obj["sdfx_reflection"] = getattr(entry, 'corona_enable_reflection', 0)
-            obj["sdfx_flaretype"] = getattr(entry, 'corona_flare_type', 0)
-            obj["sdfx_shadcolormp"] = getattr(entry, 'shadow_color_multiplier', 40)
-            obj["sdfx_shadowzdist"] = getattr(entry, 'shadow_z_distance', 0)
-            obj["sdfx_flags2"] = getattr(entry, 'flags2', 0)
-            obj["sdfx_viewvector"] = getattr(entry, 'look_direction', (0, 156, 0))
-
-            print(f"Added 2DFX light info to {obj.name} in frame {frame.name}")
-
-def process_2dfx_lights(self, effects, context):
-    """
-    Process each 2DFX light entry and add it to Blender using add_light_info.
-
-    Args:
-        effects: Parsed 2DFX effects containing LightEntries.
-        context: Blender context.
-    """
-    for i, entry in enumerate(effects.entries):
-        if entry.effect_id == 0:  # Only process light entries (effect_id = 0)
-            print(f"Processing Light Entry {i + 1}/{len(effects.entries)}...")
-            add_light_info(context, entry)
-
-def import_2dfx(self, effects, context):
-    """
-    Import 2DFX effects into Blender.
-
-    Args:
-        effects: Parsed 2DFX effects containing entries.
-        context: Blender context.
-    """
-    print("Importing 2DFX effects...")
-    self.process_2dfx_lights(effects, context)
-
-
+# Function to add particle info to selected empty objects
 def add_particle_info(context, obj=None):
     if obj is None:
         objs = context.selected_objects
@@ -199,19 +46,21 @@ def add_particle_info(context, obj=None):
             obj["sdfx_psys"] = fx_psystems[0]  # Default particle system
             print(f"Added GTA Particle system info to {obj.name}")
 
-def add_text_info(context, obj=None):
+# Function to add escalator info to selected objects
+def add_escalator_info(context, obj=None):
     if obj is None:
         objs = context.selected_objects
     else:
         objs = [obj]
     for obj in objs:
-        if obj.type == 'MESH' and "Plane" in obj.name:
-            obj["sdfx_text1"] = ""
-            obj["sdfx_text2"] = ""
-            obj["sdfx_text3"] = ""
-            obj["sdfx_text4"] = ""
-            print(f"Added GTA 2D Text info to {obj.name}")
+        if obj.type in ['MESH', 'EMPTY']:
+            obj["sdfx_escalator_bottom"] = obj.location[:]  # Default bottom position
+            obj["sdfx_escalator_top"] = (obj.location.x, obj.location.y, obj.location.z + 10.0)  # Default top position
+            obj["sdfx_escalator_end"] = (obj.location.x, obj.location.y, obj.location.z + 10.0)  # Default end position
+            obj["sdfx_escalator_direction"] = 1  # Default direction (up)
+            print(f"Added GTA Escalator info to {obj.name}")
 
+# Function to export info to a binary file
 def export_info(context):
     global effectfile
     global textfile
@@ -233,7 +82,10 @@ def export_info(context):
                 export_particle_info(effect_stream, None, obj)
             elif obj.type == 'MESH' and "Plane" in obj.name:
                 export_text_info(effect_stream, None, obj)
+            elif obj.get("sdfx_escalator_bottom"):
+                export_escalator_info(effect_stream, None, obj)
 
+# Function to export info to a text file
 def export_text(context):
     global textfile
     obj_to_exp = [obj for obj in context.selected_objects if any(key.startswith("sdfx_") for key in obj.keys()) or obj.type in ['LIGHT', 'EMPTY', 'MESH']]
@@ -256,6 +108,8 @@ def export_text(context):
                 export_particle_info(None, text_stream, obj)
             elif obj.type == 'MESH' and "Plane" in obj.name:
                 export_text_info(None, text_stream, obj)
+            elif obj.get("sdfx_escalator_bottom"):
+                export_escalator_info(None, text_stream, obj)
 
 def export_light_info(effect_stream, text_stream, obj):
     pos = obj.location
@@ -298,6 +152,7 @@ def export_light_info(effect_stream, text_stream, obj):
         effect_stream.write(bytearray(struct.pack("B", 0)))  # padding
 
     if text_stream:
+        # Write to text file
         text_stream.write(f"2dfxType         LIGHT\n")
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"Color            {int(color[0])} {int(color[1])} {int(color[2])} {int(color[3])}\n")
@@ -353,68 +208,32 @@ def export_text_info(effect_stream, text_stream, obj):
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"TextData         {text_data}\n")
 
-def create_lights_from_omni_frames():
-    for obj in bpy.data.objects:
-        if "Omni" in obj.name:
-            print(f"Found frame named 'Omni': {obj.name}")
-            # Create a new light object
-            bpy.ops.object.light_add(type='POINT', location=obj.location)
-            light = bpy.context.object
-            light.name = obj.name + "_Light"
-            # Add the light info properties
-            add_light_info(bpy.context, light)
-            print(f"Created light for frame: {obj.name}, at location {obj.location}")
+def export_escalator_info(effect_stream, text_stream, obj):
+    bottom = obj.get("sdfx_escalator_bottom", obj.location[:])
+    top = obj.get("sdfx_escalator_top", (obj.location.x, obj.location.y, obj.location.z + 10.0))
+    end = obj.get("sdfx_escalator_end", (obj.location.x, obj.location.y, obj.location.z + 10.0))
+    direction = obj.get("sdfx_escalator_direction", 1)
 
-def import_2dfx(filepath):
-    with open(filepath, 'r', encoding='latin-1') as file:
-        obj = None
-        for line in file:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
+    print(f"Escalator Bottom: {bottom}, Top: {top}, End: {end}, Direction: {direction}")
 
-            parts = line.split()
-            if parts[0] == "2dfxType":
-                obj = bpy.data.objects.new("Imported_Object", None)
-                bpy.context.collection.objects.link(obj)
-                if parts[1] == "LIGHT":
-                    bpy.ops.object.light_add(type='POINT', location=(0, 0, 0))
-                    light = bpy.context.object
-                    light.name = f"Imported_Light_{len(bpy.data.objects)}"
-                    obj = light
-                add_light_info(bpy.context, obj)
-            if obj and parts[0] == "Position":
-                obj.location = (float(parts[1]), float(parts[2]), float(parts[3]))
-            elif obj and parts[0] == "Color":
-                obj["sdfx_color"] = (int(parts[1]), int(parts[2]), int(parts[3]), int(parts[4]))
-            elif obj and parts[0] == "CoronaFarClip":
-                obj["sdfx_drawdis"] = float(parts[1])
-            elif obj and parts[0] == "PointlightRange":
-                obj["sdfx_outerrange"] = float(parts[1])
-            elif obj and parts[0] == "CoronaSize":
-                obj["sdfx_size"] = float(parts[1])
-            elif obj and parts[0] == "ShadowSize":
-                obj["sdfx_innerrange"] = float(parts[1])
-            elif obj and parts[0] == "CoronaShowMode":
-                obj["sdfx_showmode"] = int(parts[1])
-            elif obj and parts[0] == "CoronaReflection":
-                obj["sdfx_reflection"] = int(parts[1])
-            elif obj and parts[0] == "CoronaFlareType":
-                obj["sdfx_flaretype"] = int(parts[1])
-            elif obj and parts[0] == "ShadowColorMP":
-                obj["sdfx_shadcolormp"] = int(parts[1])
-            elif obj and parts[0] == "ShadowZDistance":
-                obj["sdfx_shadowzdist"] = int(parts[1])
-            elif obj and parts[0] == "CoronaTexName":
-                obj["sdfx_corona"] = parts[1]
-            elif obj and parts[0] == "ShadowTexName":
-                obj["sdfx_shad"] = parts[1]
-            elif obj and parts[0] == "Flags1":
-                obj["sdfx_OnAllDay"] = int(parts[1])
-            elif obj and parts[0] == "Flags2":
-                obj["sdfx_flags2"] = int(parts[1])
-            elif obj and parts[0] == "ViewVector":
-                obj["sdfx_viewvector"] = (float(parts[1]), float(parts[2]), float(parts[3]))
+    if effect_stream:
+        effect_stream.write(bytearray(struct.pack("f", bottom[0])))
+        effect_stream.write(bytearray(struct.pack("f", bottom[1])))
+        effect_stream.write(bytearray(struct.pack("f", bottom[2])))
+        effect_stream.write(bytearray(struct.pack("f", top[0])))
+        effect_stream.write(bytearray(struct.pack("f", top[1])))
+        effect_stream.write(bytearray(struct.pack("f", top[2])))
+        effect_stream.write(bytearray(struct.pack("f", end[0])))
+        effect_stream.write(bytearray(struct.pack("f", end[1])))
+        effect_stream.write(bytearray(struct.pack("f", end[2])))
+        effect_stream.write(bytearray(struct.pack("I", direction)))
+
+    if text_stream:
+        text_stream.write(f"2dfxType         ESCALATOR\n")
+        text_stream.write(f"Bottom           {bottom[0]} {bottom[1]} {bottom[2]}\n")
+        text_stream.write(f"Top              {top[0]} {top[1]} {top[2]}\n")
+        text_stream.write(f"End              {end[0]} {end[1]} {end[2]}\n")
+        text_stream.write(f"Direction        {direction}\n")
 
 class SAEFFECTS_OT_Import2dfx(Operator):
     bl_idname = "saeffects.import_2dfx"
@@ -434,9 +253,9 @@ class SAEFFECTS_OT_Import2dfx(Operator):
 
 #######################################################
 
-class DFF2dfxPanel(Panel):
+class DFF2DFX_PT_Panel(Panel):
     bl_label = "DemonFF - 2DFX"
-    bl_idname = "PT_DFF2DFX"
+    bl_idname = "DFF2DFX_PT_Panel"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "object"
@@ -444,13 +263,24 @@ class DFF2dfxPanel(Panel):
     def draw(self, context):
         layout = self.layout
 
+        # Adding SA Effects options
         box = layout.box()
         row = box.row()
         row.operator("saeffects.add_light_info", text="Add Light Info")
         row = box.row()
         row.operator("saeffects.add_particle_info", text="Add Particle Info")
         row = box.row()
+        row.operator("saeffects.add_escalator_info", text="Add Escalator Info")
+        row = box.row()
         row.operator("saeffects.add_text_info", text="Add 2D Text Info")
+        
+        row = box.row()
+        row.operator("saeffects.set_escalator_bottom", text="Set Escalator Bottom")
+        row = box.row()
+        row.operator("saeffects.set_escalator_top", text="Set Escalator Top")
+        row = box.row()
+        row.operator("saeffects.set_escalator_end", text="Set Escalator End")
+
         row = box.row()
         row.prop(context.scene, "saeffects_export_path")
         row = box.row()
@@ -459,6 +289,8 @@ class DFF2dfxPanel(Panel):
         row.operator("saeffects.export_info", text="Export Binary Info")
         row = box.row()
         row.operator("saeffects.export_text_info", text="Export Text Info")
+        row = box.row()
+        row.operator("saeffects.export_escalator_info", text="Export Escalator Info")
         row = box.row()
         row.operator("saeffects.create_lights_from_omni", text="Create Lights from Omni Frames")
         row = box.row()
@@ -472,11 +304,8 @@ class SAEFFECTS_OT_AddLightInfo(Operator):
     bl_idname = "saeffects.add_light_info"
     bl_label = "Add Light Info"
     
-
     def execute(self, context):
-
-        frames = context.scene.collection.children 
-        add_light_info(frames, entries)
+        add_light_info(context)
         return {'FINISHED'}
 
 class SAEFFECTS_OT_AddParticleInfo(Operator):
@@ -485,6 +314,14 @@ class SAEFFECTS_OT_AddParticleInfo(Operator):
     
     def execute(self, context):
         add_particle_info(context)
+        return {'FINISHED'}
+
+class SAEFFECTS_OT_AddEscalatorInfo(Operator):
+    bl_idname = "saeffects.add_escalator_info"
+    bl_label = "Add Escalator Info"
+    
+    def execute(self, context):
+        add_escalator_info(context)
         return {'FINISHED'}
 
 class SAEFFECTS_OT_AddTextInfo(Operator):
@@ -521,6 +358,22 @@ class SAEFFECTS_OT_ExportTextInfo(Operator):
         export_text(context)
         return {'FINISHED'}
 
+class SAEFFECTS_OT_ExportEscalatorInfo(Operator):
+    bl_idname = "saeffects.export_escalator_info"
+    bl_label = "Export Escalator Info"
+    
+    filepath: StringProperty(subtype="FILE_PATH")
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+    def execute(self, context):
+        global effectfile
+        effectfile = self.filepath
+        export_info(context)
+        return {'FINISHED'}
+
 class SAEFFECTS_OT_CreateLightsFromOmni(Operator):
     bl_idname = "saeffects.create_lights_from_omni"
     bl_label = "Create Lights from Omni Frames"
@@ -555,7 +408,6 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout = self.layout
         obj = context.object
         
-        # Draw custom properties
         layout.prop(obj, '["sdfx_drawdis"]', text="Draw Distance")
         layout.prop(obj, '["sdfx_outerrange"]', text="Outer Range")
         layout.prop(obj, '["sdfx_size"]', text="Size")
@@ -563,7 +415,7 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_corona"]', text="Corona")
         layout.prop(obj, '["sdfx_shad"]', text="Shadow")
         layout.prop(obj, '["sdfx_lighttype"]', text="Light Type")
-        
+        layout.prop(obj, '["sdfx_color"]', text="Color")
         layout.prop(obj, '["sdfx_OnAllDay"]', text="On All Day")
         layout.prop(obj, '["sdfx_showmode"]', text="Show Mode")
         layout.prop(obj, '["sdfx_reflection"]', text="Reflection")
@@ -573,38 +425,57 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_flags2"]', text="Flags 2")
         layout.prop(obj, '["sdfx_viewvector"]', text="View Vector")
 
-    def set_light_color(obj, color):
-        """
-        Safely set the color of a Blender light object.
-        
-        Args:
-            obj: The Blender light object.
-            color: A tuple (R, G, B) where values are between 0 and 255.
-        """
-        if obj and obj.type == 'LIGHT':
-            # Ensure color is normalized
-            normalized_color = (
-                color[0] / 255,  # Normalize R
-                color[1] / 255,  # Normalize G
-                color[2] / 255,  # Normalize B
-            )
-            obj.data.color = normalized_color
+#######################################################
+# Operators to set escalator positions
 
+class SAEFFECTS_OT_SetEscalatorBottom(Operator):
+    bl_idname = "saeffects.set_escalator_bottom"
+    bl_label = "Set Escalator Bottom"
+    
+    def execute(self, context):
+        for obj in context.selected_objects:
+            obj["sdfx_escalator_bottom"] = obj.location[:]
+            print(f"Set Escalator Bottom for {obj.name} to {obj.location[:]}")
+        return {'FINISHED'}
+
+class SAEFFECTS_OT_SetEscalatorTop(Operator):
+    bl_idname = "saeffects.set_escalator_top"
+    bl_label = "Set Escalator Top"
+    
+    def execute(self, context):
+        for obj in context.selected_objects:
+            obj["sdfx_escalator_top"] = obj.location[:]
+            print(f"Set Escalator Top for {obj.name} to {obj.location[:]}")
+        return {'FINISHED'}
+
+class SAEFFECTS_OT_SetEscalatorEnd(Operator):
+    bl_idname = "saeffects.set_escalator_end"
+    bl_label = "Set Escalator End"
+    
+    def execute(self, context):
+        for obj in context.selected_objects:
+            obj["sdfx_escalator_end"] = obj.location[:]
+            print(f"Set Escalator End for {obj.name} to {obj.location[:]}")
+        return {'FINISHED'}
 
 #######################################################
 
 def register():
-    bpy.utils.register_class(DFF2dfxPanel)
+    bpy.utils.register_class(DFF2DFX_PT_Panel)
     bpy.utils.register_class(SAEFFECTS_OT_AddLightInfo)
     bpy.utils.register_class(SAEFFECTS_OT_AddParticleInfo)
+    bpy.utils.register_class(SAEFFECTS_OT_AddEscalatorInfo)
     bpy.utils.register_class(SAEFFECTS_OT_AddTextInfo)
     bpy.utils.register_class(SAEFFECTS_OT_ExportInfo)
     bpy.utils.register_class(SAEFFECTS_OT_ExportTextInfo)
+    bpy.utils.register_class(SAEFFECTS_OT_ExportEscalatorInfo)
     bpy.utils.register_class(SAEFFECTS_OT_CreateLightsFromOmni)
     bpy.utils.register_class(SAEFFECTS_OT_ViewLightInfo)
     bpy.utils.register_class(SAEFFECTS_OT_Import2dfx)
-    bpy.utils.register_class(SAEEFFECTS_OT_CreateLightsFromEntries)
     bpy.utils.register_class(OBJECT_PT_SDFXLightInfoPanel)
+    bpy.utils.register_class(SAEFFECTS_OT_SetEscalatorBottom)
+    bpy.utils.register_class(SAEFFECTS_OT_SetEscalatorTop)
+    bpy.utils.register_class(SAEFFECTS_OT_SetEscalatorEnd)
     bpy.types.Scene.saeffects_export_path = StringProperty(
         name="Export Path",
         description="Path to export the effects binary file",
@@ -619,17 +490,21 @@ def register():
 #######################################################
 
 def unregister():
-    bpy.utils.unregister_class(DFF2dfxPanel)
+    bpy.utils.unregister_class(DFF2DFX_PT_Panel)
     bpy.utils.unregister_class(SAEFFECTS_OT_AddLightInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_AddParticleInfo)
+    bpy.utils.unregister_class(SAEFFECTS_OT_AddEscalatorInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_AddTextInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_ExportInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_ExportTextInfo)
+    bpy.utils.unregister_class(SAEFFECTS_OT_ExportEscalatorInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_CreateLightsFromOmni)
     bpy.utils.unregister_class(SAEFFECTS_OT_ViewLightInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_Import2dfx)
-    bpy.utils.unregister_class(SAEEFFECTS_OT_CreateLightsFromEntries)
     bpy.utils.unregister_class(OBJECT_PT_SDFXLightInfoPanel)
+    bpy.utils.unregister_class(SAEFFECTS_OT_SetEscalatorBottom)
+    bpy.utils.unregister_class(SAEFFECTS_OT_SetEscalatorTop)
+    bpy.utils.unregister_class(SAEFFECTS_OT_SetEscalatorEnd)
     del bpy.types.Scene.saeffects_export_path
     del bpy.types.Scene.saeffects_text_export_path
 

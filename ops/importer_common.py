@@ -17,7 +17,7 @@
 import bpy
 from collections import namedtuple
 
-game_version = namedtuple("game_version", "III VC SA LCS VCS")
+game_version = namedtuple("game_version", "III VC SA LCS VCS IV")
 game_version.III = 'III'
 game_version.VC = 'VC'
 game_version.SA = 'SA'
