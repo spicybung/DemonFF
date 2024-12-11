@@ -14,6 +14,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# NOTE: dff.py NEEDS TO BE HERE FOR SAMP!
+
 from collections import namedtuple
 from struct import unpack_from, calcsize, pack
 from enum import Enum, IntEnum
