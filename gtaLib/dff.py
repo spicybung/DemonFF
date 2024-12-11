@@ -1103,29 +1103,34 @@ class Light2dfx:
 
     #######################################################
     def to_mem(self):
-        data = Sections.write(RGBA, self.color)
+        # Write the position vector (12 bytes for FLOAT[3])
+        data = pack("<fff", *self.loc)
 
-        # 76 bytes
+        # Write the effect ID (4 bytes)
+        data += pack("<I", self.effect_id)
+
+        # Write the other attributes (76 bytes for the data block)
+        data += Sections.write(RGBA, self.color)
+
         data += pack(
             "<ffffBBBBB24s24sBB",
-            self.coronaFarClip          , self.pointlightRange,
-            self.coronaSize             , self.shadowSize,
-            self.coronaShowMode         , self.coronaEnableReflection,
-            self.coronaFlareType        , self.shadowColorMultiplier,
-            self._flags1                , self.coronaTexName.encode(),
-            self.shadowTexName.encode() , self.shadowZDistance,
+            self.coronaFarClip, self.pointlightRange,
+            self.coronaSize, self.shadowSize,
+            self.coronaShowMode, self.coronaEnableReflection,
+            self.coronaFlareType, self.shadowColorMultiplier,
+            self._flags1, self.coronaTexName.encode(),
+            self.shadowTexName.encode(), self.shadowZDistance,
             self._flags2
         )
 
-        # 80 bytes
+        # Add optional look direction (4 bytes padding if absent)
         if self.lookDirection is not None:
             data += pack("<bbb2x", *self.lookDirection)
-
-        # 76 bytes (padding)
         else:
-            data += pack("<x")
+            data += pack("<4x")
 
         return data
+
 
     #######################################################
     def check_flag(self, flag):
