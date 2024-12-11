@@ -340,7 +340,6 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
                         'group_materials': self.group_materials,
                         'import_normals': self.import_normals
                     }, 
-                    context
                 )
 
                 print(f"Imported DFF {file} successfully")
