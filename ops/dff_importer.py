@@ -12,82 +12,11 @@ from .importer_common import (
     hide_object)
 from .col_importer import import_col_mem
 
-from ..gui.tdfx_ot import add_light_info, import_light
+from ..gui.tdfx_ot import add_light_info
+
+from ..ops.ext_2dfx_importer import ext_2dfx_importer
 
 
-#######################################################
-class ext_2dfx_importer:
-
-    """ Helper class for 2dfx importing """
-    # Basically I didn't want to have such functions in
-    # the main dfff_importer, as the functions wouldn't
-    # make any sense being there.
-    
-    #######################################################
-    def __init__(self, effects, context):
-        self.effects = effects
-        self.context = context
-    #######################################################
-    def import_light(self, entry):
-        """Create a light in Blender from a 2DFX entry and link it to the specified collection."""
-        # Create a Point light
-        light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
-        light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
-
-        # Assign light properties
-        light_data.color = (
-            entry.color[0] / 255,  # Access color tuple using dot notation
-            entry.color[1] / 255,
-            entry.color[2] / 255,
-        )
-        light_object.location = entry.position
-
-        # Add custom properties using entry data
-        light_object["sdfx_drawdis"] = entry.corona_far_clip
-        light_object["sdfx_outerrange"] = entry.pointlight_range
-        light_object["sdfx_size"] = entry.corona_size
-        light_object["sdfx_innerrange"] = entry.shadow_size
-        light_object["sdfx_corona"] = entry.corona_tex_name
-        light_object["sdfx_shad"] = entry.shadow_tex_name
-        light_object["sdfx_lighttype"] = entry.flags1
-        light_object["sdfx_color"] = entry.color
-        light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
-        light_object["sdfx_showmode"] = entry.corona_show_mode
-        light_object["sdfx_reflection"] = entry.corona_enable_reflection
-        light_object["sdfx_flaretype"] = entry.corona_flare_type
-        light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
-        light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
-        light_object["sdfx_flags2"] = entry.flags2
-        light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
-
-        # Sync sdfx_color with the Light Color wheel
-        if "sdfx_color" in light_object:
-            sdfx_color = light_object["sdfx_color"]
-            light_data.color = (
-                sdfx_color[0] / 255,
-                sdfx_color[1] / 255,
-                sdfx_color[2] / 255,
-            )
-
-        return light_object
-    
-    #######################################################
-    def get_objects(self):
-
-        """ Import and return the list of imported objects """
-
-        functions = {
-            "light": self.import_light
-        }
-
-        objects = []
-        
-        for entry in entries:
-            if entry.effect_id in functions:
-                objects.append(functions[entry.type](entry))
-
-        return objects
-    
 #######################################################
 class dff_importer:
 
@@ -816,7 +745,14 @@ class dff_importer:
                     _atomic[0] = index # _atomic.frame = index
                     self.dff.atomic_list[atomic] = dff.Atomic(*_atomic)
                     break
-                    
+    #######################################################
+    def import_2dfx():
+        self = dff_importer
+
+        importer = ext_2dfx_importer(self.dff.ext_2dfx)
+
+        for obj in importer.get_objects():
+            link_object(obj, self.current_collection)               
             
     #######################################################
     def import_dff(file_name, context):
@@ -829,7 +765,7 @@ class dff_importer:
         self.file_name = file_name
         # Check for and process the 2DFX extension
         if self.dff.ext_2dfx:  # Ensure ext_2dfx is populated
-            ext_importer = ext_2dfx_importer(self.dff.ext_2dfx, context)
+            ext_importer = ext_2dfx_importer(self.dff.ext_2dfx)
             ext_importer.get_objects()  # Process the 2DFX entries
 
         self.preprocess_atomics()
@@ -839,11 +775,11 @@ class dff_importer:
             os.path.basename(file_name)
         )
         
-        for entry in entries:
-            import_light(entry, dff_importer.current_collection)
 
         self.import_atomics()
         self.import_frames(context)
+        self.import_2dfx()
+        
         
         # Add collisions
         for collision in self.dff.collisions:

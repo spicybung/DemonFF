@@ -509,7 +509,7 @@ class Atomic:
     ]
 
     ##################################################################
-    def __init__(self):
+    def __init__(self, frame, geometry, flags, unk):
         self.frame      = 0
         self.geometry   = 0
         self.flags      = 0

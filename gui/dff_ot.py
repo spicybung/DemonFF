@@ -42,11 +42,29 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         name="Only Selected",
         default=False
     )
+
+    preserve_positions     : bpy.props.BoolProperty(
+        name            = "Preserve Positions",
+        description     = "Don't set object positions to (0,0,0)",
+        default         = True
+    )
+
+    preserve_rotations     : bpy.props.BoolProperty(
+        name            = "Preserve Rotations",
+        description     = "Don't set object rotations to (0,0,0)",
+        default         = True
+    )
     
     reset_positions: bpy.props.BoolProperty(
         name="Preserve Positions",
         description="Don't set object positions to (0,0,0)",
         default=False
+    )
+
+    exclude_geo_faces   : bpy.props.BoolProperty(
+        name            = "Exclude Geometry Faces",
+        description     = "Exclude faces from the Geometry section and force export Bin Mesh PLG",
+        default         = False
     )
 
     export_format: bpy.props.EnumProperty(
@@ -145,6 +163,8 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
                 "directory": self.directory,
                 "selected": self.only_selected,
                 "mass_export": self.mass_export,
+                "preserve_positions" : self.preserve_positions,
+                "preserve_rotations" : self.preserve_rotations,
                 "version": self.get_selected_rw_version(),
                 "export_coll": self.export_coll,
                 "export_frame_names": self.export_frame_names,
@@ -349,16 +369,3 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
-
-def register():
-    bpy.utils.register_class(EXPORT_OT_dff_custom)
-    bpy.utils.register_class(EXPORT_OT_samp_custom)
-    bpy.utils.register_class(IMPORT_OT_dff_custom)
-
-def unregister():
-    bpy.utils.unregister_class(EXPORT_OT_dff_custom)
-    bpy.utils.unregister_class(EXPORT_OT_samp_custom)
-    bpy.utils.unregister_class(IMPORT_OT_dff_custom)
-
-if __name__ == "__main__":
-    register()

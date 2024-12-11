@@ -5,7 +5,6 @@ import mathutils
 from bpy.props import StringProperty, FloatProperty, IntProperty, FloatVectorProperty, BoolProperty
 from bpy.types import Operator, Panel, PropertyGroup
 
-from ..gtaLib.dff import entries
 #Information taken from https://gtamods.com/wiki/2DFX
 # & https://gtamods.com/wiki/2d_Effect_(RW_Section)
 
@@ -27,25 +26,24 @@ def import_light(entry, collection):
         entry.color[1] / 255,
         entry.color[2] / 255,
     )
-    light_object.location = entry.position
+    light_object.location = entry.loc
 
     # Add custom properties
+
+    light_object.location = entry.loc
     light_object["sdfx_drawdis"] = entry.corona_far_clip
-    light_object["sdfx_outerrange"] = entry.pointlight_range
-    light_object["sdfx_size"] = entry.corona_size
-    light_object["sdfx_innerrange"] = entry.shadow_size
-    light_object["sdfx_corona"] = entry.corona_tex_name
-    light_object["sdfx_shad"] = entry.shadow_tex_name
-    light_object["sdfx_lighttype"] = entry.flags1
-    light_object["sdfx_color"] = entry.color
-    light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
-    light_object["sdfx_showmode"] = entry.corona_show_mode
-    light_object["sdfx_reflection"] = entry.corona_enable_reflection
-    light_object["sdfx_flaretype"] = entry.corona_flare_type
-    light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
-    light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
-    light_object["sdfx_flags2"] = entry.flags2
-    light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
+    light_object["sdfx_outerrange"] = entry.pointlightRange
+    light_object["sdfx_size"] = entry.coronaSize
+    light_object["sdfx_innerrange"] = entry.shadowSize
+    light_object["sdfx_corona"] = entry.coronaTexName
+    light_object["sdfx_shad"] = entry.shadowTexName
+    light_object["sdfx_OnAllDay"] = entry.coronaEnableReflection != 0
+    light_object["sdfx_showmode"] = entry.coronaShowMode
+    light_object["sdfx_reflection"] = entry.coronaEnableReflection != 0
+    light_object["sdfx_flaretype"] = entry.coronaFlareType
+    light_object["sdfx_shadcolormp"] = entry.shadowColorMultiplier
+    light_object["sdfx_shadowzdist"] = entry.shadowZDistance
+    light_object["sdfx_viewvector"] = entry.lookDirection or (0, 0, 0)
 
     return light_object
 
@@ -88,22 +86,20 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
             light_data.color = normalized_color
 
             # Assign other light properties
-            light_object.location = entry.position
+            light_object.location = entry.loc
             light_object["sdfx_drawdis"] = entry.corona_far_clip
-            light_object["sdfx_outerrange"] = entry.pointlight_range
-            light_object["sdfx_size"] = entry.corona_size
-            light_object["sdfx_innerrange"] = entry.shadow_size
-            light_object["sdfx_corona"] = entry.corona_tex_name
-            light_object["sdfx_shad"] = entry.shadow_tex_name
-            light_object["sdfx_lighttype"] = entry.flags1
-            light_object["sdfx_OnAllDay"] = entry.corona_enable_reflection
-            light_object["sdfx_showmode"] = entry.corona_show_mode
-            light_object["sdfx_reflection"] = entry.corona_enable_reflection
-            light_object["sdfx_flaretype"] = entry.corona_flare_type
-            light_object["sdfx_shadcolormp"] = entry.shadow_color_multiplier
-            light_object["sdfx_shadowzdist"] = entry.shadow_z_distance
-            light_object["sdfx_flags2"] = entry.flags2
-            light_object["sdfx_viewvector"] = entry.look_direction or (0, 0, 0)
+            light_object["sdfx_outerrange"] = entry.pointlightRange
+            light_object["sdfx_size"] = entry.coronaSize
+            light_object["sdfx_innerrange"] = entry.shadowSize
+            light_object["sdfx_corona"] = entry.coronaTexName
+            light_object["sdfx_shad"] = entry.shadowTexName
+            light_object["sdfx_OnAllDay"] = entry.coronaEnableReflection != 0
+            light_object["sdfx_showmode"] = entry.coronaShowMode
+            light_object["sdfx_reflection"] = entry.coronaEnableReflection != 0
+            light_object["sdfx_flaretype"] = entry.coronaFlareType
+            light_object["sdfx_shadcolormp"] = entry.shadowColorMultiplier
+            light_object["sdfx_shadowzdist"] = entry.shadowZDistance
+            light_object["sdfx_viewvector"] = entry.lookDirection or (0, 0, 0)
 
         self.report({'INFO'}, f"Created {len(entries)} lights from entries.")
         return {'FINISHED'}
@@ -562,7 +558,6 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_innerrange"]', text="Inner Range")
         layout.prop(obj, '["sdfx_corona"]', text="Corona")
         layout.prop(obj, '["sdfx_shad"]', text="Shadow")
-        layout.prop(obj, '["sdfx_lighttype"]', text="Light Type")
         
         layout.prop(obj, '["sdfx_OnAllDay"]', text="On All Day")
         layout.prop(obj, '["sdfx_showmode"]', text="Show Mode")
@@ -570,7 +565,6 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_flaretype"]', text="Flare Type")
         layout.prop(obj, '["sdfx_shadcolormp"]', text="Shadow Color Multiplier")
         layout.prop(obj, '["sdfx_shadowzdist"]', text="Shadow Z Distance")
-        layout.prop(obj, '["sdfx_flags2"]', text="Flags 2")
         layout.prop(obj, '["sdfx_viewvector"]', text="View Vector")
 
     def set_light_color(obj, color):

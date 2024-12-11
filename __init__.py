@@ -92,6 +92,8 @@ _classes = [
     gui.OBJECT_PT_dffObjects,
     gui.OBJECT_OT_join_similar_named_meshes,
     gui.OBJECT_PT_join_similar_meshes_panel,
+    gui.EXT2DFXObjectProps,
+    gui.Light2DFXObjectProps,
     gui.DFFMaterialProps,
     gui.DFFObjectProps,
     gui.MapImportPanel,
@@ -100,9 +102,8 @@ _classes = [
     gui.SCENE_OT_duplicate_all_as_collision,
     gui.SCENE_PT_collision_tools,
     map_importer.Map_Import_Operator,
-    map_exporter.IDE_Import_Operator,
     map_exporter.SAMP_IDE_Import_Operator,
-    map_exporter.SAMP_Mass_IDE_Import_Operator,
+    map_exporter.Mass_IDE_Import_Operator,
     map_exporter.RemoveBuildingForPlayerOperator,
     map_exporter.ExportToIPLOperator,
     map_exporter.ExportToIDEOperator,
@@ -118,7 +119,9 @@ _classes = [
     gui.SAEFFECTS_OT_CreateLightsFromOmni,
     gui.SAEFFECTS_OT_Import2dfx,
     gui.SAEFFECTS_OT_ViewLightInfo,
+    gui.SAEEFFECTS_OT_CreateLightsFromEntries,
     gui.OBJECT_PT_SDFXLightInfoPanel,
+    gui.SAEEFFECTS_PT_Panel,
     gui.IMPORT_OT_ifp
 ]
 
