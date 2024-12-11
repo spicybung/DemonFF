@@ -7,7 +7,7 @@ import os.path
 from collections import defaultdict
 
 from ..gtaLib import dff
-from ..gtaLib.dff import write_2dfx_effect_section
+from ..ops.ext_2dfx_exporter import ext_2dfx_exporter
 from .col_exporter import export_col
 
 #######################################################
@@ -265,7 +265,7 @@ class dff_exporter:
     file_name = ""
     dff = None
     version = None
-    frames = {}
+    frame_objects = {}
     bones = {}
     parent_queue = {}
     collection = None
@@ -278,10 +278,19 @@ class dff_exporter:
         if bpy.app.version < (2, 80, 0):
             return a * b
         return a @ b
+    #######################################################    
+    @staticmethod
+    def get_object_parent(obj):
+        if type(obj) is bpy.types.Object and obj.parent_bone:
+            parent = obj.parent.data.bones.get(obj.parent_bone)
+            if parent:
+                return parent
+
+        return obj.parent
     
     #######################################################
     @staticmethod
-    def create_frame(obj, append=True, set_parent=True):
+    def create_frame(obj, append=True, set_parent=True, matrix_local=None):
         self = dff_exporter
         
         frame       = dff.Frame()
@@ -294,43 +303,53 @@ class dff_exporter:
         # Is obj a bone?
         is_bone = type(obj) is bpy.types.Bone
 
-        # Scan parent queue
-        for name in self.parent_queue:
-            if name == obj.name:
-                index = self.parent_queue[name]
-                self.dff.frame_list[index].parent = frame_index
-
-        matrix = obj.matrix_local
+        matrix = matrix_local or obj.matrix_local
         if is_bone and obj.parent is not None:
             matrix = self.multiply_matrix(obj.parent.matrix_local.inverted(), matrix)
 
+        parent = self.get_object_parent(obj)
+
+        if is_bone or parent:
+            position = matrix.to_translation()
+            rotation_matrix = matrix.to_3x3().transposed()
+        else:
+            if self.preserve_positions:
+                position = matrix.to_translation()
+            else:
+                position = (0, 0, 0)
+
+            if self.preserve_rotations:
+                rotation_matrix = matrix.to_3x3().transposed()
+            else:
+                rotation_matrix = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
         frame.creation_flags  =  0
         frame.parent          = -1
-        frame.position        = matrix.to_translation()
-        frame.rotation_matrix = dff.Matrix._make(
-            matrix.to_3x3().transposed()
-        )
+        frame.position        = position
+        frame.rotation_matrix = dff.Matrix._make(rotation_matrix)
 
         if "dff_user_data" in obj:
             frame.user_data = dff.UserData.from_mem(obj["dff_user_data"])
 
-        id_array = self.bones if is_bone else self.frames
-        
-        if set_parent and obj.parent is not None:
+        if set_parent and parent is not None:
 
-            if obj.parent.name not in id_array:
+            if parent not in self.frame_objects:
                 raise DffExportException(f"Failed to set parent for {obj.name} "
-                                         f"to {obj.parent.name}.")
-            
-            parent_frame_idx = id_array[obj.parent.name]
-            frame.parent = parent_frame_idx
+                                         f"to {parent.name}.")
 
-        id_array[obj.name] = frame_index
+            parent_frame_idx = self.frame_objects[parent]
+            frame.parent = parent_frame_idx
 
         if append:
             self.dff.frame_list.append(frame)
 
+        self.frame_objects[obj] = frame_index
         return frame
+    
+    #######################################################
+    @staticmethod
+    def get_last_frame_index():
+        return len(dff_exporter.dff.frame_list) - 1
 
     #######################################################
     @staticmethod
@@ -734,19 +753,31 @@ class dff_exporter:
         return mesh
     
     #######################################################
-    def populate_atomic(obj):
+    def populate_atomic(obj, frame_index=None):
         self = dff_exporter
 
-        # Get armature
-        armature = None
-        for modifier in obj.modifiers:
-            if modifier.type == 'ARMATURE':
-                armature = modifier.object
+        # Get frame index from parent
+        if frame_index is None:
+            parent = self.get_object_parent(obj)
+            if parent:
+                frame_index = self.frame_objects.get(parent)
+
+        # Get frame index from armature modifier
+        if frame_index is None:
+            for modifier in obj.modifiers:
+                if modifier.type == 'ARMATURE':
+                    frame_index = self.frame_objects.get(modifier.object)
+                    if frame_index is not None:
+                        break
+
+        # Create new frame if there is no parent
+        if frame_index is None:
+            self.create_frame(obj, set_parent=False)
+            frame_index = self.get_last_frame_index()
 
         # Create geometry
         geometry = dff.Geometry()
         self.populate_geometry_with_mesh_data (obj, geometry)
-        self.create_frame(obj, True, obj.parent != armature)
 
         # Bounding sphere
         sphere_center = 0.125 * sum(
@@ -754,8 +785,8 @@ class dff_exporter:
             mathutils.Vector()
         )
         sphere_center = self.multiply_matrix(obj.matrix_world, sphere_center)
-        sphere_radius = 1.732 * max(*obj.dimensions) / 2        
-        
+        sphere_radius = 1.732 * max(*obj.dimensions) / 2
+
         geometry.bounding_sphere = dff.Sphere._make(
             list(sphere_center) + [sphere_radius]
         )
@@ -767,38 +798,38 @@ class dff_exporter:
         geometry.export_flags['write_mesh_plg'] = obj.dff.export_binsplit
         geometry.export_flags['light'] = obj.dff.light
         geometry.export_flags['modulate_color'] = obj.dff.modulate_color
+
         
         if "dff_user_data" in obj.data:
             geometry.extensions['user_data'] = dff.UserData.from_mem(
                 obj.data['dff_user_data'])
 
+        # Add Geometry to list
+        self.dff.geometry_list.append(geometry)
+
+        # Create Atomic from geometry and frame
+        atomic          = dff.Atomic()
+        atomic.frame    = frame_index
+        atomic.geometry = len(self.dff.geometry_list) - 1
+        atomic.flags    = 0x4
+
         try:
             if obj.dff.pipeline != 'NONE':
                 if obj.dff.pipeline == 'CUSTOM':
-                    geometry.pipeline = int(obj.dff.custom_pipeline, 0)
+                    atomic.extensions['pipeline'] = int(obj.dff.custom_pipeline, 0)
                 else:
-                    geometry.pipeline = int(obj.dff.pipeline, 0)
-                    
+                    atomic.extensions['pipeline'] = int(obj.dff.pipeline, 0)
+
         except ValueError:
             print("Invalid (Custom) Pipeline")
-            
-        # Add Geometry to list
-        self.dff.geometry_list.append(geometry)
-        
-        # Create Atomic from geometry and frame
-        geometry_index = len(self.dff.geometry_list) - 1
-        frame_index    = len(self.dff.frame_list) - 1
-        atomic         = dff.Atomic._make((frame_index,
-                                           geometry_index,
-                                           0x4,
-                                           0
-        ))
+
+        if "skin" in geometry.extensions:
+            right_to_render = dff.RightToRender._make((0x0116,
+                obj.dff.right_to_render
+            ))
+            atomic.extensions['right_to_render'] = right_to_render
+
         self.dff.atomic_list.append(atomic)
-
-        # Export armature
-        if armature is not None:
-            self.export_armature(armature, obj)
-
 
     #######################################################
     @staticmethod
@@ -888,48 +919,86 @@ class dff_exporter:
 
     #######################################################
     @staticmethod
+    def export_empty(obj):
+        self = dff_exporter
+
+        parent = self.get_object_parent(obj)
+        set_parent = False
+        matrix_local = None
+
+        if parent in self.frame_objects:
+            set_parent = True
+            if obj.parent_type == "BONE":
+                matrix_local = obj.matrix_basis
+
+        # Create new frame
+        self.create_frame(obj, set_parent=set_parent, matrix_local=matrix_local)
+
+    #######################################################
+    @staticmethod
     def export_objects(objects, name=None):
         self = dff_exporter
-        
+
         self.dff = dff.dff()
 
         # Skip empty collections
         if len(objects) < 1:
             return
-        
+
+        atomics_data = []
+
         for obj in objects:
+
+            # We can just ignore collision meshes here as the DFF exporter will still look for
+            # them in their own nested collection later if export_coll is true.
+            if obj.dff.type != 'OBJ':
+                continue
 
             # create atomic in this case
             if obj.type == "MESH":
-                self.populate_atomic(obj)
+                frame_index = None
+                # create an empty frame
+                if obj.dff.is_frame:
+                    self.export_empty(obj)
+                    frame_index = self.get_last_frame_index()
+                atomics_data.append((obj, frame_index))
 
             # create an empty frame
             elif obj.type == "EMPTY":
-                self.create_frame(obj)
+                self.export_empty(obj)
 
-            elif obj.type == "LIGHT":
-                write_2dfx_effect_section(obj)
-        
+            elif obj.type == "ARMATURE":
+                self.export_armature(obj)
+
+        atomics_data = sorted(atomics_data, key=lambda a: a[0].dff.atomic_index)
+
+        for mesh, frame_index in atomics_data:
+            self.populate_atomic(mesh, frame_index)
+
+        # 2DFX
+        ext_2dfx_exporter(self.dff.ext_2dfx).export_objects(objects)
+
         # Collision
         if self.export_coll:
             mem = export_col({
-                'file_name'     : name if name is not None else
-                               os.path.basename(self.file_name),
-                'memory'        : True,
+                'file_name'     : None,
                 'version'       : 3,
+                'memory'        : True,
                 'collection'    : self.collection,
                 'only_selected' : self.selected,
-                'mass_export'   : False
+                'mass_export': False
             })
 
             if len(mem) != 0:
-               self.dff.collisions = [mem] 
-
+                self.dff.collisions = [mem]
 
         if name is None:
             self.dff.write_file(self.file_name, self.version )
         else:
-            self.dff.write_file("%s/%s" % (self.path, name), self.version)
+            filename = "%s/%s" % (self.path, name)
+            if not filename.endswith('.dff'):
+                filename += '.dff'
+            self.dff.write_file(filename, self.version)
 
     #######################################################
     @staticmethod

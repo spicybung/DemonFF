@@ -189,7 +189,7 @@ class col_exporter:
 #######################################################
 def export_col(options):
     
-    col_exporter.memory = options['memory']
+
     col_exporter.version = options['version']
     col_exporter.collection = options['collection']
     col_exporter.only_selected = options['only_selected']

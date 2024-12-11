@@ -100,44 +100,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     def unregister(cls):
         del bpy.types.Scene.dff
 
-def import_ide(filepath, context):
-    if not os.path.isfile(filepath):
-        print("File not found")
-        return
-
-    with open(filepath, 'r') as file:
-        lines = file.readlines()
-
-    obj_data = {}
-    in_obj_section = False
-
-    for line in lines:
-        line = line.strip()
-        if line.lower().startswith("objs"):
-            in_obj_section = True
-        elif line.lower().startswith("end"):
-            in_obj_section = False
-        elif in_obj_section and line and not line.startswith("#"):
-            parts = line.split(",")
-            if len(parts) > 3:
-                obj_id = int(parts[0].strip())
-                obj_name = parts[1].strip()
-                txd_name = parts[2].strip()
-                obj_data[obj_name] = (obj_id, txd_name)
-
-    for obj in context.scene.objects:
-        base_name = obj.name.split('.')[0]
-        if base_name in obj_data:
-            obj_id, txd_name = obj_data[base_name]
-            obj["IDE_ID"] = obj_id
-            obj["TXD_Name"] = txd_name
-            print(f"Assigned IDE ID {obj_id} and TXD {txd_name} to {obj.name}")
-        else:
-            print(f"No matching IDE ID found for {obj.name}")
-
-    print("IDE import completed")
-
-def import_samp_ide(filepaths, context):
+def import_ide(filepaths, context):
     for filepath in filepaths:
         if not os.path.isfile(filepath):
             print(f"File not found: {filepath}")
@@ -243,23 +206,6 @@ def mass_import_samp_ide(filepaths, context):
 
     print("Mass SAMP IDE import completed")
 
-class IDE_Import_Operator(bpy.types.Operator):
-    """Import .IDE File"""
-    bl_idname = "object.ide_import"
-    bl_label = "Import .IDE File"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="", options={'HIDDEN'}, maxlen=1024)
-    filter_glob: bpy.props.StringProperty(default="*.ide", options={'HIDDEN'})
-
-    def execute(self, context):
-        import_ide(self.filepath, context)
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
 class SAMP_IDE_Import_Operator(bpy.types.Operator):
     """Import SAMP .IDE File"""
     bl_idname = "object.samp_ide_import"
@@ -270,17 +216,17 @@ class SAMP_IDE_Import_Operator(bpy.types.Operator):
     filter_glob: bpy.props.StringProperty(default="*.ide", options={'HIDDEN'})
 
     def execute(self, context):
-        import_samp_ide([self.filepath], context)
+        import_ide([self.filepath], context)
         return {'FINISHED'}
 
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
-class SAMP_Mass_IDE_Import_Operator(bpy.types.Operator):
-    """Mass Import SAMP .IDE Files"""
+class Mass_IDE_Import_Operator(bpy.types.Operator):
+    """Import .IDE Files"""
     bl_idname = "object.samp_mass_ide_import"
-    bl_label = "Mass Import SAMP .IDE Files"
+    bl_label = "Import .IDE Files"
     bl_options = {'REGISTER', 'UNDO'}
 
     files: CollectionProperty(type=bpy.types.PropertyGroup)
@@ -290,7 +236,7 @@ class SAMP_Mass_IDE_Import_Operator(bpy.types.Operator):
 
     def execute(self, context):
         filepaths = [os.path.join(self.directory, f.name) for f in self.files]
-        import_samp_ide(filepaths, context)
+        import_ide(filepaths, context)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -584,8 +530,7 @@ class DemonFFMapExportPanel(bpy.types.Panel):
         row = layout.row()
         row.operator("object.export_to_ipl", text="Export IPL")
         row.operator("object.export_to_ide", text="Export IDE")
-        row.operator("object.ide_import", text="Import IDE")
-        row.operator("object.samp_ide_import", text="Import SAMP IDE")
+        row.operator("object.samp_mass_ide_import", text="Import IDE")
 
 class DemonFFPawnPanel(bpy.types.Panel):
     bl_label = "DemonFF - Pawn"
@@ -598,15 +543,12 @@ class DemonFFPawnPanel(bpy.types.Panel):
         layout = self.layout
         row = layout.row()
         row.operator("object.export_to_pawn", text="Export .pwn")
-        row.operator("object.samp_ide_import", text="Import SAMP IDE")
-        row.operator("object.samp_mass_ide_import", text="Mass Import SAMP IDE")
         row.operator("object.remove_building_for_player", text="Remove Building For Player")
 
 def register():
     bpy.utils.register_class(DFFSceneProps)
-    bpy.utils.register_class(IDE_Import_Operator)
     bpy.utils.register_class(SAMP_IDE_Import_Operator)
-    bpy.utils.register_class(SAMP_Mass_IDE_Import_Operator)
+    bpy.utils.register_class(Mass_IDE_Import_Operator)
     bpy.utils.register_class(ExportToIPLOperator)
     bpy.utils.register_class(ExportToIDEOperator)
     bpy.utils.register_class(ExportToPawnOperator)
@@ -618,9 +560,8 @@ def register():
 
 def unregister():
     bpy.utils.unregister_class(DFFSceneProps)
-    bpy.utils.unregister_class(IDE_Import_Operator)
     bpy.utils.unregister_class(SAMP_IDE_Import_Operator)
-    bpy.utils.unregister_class(SAMP_Mass_IDE_Import_Operator)
+    bpy.utils.unregister_class(Mass_IDE_Import_Operator)
     bpy.utils.unregister_class(ExportToIPLOperator)
     bpy.utils.unregister_class(ExportToIDEOperator)
     bpy.utils.unregister_class(ExportToPawnOperator)

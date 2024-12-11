@@ -2,6 +2,7 @@ import bpy
 import struct
 from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom
 from .col_ot import EXPORT_OT_col
+from .ext_2dfx_menus import EXT2DFXObjectProps, EXT2DFXMenus
 
 # Global variables
 fx_images = ["coronastar", "shad_exp"]
@@ -9,6 +10,131 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""  # New variable to hold the path to the .txt file
 
+class Light2DFXObjectProps(bpy.types.PropertyGroup):
+
+    alpha : bpy.props.FloatProperty(
+        min = 0,
+        max = 1
+    )
+
+    corona_far_clip : bpy.props.FloatProperty(
+        description = "Corona visibility distance"
+    )
+
+    point_light_range : bpy.props.FloatProperty(
+        description = "Point light source radius"
+    )
+
+    export_view_vector : bpy.props.BoolProperty()
+
+    view_vector : bpy.props.IntVectorProperty(
+        min = -128,
+        max = 127
+    )
+
+    corona_size : bpy.props.FloatProperty()
+
+    shadow_size : bpy.props.FloatProperty()
+
+    corona_show_mode : bpy.props.EnumProperty(
+        items = (
+            ('0', 'DEFAULT', ''),
+            ('1', 'RANDOM_FLASHING', ''),
+            ('2', 'RANDOM_FLASHIN_ALWAYS_AT_WET_WEATHER', ''),
+            ('3', 'LIGHTS_ANIM_SPEED_4X', ''),
+            ('4', 'LIGHTS_ANIM_SPEED_2X', ''),
+            ('5', 'LIGHTS_ANIM_SPEED_1X', ''),
+            ('6', 'WARNLIGHT', ''),
+            ('7', 'TRAFFICLIGHT', ''),
+            ('8', 'TRAINCROSSLIGHT', ''),
+            ('9', 'DISABLED', ''),
+            ('10', 'AT_RAIN_ONLY', 'Enables only in rainy weather'),
+            ('11', '5S_ON_5S_OFF', '5s - on, 5s - off'),
+            ('12', '6S_ON_4S_OFF', '6s - on, 4s - off'),
+            ('13', '6S_ON_4S_OFF_2', '6s - on, 4s - off'),
+        )
+    )
+
+    corona_flare_type : bpy.props.IntProperty(
+        min = 0,
+        max = 2,
+        description = "Type of highlights for the corona"
+    )
+
+    shadow_color_multiplier : bpy.props.IntProperty(
+        min = 0,
+        max = 255,
+        description = "Shadow intensity"
+    )
+
+    corona_enable_reflection : bpy.props.BoolProperty(
+        description = "Enable corona reflection on wet asphalt"
+    )
+
+    shadow_z_distance : bpy.props.IntProperty(
+        min = 0,
+        max = 255,
+        description = "Maximum distance for drawing shadow"
+    )
+
+    flag1_corona_check_obstacles : bpy.props.BoolProperty(
+        description = "If there are any objects between the corona and the camera, the corona will not be rendered"
+    )
+
+    flag1_fog_type : bpy.props.IntProperty(
+        min = 0,
+        max = 3,
+        description = "Fog type for point light source"
+    )
+
+    flag1_without_corona : bpy.props.BoolProperty()
+
+    flag1_corona_only_at_long_distance : bpy.props.BoolProperty()
+
+    flag1_at_day : bpy.props.BoolProperty()
+
+    flag1_at_night : bpy.props.BoolProperty()
+
+    flag1_blinking1 : bpy.props.BoolProperty(
+        description = "Blinks (almost imperceptibly)"
+    )
+
+    flag2_corona_only_from_below : bpy.props.BoolProperty(
+        description = "The corona is visible only from below (when the height of the camera position is less than the height of the light source)"
+    )
+
+    flag2_blinking2 : bpy.props.BoolProperty(
+        description = "Blinks (very fast)"
+    )
+
+    flag2_udpdate_height_above_ground : bpy.props.BoolProperty()
+
+    flag2_check_view_vector : bpy.props.BoolProperty(
+        description = "Works only if the camera is in a certain position (View Vector)"
+    )
+
+    flag2_blinking3 : bpy.props.BoolProperty(
+        description = "Blinks (randomly)"
+    )
+
+    # Missing corona_tex_name property
+    corona_tex_name: bpy.props.StringProperty(
+        name="Corona Texture Name",
+        description="Name of the texture used for the light's corona effect",
+        default=""
+    )
+
+        # Add the missing property
+    shadow_tex_name: bpy.props.StringProperty(
+        name="Shadow Texture Name",
+        description="Name of the texture used for the light's shadow effect",
+        default=""
+    )
+
+    #######################################################
+    def register():
+        bpy.types.Light.ext_2dfx = bpy.props.PointerProperty(type=Light2DFXObjectProps)
+#######################################################
 def join_similar_named_meshes(context):
     # Create a dictionary to store objects by their base names
     base_name_dict = {}
@@ -597,7 +723,13 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
         box.prop(settings, "col_light", text="Light")
 
         pass
+    #######################################################
+    def draw_2dfx_menu(self, context):
+        layout = self.layout
+        settings = context.object.dff.ext_2dfx
 
+        layout.prop(settings, "effect", text="Effect")
+        EXT2DFXMenus.draw_menu(int(settings.effect), layout, context)
     #######################################################
     def draw_obj_menu(self, context):
         layout = self.layout
@@ -612,6 +744,9 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
         elif settings.type == 'COL':
             if context.object.type == 'EMPTY':
                 self.draw_col_menu(context)
+
+        elif settings.type == '2DFX':
+            self.draw_2dfx_menu(context)
 
     #######################################################
     def draw(self, context):
@@ -695,12 +830,21 @@ class DFFMaterialProps(bpy.types.PropertyGroup):
 
 #######################################################
 class DFFObjectProps(bpy.types.PropertyGroup):
+
+    ext_2dfx: bpy.props.PointerProperty(type=EXT2DFXObjectProps)
+
+    is_frame : bpy.props.BoolProperty(
+        default     = False,
+        description = "Object will be exported as a frame"
+    )
+
     # Atomic Properties
     type: bpy.props.EnumProperty(
         items=(
             ('OBJ', 'Object', 'Object will be exported as a mesh or a dummy'),
             ('COL', 'Collision Object', 'Object is a collision object'),
             ('SHA', 'Shadow Object', 'Object is a shadow object'),
+            ('2DFX', '2DFX', 'Object is a 2dfx object'),
             ('NON', "Don't export", 'Object will NOT be exported.')
         )
     )
@@ -791,6 +935,23 @@ compatibiility with DFF Viewers"
         default=0,
         description="Light used for the Sphere/Cone"
     )
+
+    frame_index : bpy.props.IntProperty(
+        default = 2**31-1,
+        min = 0,
+        max = 2**31-1,
+        options = {'SKIP_SAVE', 'HIDDEN'}
+    )
+
+    atomic_index : bpy.props.IntProperty(
+        default = 2**31-1,
+        min = 0,
+        max = 2**31-1,
+        options = {'SKIP_SAVE', 'HIDDEN'}
+    )
+
+    # 2DFX properties
+    ext_2dfx : bpy.props.PointerProperty(type=EXT2DFXObjectProps)
 
     def register():
         bpy.types.Object.dff = bpy.props.PointerProperty(type=DFFObjectProps)

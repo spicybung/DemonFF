@@ -49,6 +49,12 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         default=False
     )
 
+    exclude_geo_faces   : bpy.props.BoolProperty(
+        name            = "Exclude Geometry Faces",
+        description     = "Exclude faces from the Geometry section and force export Bin Mesh PLG",
+        default         = False
+    )
+
     export_format: bpy.props.EnumProperty(
         items=(
             ('DEFAULT', "Default", "Export with the default col format for .DFF"),

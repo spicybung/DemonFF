@@ -1,3 +1,19 @@
+# GTA DragonFF - Blender scripts to edit basic GTA formats
+# Copyright (C) 2019  Parik
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 from enum import IntEnum
 from math import ceil
 from struct import unpack_from
@@ -692,76 +708,68 @@ class Image:
         self.width, self.height, self.depth, self.pitch = unpack_from("<4I", data)
 
         return self
+
 #######################################################
 class txd:
 
     #######################################################
-    def __init__(self):
-        # Initialize all relevant attributes
-        self.clear()
-
-    #######################################################
-    def clear(self):
-        # Resets all attributes to initial empty states
-        self.native_textures = []
-        self.textures = []
-        self.images = []
-        self.pos = 0
-        self.data = b""
-        self.rw_version = ""
-        self.device_id = DeviceType.DEVICE_NONE
-
-    #######################################################
     def _read(self, size):
-        # Reads data and advances the position
         current_pos = self.pos
         self.pos += size
+
         return current_pos
 
     #######################################################
     def raw(self, size, offset=None):
-        # Returns raw data from a specified offset (or current position if none specified)
+
         if offset is None:
             offset = self.pos
+
         return self.data[offset:offset+size]
 
     #######################################################
     def read_chunk(self):
-        # Reads a chunk of data using predefined structure
         chunk = Sections.read(Chunk, self.data, self._read(12))
         return chunk
 
     #######################################################
     def read_texture_native(self, parent_chunk):
-        # Processes a texture-native chunk
+
         chunk_end = self.pos + parent_chunk.size
 
         while self.pos < chunk_end:
             chunk = self.read_chunk()
 
-            # STRUCT handling
+            # STRUCT
             if chunk.type == types["Struct"]:
                 platform_id = unpack_from("<I", self.data, self.pos)[0]
                 texture = None
 
-                # Determine device type for proper texture handling
                 if self.device_id == DeviceType.DEVICE_NONE:
                     if platform_id in (NativePlatformType.D3D8, NativePlatformType.D3D9):
-                        texture = TextureNative.from_mem(self.data[self.pos:self.pos+chunk.size])
+                        texture = TextureNative.from_mem(
+                                self.data[self.pos:self.pos+chunk.size]
+                        )
                     elif platform_id == NativePlatformType.PS2FOURCC:
                         from .native_ps2 import NativePS2Texture
                         texture = NativePS2Texture.from_mem(self.data[self.pos:])
                         self._read(texture.pos - chunk.size)
+
                     elif (platform_id >> 24) == NativePlatformType.GC:
                         from .native_gc import NativeGCTexture
                         texture = NativeGCTexture.from_mem(self.data[self.pos:], self.rw_version)
                         self._read(texture.pos - chunk.size)
+
                 elif self.device_id in (DeviceType.DEVICE_D3D8, DeviceType.DEVICE_D3D9):
-                    texture = TextureNative.from_mem(self.data[self.pos:self.pos+chunk.size])
+                    texture = TextureNative.from_mem(
+                            self.data[self.pos:self.pos+chunk.size]
+                    )
+
                 elif self.device_id == DeviceType.DEVICE_PS2:
                     from .native_ps2 import NativePS2Texture
                     texture = NativePS2Texture.from_mem(self.data[self.pos:])
                     self._read(texture.pos - chunk.size)
+
                 elif self.device_id == DeviceType.DEVICE_GC:
                     from .native_gc import NativeGCTexture
                     texture = NativeGCTexture.from_mem(self.data[self.pos:], self.rw_version)
@@ -777,24 +785,28 @@ class txd:
 
     #######################################################
     def read_image(self, parent_chunk):
-        # Reads an image structure from a chunk
+
         chunk = self.read_chunk()
 
-        # Initialize an image instance
-        image = Image.from_mem(self.data[self.pos:self.pos+chunk.size])
+        # Read an image
+        image = Image.from_mem(
+            self.data[self.pos:self.pos+chunk.size]
+        )
+
         self._read(chunk.size)
 
-        # Retrieve pixel data
+        # Pixels
         pixels_len = image.pitch * image.height
         image.pixels = self.raw(pixels_len)
         self._read(pixels_len)
 
-        # Retrieve palette if applicable
+        # Palette
         palette_len = 0
         if image.depth == 8:
             palette_len = 1024
         elif image.depth == 4:
             palette_len = 64
+
         image.palette = self.raw(palette_len)
         self._read(palette_len)
 
@@ -802,51 +814,60 @@ class txd:
 
     #######################################################
     def read_texture(self, parent_chunk):
-        # Reads a texture and returns it
+
         chunk = self.read_chunk()
 
-        # Initialize the Texture
-        texture = Texture.from_mem(self.data[self.pos:self.pos+chunk.size])
+        # Read a texture
+        texture = Texture.from_mem(
+            self.data[self.pos:self.pos+chunk.size]
+        )
+
         self._read(chunk.size)
 
-        # Read texture name
+        # Texture Name
         chunk = self.read_chunk()
-        texture.name = self.raw(strlen(self.data, self.pos)).decode("utf-8")
+        texture.name = self.raw(
+            strlen(self.data, self.pos)
+        ).decode("utf-8")
+
         self._read(chunk.size)
 
-        # Read mask name
+        # Mask Name
         chunk = self.read_chunk()
-        texture.mask = self.raw(strlen(self.data, self.pos)).decode("utf-8")
+        texture.mask = self.raw(
+            strlen(self.data, self.pos)
+        ).decode("utf-8")
+
         self._read(chunk.size)
 
         return texture
 
     #######################################################
     def read_texture_dictionary(self, root_chunk):
-        # Reads a dictionary containing textures
+
         chunk_end = self.pos + root_chunk.size
 
         while self.pos < chunk_end:
             chunk = self.read_chunk()
 
-            # If structure type, read tex dictionary info
+            # STRUCT
             if chunk.type == types["Struct"]:
+
                 text_dict = Sections.read(TexDict, self.data, self._read(chunk.size))
                 self.device_id = text_dict.device_id
 
-                # Read each texture
                 for _ in range(text_dict.texture_count):
                     chunk = self.read_chunk()
 
-                    # For Texture Native, process it as a native texture
+                    # TEXTURENATIVE
                     if chunk.type == types["Texture Native"]:
                         self.read_texture_native(chunk)
+
             else:
                 self._read(chunk.size)
 
     #######################################################
     def read_pi_texture_dictionary(self, root_chunk):
-        # Reads PI texture dictionaries
         text_dict = Sections.read(TexDict, self.data, self._read(4))
         self.device_id = text_dict.device_id
 
@@ -878,8 +899,8 @@ class txd:
 
     #######################################################
     def load_memory(self, data):
-        # Loads and processes data from memory
         self.data = data
+
         chunk = self.read_chunk()
         self.rw_version = Sections.get_rw_version(chunk.version)
 
@@ -889,8 +910,22 @@ class txd:
             self.read_pi_texture_dictionary(chunk)
 
     #######################################################
+    def clear(self):
+        self.native_textures = []
+        self.textures        = []
+        self.images          = []
+        self.pos             = 0
+        self.data            = ""
+        self.rw_version      = ""
+        self.device_id       = DeviceType.DEVICE_NONE
+
+    #######################################################
     def load_file(self, filename):
-        # Loads data from a file into memory
+
         with open(filename, mode='rb') as file:
             content = file.read()
             self.load_memory(content)
+
+    #######################################################
+    def __init__(self):
+        self.clear()

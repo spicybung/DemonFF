@@ -28,24 +28,28 @@ entries = []
 
 
 # Data types
-Chunk       = namedtuple("Chunk"       , "type size version")
-Clump       = namedtuple("Clump"       , "atomics lights cameras")
-Vector      = namedtuple("Vector"      , "x y z")
-Matrix      = namedtuple("Matrix"      , "right up at")
-HAnimHeader = namedtuple("HAnimHeader" , "version id bone_count")
-Bone        = namedtuple("Bone"        , "id index type")
-RGBA        = namedtuple("RGBA"        , "r g b a")
-GeomSurfPro = namedtuple("GeomSurfPro" , "ambient specular diffuse")
-TexCoords   = namedtuple("TexCoords"   , "u v")
-Sphere      = namedtuple("Sphere"      , "x y z radius")
-Triangle    = namedtuple("Triangle"    , "b a material c")
-Atomic      = namedtuple("Atomic"      , "frame geometry flags unk")
-UVFrame     = namedtuple("UVFrame"     , "time uv prev")
-BumpMapFX   = namedtuple("BumpMapFX"   , "intensity bump_map height_map")
-EnvMapFX    = namedtuple("EnvMapFX"    , "coefficient use_fb_alpha env_map")
-DualFX      = namedtuple("DualFX"      , "src_blend dst_blend texture")
-ReflMat     = namedtuple("ReflMat"     , "s_x s_y o_x o_y intensity")
-SpecularMat = namedtuple("SpecularMap" , "level texture")
+Chunk         = namedtuple("Chunk"         , "type size version")
+Clump         = namedtuple("Clump"         , "atomics lights cameras")
+Vector        = namedtuple("Vector"        , "x y z")
+Matrix        = namedtuple("Matrix"        , "right up at")
+HAnimHeader   = namedtuple("HAnimHeader"   , "version id bone_count")
+Bone          = namedtuple("Bone"          , "id index type")
+RGBA          = namedtuple("RGBA"          , "r g b a")
+GeomSurfPro   = namedtuple("GeomSurfPro"   , "ambient specular diffuse")
+TexCoords     = namedtuple("TexCoords"     , "u v")
+Sphere        = namedtuple("Sphere"        , "x y z radius")
+Triangle      = namedtuple("Triangle"      , "b a material c")
+UVFrame       = namedtuple("UVFrame"       , "time uv prev")
+BumpMapFX     = namedtuple("BumpMapFX"     , "intensity bump_map height_map")
+EnvMapFX      = namedtuple("EnvMapFX"      , "coefficient use_fb_alpha env_map")
+DualFX        = namedtuple("DualFX"        , "src_blend dst_blend texture")
+ReflMat       = namedtuple("ReflMat"       , "s_x s_y o_x o_y intensity")
+SpecularMat   = namedtuple("SpecularMap"   , "level texture")
+GeomBone      = namedtuple("GeomBone"      , "start_vertex vertices_count bone_id")
+RightToRender = namedtuple("RightToRender" , "value1 value2")
+
+TexDict = namedtuple("TexDict", "texture_count device_id")
+PITexDict = namedtuple("PITexDict", "texture_count device_id")
 
 UserDataSection = namedtuple("UserDataSection", "name data")
 
@@ -82,7 +86,21 @@ class UserDataType(IntEnum):
     USERDATAINT = 1
     USERDATAFLOAT = 2
     USERDATASTRING = 3
-    
+
+# Native Platform Type
+class NativePlatformType(IntEnum):
+    D3D7        = 0x1
+    OGL         = 0x2
+    MAC         = 0x3
+    PS2         = 0x4
+    XBOX        = 0x5
+    GC          = 0x6
+    SOFTRAS     = 0x7
+    D3D8        = 0x8
+    D3D9        = 0x9
+    PSP         = 0xa
+    PS2FOURCC   = 0x00325350
+
 # Block types
 types = {
     "Struct"                  : 1,
@@ -195,19 +213,23 @@ class Sections:
 
     # Unpack/pack format for above data types
     formats =  {
-        Chunk       : "<3I",
-        Clump       : "<3I",
-        Vector      : "<3f",
-        HAnimHeader : "<3i",
-        Bone        : "<3i",
-        RGBA        : "<4B",
-        GeomSurfPro : "<3f",
-        Sphere      : "<4f",
-        Triangle    : "<4H",
-        Atomic      : "<4I",
-        TexCoords   : "<2f",
-        ReflMat     : "<5f4x",
-        SpecularMat : "<f24s"
+        Chunk         : "<3I",
+        Clump         : "<3I",
+        Vector        : "<3f",
+        HAnimHeader   : "<3i",
+        Bone          : "<3i",
+        RGBA          : "<4B",
+        GeomSurfPro   : "<3f",
+        Sphere        : "<4f",
+        Triangle      : "<4H",
+        TexCoords     : "<2f",
+        ReflMat       : "<5f4x",
+        SpecularMat   : "<f24s",
+        GeomBone      : "<3I",
+        RightToRender : "<II",
+
+        TexDict : "<2H",
+        PITexDict: "<2H"
     }
 
     library_id = 0 # used for writing
@@ -531,6 +553,54 @@ class Material:
     #######################################################
     def __hash__(self):
         return hash(self.to_mem())
+#######################################################
+class Atomic:
+
+    __slots__ = [
+        'frame',
+        'geometry',
+        'flags',
+        'unk',
+        'extensions'
+    ]
+
+    ##################################################################
+    def __init__(self):
+        self.frame      = 0
+        self.geometry   = 0
+        self.flags      = 0
+        self.unk        = 0
+        self.extensions = {}
+
+    ##################################################################
+    def from_mem(data):
+
+        self = Atomic()
+
+        # Atomic with embedded geometry
+        if len(data) == 12:
+            _Atomic = namedtuple("_Atomic", "frame flags unk")
+            _atomic = _Atomic._make(unpack_from("<3I", data))
+
+        else:
+            _Atomic = namedtuple("_Atomic", "frame geometry flags unk")
+            _atomic = _Atomic._make(unpack_from("<4I", data))
+
+            self.geometry = _atomic.geometry
+
+        self.frame    = _atomic.frame
+        self.flags    = _atomic.flags
+        self.unk      = _atomic.unk
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+
+        data = b''
+        data += pack("<4I", self.frame, self.geometry, self.flags, self.unk)
+        return data
+
 
 #######################################################
 class UserData:
@@ -987,7 +1057,7 @@ class Light2dfx:
         self.effect_id = 0
 
         self.loc = loc
-        self.color = [0,0,0]
+        self.color = [0,0,0,0]
         self.coronaFarClip = 0
         self.pointlightRange = 0
         self.coronaSize = 0
@@ -1020,7 +1090,7 @@ class Light2dfx:
 
         # 80 bytes structure
         if size > 76:
-            self.lookDirection = unpack_from("<BBB", data, offset + 76)
+            self.lookDirection = unpack_from("<bbb", data, offset + 75)
 
         # Convert byte arrays to strings here
         self.coronaTexName = self.coronaTexName[:strlen(self.coronaTexName)]
@@ -1038,32 +1108,40 @@ class Light2dfx:
         # 76 bytes
         data += pack(
             "<ffffBBBBB24s24sBB",
-            self.coronaFarClip   , self.pointlightRange,
-            self.coronaSize      , self.shadowSize,
-            self.coronaShowMode  , self.coronaEnableReflection,
-            self.coronaFlareType , self.shadowColorMultiplier,
-            self._flags1         , self.coronaTexName,
-            self.shadowTexName   , self.shadowZDistance,
+            self.coronaFarClip          , self.pointlightRange,
+            self.coronaSize             , self.shadowSize,
+            self.coronaShowMode         , self.coronaEnableReflection,
+            self.coronaFlareType        , self.shadowColorMultiplier,
+            self._flags1                , self.coronaTexName.encode(),
+            self.shadowTexName.encode() , self.shadowZDistance,
             self._flags2
         )
 
         # 80 bytes
         if self.lookDirection is not None:
-            data += pack("<BBB2x", *self.lookDirection)
+            data += pack("<bbb2x", *self.lookDirection)
 
         # 76 bytes (padding)
         else:
             data += pack("<x")
 
         return data
-    
+
+    #######################################################
+    def check_flag(self, flag):
+        return (self._flags1 & flag.value) != 0
+
+    #######################################################
+    def check_flag2(self, flag):
+        return (self._flags2 & flag.value) != 0
+
     #######################################################
     def set_flag(self, flag):
-        self._flag |= flag
+        self._flags1 |= flag
 
     #######################################################
     def set_flag2(self, flag):
-        self._flag2 |= flag
+        self._flags2 |= flag
 
 #######################################################
 class Particle2dfx:
@@ -1235,109 +1313,76 @@ class LightEntry:
 
 #######################################################
 class Extension2dfx:
-    entries = []
 
     #######################################################
     def __init__(self):
         global entries
-        print("[DEBUG] Extension2dfx initialized with global entries.")
-    #######################################################        
-    def __len__(self):
-        """
-        Return the number of entries in the 2DFX extension.
-        """
-        print(f"[DEBUG] Calculating number of entries: {len(entries)}")
-        return len(entries)
+        self.entries = []
+
     #######################################################
     def append_entry(self, entry):
+        self.entries.append(entry)
+
+    #######################################################
+    def is_empty(self):
         global entries
-        entries.append(entry)
+        return len(self.entries) == 0
 
     #######################################################
     @staticmethod
-    def from_mem(collection):
-        """
-        Parse a collection for LIGHT entries and populate the global `entries` list.
-        """
-        global entries
+    def from_mem(data, offset):
+
         self = Extension2dfx()
-        entries.clear()  # Clear existing entries
+        entries_count = unpack_from("<I", data, offset)[0]
 
-        # Parse LIGHT objects in the collection
-        light_objects = [obj for obj in collection.objects if obj.type == 'LIGHT']
-        print(f"[DEBUG] Found {len(light_objects)} LIGHT objects in the collection.")
+        pos = 4 + offset
+        for i in range(entries_count):
 
-        for obj in light_objects:
-            # Extract position and color
-            position = obj.location
-            light_data = obj.data
-            color = light_data.color  # RGB normalized (0.0 to 1.0)
-            sdfx_props = {key: obj[key] for key in obj.keys() if key.startswith('sdfx_')}
+            # Stores classes for each effect
+            entries_funcs = {
+                0: Light2dfx,
+                1: Particle2dfx,
+                3: PedAttractor2dfx,
+                4: SunGlare2dfx
+            }
+            
+            loc = Sections.read(Vector, data, pos)
+            entry_type, size = unpack_from("<II", data, pos + 12)
 
-            # Create LightEntry instance
-            light_entry = LightEntry(
-                position=(position.x, position.y, position.z),
-                color=(int(color[0] * 255), int(color[1] * 255), int(color[2] * 255), 255),
-                corona_far_clip=sdfx_props.get('sdfx_drawdis', 100.0),
-                pointlight_range=sdfx_props.get('sdfx_outerrange', 18.0),
-                corona_size=sdfx_props.get('sdfx_size', 1.0),
-                shadow_size=sdfx_props.get('sdfx_innerrange', 8.0),
-                corona_show_mode=sdfx_props.get('sdfx_showmode', 0),
-                corona_enable_reflection=sdfx_props.get('sdfx_OnAllDay', 0),
-                corona_flare_type=sdfx_props.get('sdfx_flaretype', 0),
-                shadow_color_multiplier=sdfx_props.get('sdfx_shadcolormp', 0),
-                flags1=sdfx_props.get('sdfx_flags1', 0),
-                corona_tex_name=sdfx_props.get('sdfx_corona', "coronastar"),
-                shadow_tex_name=sdfx_props.get('sdfx_shad', "shad_exp"),
-                shadow_z_distance=sdfx_props.get('sdfx_shadowzdist', 0),
-                flags2=sdfx_props.get('sdfx_flags2', 0),
-                look_direction=sdfx_props.get('sdfx_viewvector', (0, 0, 0))
-            )
-            self.append_entry(light_entry)
-            print(f"[DEBUG] Parsed LIGHT entry: {light_entry}")
+            pos += 20
+            if entry_type in entries_funcs:
+                self.append_entry(
+                    entries_funcs[entry_type].from_mem(loc, data, pos, size)
+                )
+            else:
+                print("Unimplemented Effect: %d" % (entry_type))
 
-        # Update the global entries list
-        entries = entries
-        print(f"[DEBUG] Total parsed entries: {len(entries)}")
+            pos += size
+
         return self
 
     #######################################################
     def to_mem(self):
-        """
-        Serialize the entries stored in global entries to the 2D Effect chunk format.
-        """
-        global entries
 
-        # Debug the number of entries
-        print(f"[DEBUG] Starting to_mem. Total entries: {len(entries)}")
-
-        if len(entries) == 0:
-            print("[DEBUG] No entries found. Skipping 2D Effect chunk serialization.")
+        # Write only if there are entries
+        if len(self.entries) == 0:
             return b''
+        
+        # Entries length
+        data = pack("<I", len(self.entries))
 
-        # Entries length (number of entries)
-        data = pack("<I", len(entries))
-        print(f"[DEBUG] Serialized number of entries: {len(entries)}")
+        # Entries
+        for entry in self.entries:
+            entry_data = entry.to_mem()
 
-        # Serialize each entry
-        for idx, entry in enumerate(entries):
-            try:
-                print(f"[DEBUG] Serializing entry {idx + 1} of {len(entries)}...")
-                entry_data = entry.to_mem()
-                data += entry_data
-            except Exception as e:
-                print(f"[ERROR] Failed to serialize entry {idx + 1}: {e}")
+            data += pack("<I", entry.effect_id)
+            data += entry_data
 
-        # Write the 2D Effect chunk
-        chunk_data = Sections.write_chunk(data, types['2d Effect'])
-        print(f"[DEBUG] 2D Effect chunk written. Total size: {len(chunk_data)} bytes.")
+        return Sections.write_chunk(data, types['2d Effect'])
 
-        return chunk_data
-            
     #######################################################
     def __add__(self, other):
-        global entries
-        entries += other.entries # concatinate entries
+        self.entries += other.entries # concatinate entries
         return self
 
 #######################################################
@@ -1522,7 +1567,6 @@ class DeltaMorphPLG:
 
 #######################################################
 class Geometry:
-
     __slots__ = [
         
         'flags',
@@ -1539,11 +1583,14 @@ class Geometry:
         'extensions',
         'export_flags',
         'pipeline',
-        '_hasMatFX'
+        'entries', 
+        '_hasMatFX',
+        'name'
     ]
     
     ##################################################################
     def __init__(self):
+        global entries
         self.flags              = None
         self.triangles          = []
         self.vertices           = []
@@ -1557,6 +1604,8 @@ class Geometry:
         self.materials          = []
         self.extensions         = {}
         self.pipeline           = None
+        self.entries            = []
+        self.name               = None
 
         # used for export
         self.export_flags = {
@@ -1567,7 +1616,11 @@ class Geometry:
             "triangle_strip"     : False,
         }
         self._hasMatFX = False
-
+    #######################################################
+    def is_empty(self):
+        global entries
+        return len(self.entries) == 0
+    
     #######################################################
     @staticmethod
     def from_mem(data, parent_chunk):
@@ -1708,38 +1761,25 @@ class Geometry:
         return Sections.write_chunk(data, types["Bin Mesh PLG"])
     
     #######################################################
-    def extensions_to_mem(self, extra_extensions=[]):
-        """
-        Serialize all extensions, including any Extension2dfx (2D Effects) entries.
-        """
+    def extensions_to_mem(self, extra_extensions = []):
+
         data = b''
 
         # Write Bin Mesh PLG
-        if self.export_flags.get('write_mesh_plg', False):
+        if self.export_flags['write_mesh_plg'] or self.export_flags['exclude_geo_faces']:
             data += self.write_bin_split()
+        
+        for extension in self.extensions:
+            if self.extensions[extension] is not None:
+                data += self.extensions[extension].to_mem()
 
-        # Serialize all extensions dynamically
-        for extension_name, extension_object in self.extensions.items():
-            if extension_object is not None:
-                print(f"[DEBUG] Serializing extension: {extension_name}")
-                if hasattr(extension_object, 'to_mem') and callable(extension_object.to_mem):
-                    data += extension_object.to_mem()
-                    data += Extension2dfx.to_mem(self)
-                else:
-                    print(f"[WARNING] Extension {extension_name} has no valid 'to_mem' method and will be skipped.")
+
 
         # Write extra extensions
         for extra_extension in extra_extensions:
-            if hasattr(extra_extension, 'to_mem') and callable(extra_extension.to_mem):
-                print("[DEBUG] Serializing extra extension.")
-                data += extra_extension.to_mem()
-            else:
-                print("[WARNING] Extra extension has no valid 'to_mem' method and will be skipped.")
-        
-        # Serialize and return the Extension chunk
-        serialized_chunk = Sections.write_chunk(data, types["Extension"])
-        print(f"[DEBUG] Serialized Extension chunk size: {len(serialized_chunk)} bytes.")
-        return serialized_chunk
+            data += extra_extension.to_mem()
+            
+        return Sections.write_chunk(data, types["Extension"])
         
     #######################################################
     def to_mem(self, extra_extensions = []):
@@ -1763,7 +1803,11 @@ class Geometry:
         flags |= (len(self.uv_layers) & 0xff) << 16
 
         data = b''
-        data += pack("<IIII", flags, len(self.triangles), len(self.vertices), 1)
+        data += pack("<IIII",
+                     flags,
+                     len(self.triangles),
+                     len(self.vertices),
+                     1)
 
         # Only present in older RW
         if Sections.get_rw_version() < 0x34000:
@@ -1780,6 +1824,7 @@ class Geometry:
                 data += Sections.write(TexCoords, tex_coord)
 
         # Write Triangles
+
         for triangle in self.triangles:
             data += Sections.write(Triangle, triangle)
 
@@ -2294,13 +2339,10 @@ class dff:
                             self._read(chunk.size)
 
                         elif chunk.type == types["2d Effect"]:
-                            try:
-                                entries = self.read_2dfx(self.data, self.pos, bpy.context)
-                                if entries:
-                                    geometry.extensions['2d_effect'] = entries
+                            self.ext_2dfx += Extension2dfx.from_mem(
+                                self.data,
                                 self._read(chunk.size)
-                            except Exception as e:
-                                print(f"Error reading 2d Effect section: {e}")
+                            )
 
 
                             
@@ -2438,28 +2480,47 @@ class dff:
     def read_atomic(self, parent_chunk):
 
         chunk_end = self.pos + parent_chunk.size
-        
+
         atomic = None
-        pipeline = None
-        
+
         while self.pos < chunk_end:
             chunk = self.read_chunk()
 
             # STRUCT
             if chunk.type == types["Struct"]:
-                atomic = Sections.read(Atomic, self.data, self.pos)
-                self.atomic_list.append(atomic)
+                atomic = Atomic.from_mem(
+                    self.data[self.pos:self.pos+chunk.size]
+                )
+                self.pos += chunk.size
 
-            if chunk.type == types["Extension"]:
-                self.pos -= chunk.size
+            elif chunk.type == types["Geometry"]:
+                self.read_geometry(chunk)
+                atomic.geometry = len(self.geometry_list) - 1
 
-            if chunk.type == types["Pipeline Set"]:
-                pipeline = unpack_from("<I", self.data, self.pos)[0]               
-            self.pos += chunk.size
+            elif chunk.type == types["Extension"]:
+                _chunk_end = chunk.size + self.pos
 
-        # Set geometry's pipeline
-        if pipeline and atomic:
-            self.geometry_list[atomic.geometry].pipeline = pipeline
+                while self.pos < _chunk_end:
+                    chunk = self.read_chunk()
+
+                    if chunk.type == types["Right to Render"]:
+                        right_to_render = Sections.read(RightToRender, self.data, self._read(chunk.size))
+                        atomic.extensions["right_to_render"] = right_to_render
+
+                    elif chunk.type == types["Pipeline Set"]:
+                        pipeline = unpack_from("<I", self.data, self._read(chunk.size))[0]
+                        atomic.extensions["pipeline"] = pipeline
+
+                    else:
+                        self._read(chunk.size)
+
+                self.pos = _chunk_end
+
+            else:
+                self.pos += chunk.size
+
+        if atomic:
+            self.atomic_list.append(atomic)
 
     #######################################################
     def read_clump(self, root_chunk):
@@ -2644,24 +2705,19 @@ class dff:
 
     #######################################################
     def write_geometry_list(self):
-
         data = b''
         data += pack("<I", len(self.geometry_list))
 
         data = Sections.write_chunk(data, types["Struct"])
         
         for index, geometry in enumerate(self.geometry_list):
-            # Serialize the geometry
-            geometry_data = geometry.to_mem()
 
-            # Add 2DFX chunk to the last geometry if lights exist in the collection
-            if index == len(self.ext_2dfx) - 1:
-                ext_2dfx_data = self.write_2dfx_chunk(self.ext_2dfx)
-                if ext_2dfx_data:
-                    geometry_data += ext_2dfx_data
-            # Add the geometry data to the chunk
-            data += geometry_data
+            # Append 2dfx to extra extensions in the last geometry
+            extra_extensions = []
+            if index == len(self.geometry_list) - 1 and not self.ext_2dfx.is_empty():
+                extra_extensions.append(self.ext_2dfx)
             
+            data += geometry.to_mem(extra_extensions)
         
         return Sections.write_chunk(data, types["Geometry List"])
 
