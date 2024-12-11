@@ -10,6 +10,55 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""  # New variable to hold the path to the .txt file
 
+# Operator to force doubleside mesh
+class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
+    bl_idname = "object.force_doubleside_mesh"
+    bl_label = "Force Doubleside Mesh"
+    bl_description = "Extrude normals along faces for all selected objects by 0M"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                # Ensure the object is in edit mode for bmesh operations
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode='EDIT')
+                
+                # Create a bmesh object from the mesh data
+                bm = bmesh.from_edit_mesh(obj.data)
+                
+                # Extrude the faces
+                geom = bmesh.ops.extrude_face_region(bm, geom=bm.faces)
+                
+                # Ensure the extruded region is offset by 0
+                bmesh.ops.translate(bm, verts=[v for v in geom['geom'] if isinstance(v, bmesh.types.BMVert)],
+                                    vec=(0.0, 0.0, 0.0))  # Offset by 0M
+                
+                # Update the mesh
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.object.mode_set(mode='OBJECT')
+
+        self.report({'INFO'}, "Forced doubleside mesh for selected objects")
+        return {'FINISHED'}
+
+
+# Panel to add the Force Doubleside Mesh button
+class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
+    bl_label = "DemonFF - Misc"
+    bl_idname = "OBJECT_PT_dff_misc"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'object'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Mesh Operations:")
+        layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
+
+        # Add button for Force Doubleside Mesh
+        layout.label(text="Normals Operations:")
+        layout.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
+
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
 
     alpha : bpy.props.FloatProperty(
@@ -172,19 +221,6 @@ class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):
     def execute(self, context):
         join_similar_named_meshes(context)
         return {'FINISHED'}
-
-# Panel to add the Join Similar Named Meshes button
-class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
-    bl_label = "Join Similar Meshes"
-    bl_idname = "OBJECT_PT_join_similar_meshes"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'object'
-
-    def draw(self, context):
-        layout = self.layout
-        row = layout.row()
-        row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
 
 # Function to set all selected objects to collision objects
 def set_collision_objects(context):
@@ -1027,6 +1063,8 @@ def register():
     bpy.utils.register_class(SCENE_OT_duplicate_all_as_collision)
     bpy.utils.register_class(SAEEFFECTS_PT_Panel)
     bpy.utils.register_class(SCENE_PT_collision_tools)
+    bpy.utils.register_class(OBJECT_OT_force_doubleside_mesh)
+    bpy.utils.register_class(OBJECT_PT_dff_misc_panel)
 
 def unregister():
     unregister_saeffects()
@@ -1042,6 +1080,8 @@ def unregister():
     bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_collision)
     bpy.utils.unregister_class(SAEEFFECTS_PT_Panel)
     bpy.utils.unregister_class(SCENE_PT_collision_tools)
+    bpy.utils.unregister_class(OBJECT_OT_force_doubleside_mesh)
+    bpy.utils.unregister_class(OBJECT_PT_dff_misc_panel)
 
 if __name__ == "__main__":
     register()
