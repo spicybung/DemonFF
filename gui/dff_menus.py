@@ -1,4 +1,5 @@
 import bpy
+import bmesh
 import struct
 from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom
 from .col_ot import EXPORT_OT_col
