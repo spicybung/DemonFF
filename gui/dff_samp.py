@@ -1020,7 +1020,7 @@ class Particle2dfx:
 
     #######################################################
     def to_mem(self):
-        return pack("<24s", self.effect)
+        return pack("<24s", self.effect.encode('ascii'))
 
 #######################################################
 class PedAttractor2dfx:
@@ -2251,29 +2251,35 @@ class dff:
     #######################################################
     def write_atomic(self, atomic):
 
-        data = Sections.write(Atomic, atomic, types["Struct"])
-        geometry = self.geometry_list[atomic.geometry]
-        
-        ext_data = b''
-        if "skin" in geometry.extensions:
-            ext_data += Sections.write_chunk(
-                pack("<II", 0x0116, 1),
-                types["Right to Render"]
-            )
-        if geometry._hasMatFX:
-            ext_data += Sections.write_chunk(
-                pack("<I", 1),
-                types["Material Effects PLG"]
-            )
-        if geometry.pipeline is not None:
-            ext_data += Sections.write_chunk(
-                pack("<I", geometry.pipeline),
-                types["Pipeline Set"]
-            )
-            pass
-        
-        data += Sections.write_chunk(ext_data, types["Extension"])
-        return Sections.write_chunk(data, types["Atomic"])
+                data = atomic.to_mem()
+                data = Sections.write_chunk(data, types["Struct"])
+                geometry = self.geometry_list[atomic.geometry]
+
+                ext_data = b''
+                if "skin" in geometry.extensions:
+                    right_to_render = atomic.extensions.get("right_to_render")
+                    if not right_to_render:
+                        right_to_render = RightToRender._make((0x0116, 1))
+                    ext_data += Sections.write_chunk(
+                        pack("<II", right_to_render.value1, right_to_render.value2),
+                        types["Right to Render"]
+                    )
+
+                if geometry._hasMatFX:
+                    ext_data += Sections.write_chunk(
+                        pack("<I", 1),
+                        types["Material Effects PLG"]
+                    )
+
+                pipeline = atomic.extensions.get("pipeline")
+                if pipeline is not None:
+                    ext_data += Sections.write_chunk(
+                        pack("<I", pipeline),
+                        types["Pipeline Set"]
+                    )
+
+                data += Sections.write_chunk(ext_data, types["Extension"])
+                return Sections.write_chunk(data, types["Atomic"])
 
     #######################################################
     def write_uv_dict(self):

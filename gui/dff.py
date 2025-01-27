@@ -1118,7 +1118,7 @@ class Particle2dfx:
 
     #######################################################
     def to_mem(self):
-        return pack("<24s", self.effect)
+        return pack("<24s", self.effect.encode('ascii'))
 
 #######################################################
 class PedAttractor2dfx:
