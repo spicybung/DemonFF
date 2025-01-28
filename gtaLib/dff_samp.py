@@ -470,6 +470,55 @@ class Material:
         return hash(self.to_mem())
 
 #######################################################
+class Atomic:
+
+    __slots__ = [
+        'frame',
+        'geometry',
+        'flags',
+        'unk',
+        'extensions'
+    ]
+
+    ##################################################################
+    def __init__(self, frame, geometry, flags, unk):
+        self.frame      = 0
+        self.geometry   = 0
+        self.flags      = 0
+        self.unk        = 0
+        self.extensions = {}
+
+    ##################################################################
+    def from_mem(data):
+
+        self = Atomic()
+
+        # Atomic with embedded geometry
+        if len(data) == 12:
+            _Atomic = namedtuple("_Atomic", "frame flags unk")
+            _atomic = _Atomic._make(unpack_from("<3I", data))
+
+        else:
+            _Atomic = namedtuple("_Atomic", "frame geometry flags unk")
+            _atomic = _Atomic._make(unpack_from("<4I", data))
+
+            self.geometry = _atomic.geometry
+
+        self.frame    = _atomic.frame
+        self.flags    = _atomic.flags
+        self.unk      = _atomic.unk
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+
+        data = b''
+        data += pack("<4I", self.frame, self.geometry, self.flags, self.unk)
+        return data
+
+
+#######################################################
 class UserData:
 
     __slots__ = ['sections']
@@ -2262,6 +2311,39 @@ class dff:
         return Sections.write_chunk(data, types["Geometry List"])
 
     #######################################################
+    def write_atomic(self, atomic):
+
+            data = atomic.to_mem()
+            data = Sections.write_chunk(data, types["Struct"])
+            geometry = self.geometry_list[atomic.geometry]
+
+            ext_data = b''
+            if "skin" in geometry.extensions:
+                right_to_render = atomic.extensions.get("right_to_render")
+                if not right_to_render:
+                    right_to_render = RightToRender._make((0x0116, 1))
+                ext_data += Sections.write_chunk(
+                    pack("<II", right_to_render.value1, right_to_render.value2),
+                    types["Right to Render"]
+                )
+
+            if geometry._hasMatFX:
+                ext_data += Sections.write_chunk(
+                    pack("<I", 1),
+                    types["Material Effects PLG"]
+                )
+
+            pipeline = atomic.extensions.get("pipeline")
+            if pipeline is not None:
+                ext_data += Sections.write_chunk(
+                    pack("<I", pipeline),
+                    types["Pipeline Set"]
+                )
+
+            data += Sections.write_chunk(ext_data, types["Extension"])
+            return Sections.write_chunk(data, types["Atomic"])
+
+    #######################################################
     def write_uv_dict(self):
 
         if len(self.uvanim_dict) < 1:
@@ -2275,6 +2357,31 @@ class dff:
 
         return Sections.write_chunk(data, types["UV Animation Dictionary"])
 
+    #######################################################
+    def write_clump(self):
+
+        data = Sections.write(Clump, (len(self.atomic_list), 0,0), types["Struct"])
+
+        # Old RW versions didn't have cameras and lights in their clump structure
+        if Sections.get_rw_version() < 0x33000:
+            data = Sections.write_chunk(Clump,
+                                        pack("<I",
+                                             len(self.atomic_list)),
+                                        types["Clump"])
+            
+        data += self.write_frame_list()
+        data += self.write_geometry_list()
+
+        for atomic in self.atomic_list:
+            data += self.write_atomic(atomic)
+
+        for coll_data in self.collisions:
+            _data = Sections.write_chunk(coll_data, types["Collision Model"])
+            data += Sections.write_chunk(_data, types["Extension"])
+            
+        data += Sections.write_chunk(b'', types["Extension"])
+            
+        return Sections.write_chunk(data, types["Clump"])
     
     #######################################################
     def write_memory(self, version):
@@ -2938,35 +3045,29 @@ class dff_samp:
     #######################################################
     def write_atomic(self, atomic):
 
-            data = atomic.to_mem()
-            data = Sections.write_chunk(data, types["Struct"])
-            geometry = self.geometry_list[atomic.geometry]
-
-            ext_data = b''
-            if "skin" in geometry.extensions:
-                right_to_render = atomic.extensions.get("right_to_render")
-                if not right_to_render:
-                    right_to_render = RightToRender._make((0x0116, 1))
-                ext_data += Sections.write_chunk(
-                    pack("<II", right_to_render.value1, right_to_render.value2),
-                    types["Right to Render"]
-                )
-
-            if geometry._hasMatFX:
-                ext_data += Sections.write_chunk(
-                    pack("<I", 1),
-                    types["Material Effects PLG"]
-                )
-
-            pipeline = atomic.extensions.get("pipeline")
-            if pipeline is not None:
-                ext_data += Sections.write_chunk(
-                    pack("<I", pipeline),
-                    types["Pipeline Set"]
-                )
-
-            data += Sections.write_chunk(ext_data, types["Extension"])
-            return Sections.write_chunk(data, types["Atomic"])
+        data = Sections.write(Atomic, atomic, types["Struct"])
+        geometry = self.geometry_list[atomic.geometry]
+        
+        ext_data = b''
+        if "skin" in geometry.extensions:
+            ext_data += Sections.write_chunk(
+                pack("<II", 0x0116, 1),
+                types["Right to Render"]
+            )
+        if geometry._hasMatFX:
+            ext_data += Sections.write_chunk(
+                pack("<I", 1),
+                types["Material Effects PLG"]
+            )
+        if geometry.pipeline is not None:
+            ext_data += Sections.write_chunk(
+                pack("<I", geometry.pipeline),
+                types["Pipeline Set"]
+            )
+            pass
+        
+        data += Sections.write_chunk(ext_data, types["Extension"])
+        return Sections.write_chunk(data, types["Atomic"])
 
     #######################################################
     def write_uv_dict(self):
@@ -2983,7 +3084,7 @@ class dff_samp:
         return Sections.write_chunk(data, types["UV Animation Dictionary"])
 
     #######################################################
-    def write_clump(self):
+    def write_clump_samp(self):
 
         data = Sections.write(Clump, (len(self.atomic_list), 0,0), types["Struct"])
 
@@ -3015,7 +3116,7 @@ class dff_samp:
         Sections.set_library_id(version, 0xFFFF)
 
         data += self.write_uv_dict()
-        data += self.write_clump()
+        data += self.write_clump_samp()
 
         return data
             

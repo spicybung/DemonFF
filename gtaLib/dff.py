@@ -565,7 +565,7 @@ class Atomic:
     ]
 
     ##################################################################
-    def __init__(self):
+    def __init__(self, frame, geometry, flags, unk):
         self.frame      = 0
         self.geometry   = 0
         self.flags      = 0
@@ -575,7 +575,7 @@ class Atomic:
     ##################################################################
     def from_mem(data):
 
-        self = Atomic()
+        self = Atomic('frame', 'geometry', 'flags', 'unk')
 
         # Atomic with embedded geometry
         if len(data) == 12:
