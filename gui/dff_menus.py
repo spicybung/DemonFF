@@ -223,18 +223,6 @@ class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):
         join_similar_named_meshes(context)
         return {'FINISHED'}
 
-class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
-    bl_label = "Join Similar Meshes"
-    bl_idname = "OBJECT_PT_join_similar_meshes"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'object'
-
-    def draw(self, context):
-        layout = self.layout
-        row = layout.row()
-        row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
-
 # Function to set all selected objects to collision objects
 def set_collision_objects(context):
     for obj in context.selected_objects:

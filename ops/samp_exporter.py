@@ -277,15 +277,6 @@ class dff_exporter:
         if bpy.app.version < (2, 80, 0):
             return a * b
         return a @ b
-    #######################################################    
-    @staticmethod
-    def get_object_parent(obj):
-        if type(obj) is bpy.types.Object and obj.parent_bone:
-            parent = obj.parent.data.bones.get(obj.parent_bone)
-            if parent:
-                return parent
-
-        return obj.parent
     
     #######################################################
     @staticmethod
@@ -339,10 +330,6 @@ class dff_exporter:
             self.dff.frame_list.append(frame)
 
         return frame
-    #######################################################
-    @staticmethod
-    def get_last_frame_index():
-        return len(dff_exporter.dff.frame_list) - 1
 
     #######################################################
     @staticmethod
@@ -744,84 +731,70 @@ class dff_exporter:
         return mesh
     
     #######################################################
-    def populate_atomic(obj, frame_index=None):
-            self = dff_exporter
+    def populate_atomic(obj):
+        self = dff_exporter
 
-            # Get frame index from parent
-            if frame_index is None:
-                parent = self.get_object_parent(obj)
-                if parent:
-                    frame_index = self.frame_objects.get(parent)
+        # Get armature
+        armature = None
+        for modifier in obj.modifiers:
+            if modifier.type == 'ARMATURE':
+                armature = modifier.object
 
-            # Get frame index from armature modifier
-            if frame_index is None:
-                for modifier in obj.modifiers:
-                    if modifier.type == 'ARMATURE':
-                        frame_index = self.frame_objects.get(modifier.object)
-                        if frame_index is not None:
-                            break
+        # Create geometry
+        geometry = dff_samp.Geometry()
+        self.populate_geometry_with_mesh_data (obj, geometry)
+        self.create_frame(obj, True, obj.parent != armature)
 
-            # Create new frame if there is no parent
-            if frame_index is None:
-                self.create_frame(obj, set_parent=False)
-                frame_index = self.get_last_frame_index()
+        # Bounding sphere
+        sphere_center = 0.125 * sum(
+            (mathutils.Vector(b) for b in obj.bound_box),
+            mathutils.Vector()
+        )
+        sphere_center = self.multiply_matrix(obj.matrix_world, sphere_center)
+        sphere_radius = 1.732 * max(*obj.dimensions) / 2        
+        
+        geometry.bounding_sphere = dff_samp.Sphere._make(
+            list(sphere_center) + [sphere_radius]
+        )
 
-            # Create geometry
-            geometry = dff_samp.Geometry()
-            self.populate_geometry_with_mesh_data (obj, geometry)
+        geometry.surface_properties = (0,0,0)
+        geometry.materials = self.generate_material_list(obj)
 
-            # Bounding sphere
-            sphere_center = 0.125 * sum(
-                (mathutils.Vector(b) for b in obj.bound_box),
-                mathutils.Vector()
-            )
-            sphere_center = self.multiply_matrix(obj.matrix_world, sphere_center)
-            sphere_radius = 1.732 * max(*obj.dimensions) / 2
+        geometry.export_flags['export_normals'] = obj.dff.export_normals
+        geometry.export_flags['write_mesh_plg'] = obj.dff.export_binsplit
+        geometry.export_flags['light'] = obj.dff.light
+        geometry.export_flags['modulate_color'] = obj.dff.modulate_color
+        
+        if "dff_user_data" in obj.data:
+            geometry.extensions['user_data'] = dff_samp.UserData.from_mem(
+                obj.data['dff_user_data'])
 
-            geometry.bounding_sphere = dff_samp.Sphere._make(
-                list(sphere_center) + [sphere_radius]
-            )
-
-            geometry.surface_properties = (0,0,0)
-            geometry.materials = self.generate_material_list(obj)
-
-            geometry.export_flags['export_normals'] = obj.dff.export_normals
-            geometry.export_flags['write_mesh_plg'] = obj.dff.export_binsplit
-            geometry.export_flags['light'] = obj.dff.light
-            geometry.export_flags['modulate_color'] = obj.dff.modulate_color
-
+        try:
+            if obj.dff.pipeline != 'NONE':
+                if obj.dff.pipeline == 'CUSTOM':
+                    geometry.pipeline = int(obj.dff.custom_pipeline, 0)
+                else:
+                    geometry.pipeline = int(obj.dff.pipeline, 0)
+                    
+        except ValueError:
+            print("Invalid (Custom) Pipeline")
             
-            if "dff_user_data" in obj.data:
-                geometry.extensions['user_data'] = dff_samp.UserData.from_mem(
-                    obj.data['dff_user_data'])
+        # Add Geometry to list
+        self.dff.geometry_list.append(geometry)
+        
+        # Create Atomic from geometry and frame
+        geometry_index = len(self.dff.geometry_list) - 1
+        frame_index    = len(self.dff.frame_list) - 1
+        atomic         = dff_samp.Atomic._make((frame_index,
+                                           geometry_index,
+                                           0x4,
+                                           0
+        ))
+        self.dff.atomic_list.append(atomic)
 
-            # Add Geometry to list
-            self.dff.geometry_list.append(geometry)
-
-            # Create Atomic from geometry and frame
-            atomic          = dff_samp.Atomic('frame', 'geometry', 'flags', 'unk')
-            atomic.frame    = frame_index
-            atomic.geometry = len(self.dff.geometry_list) - 1
-            atomic.flags    = 0x4
-
-            try:
-                if obj.dff.pipeline != 'NONE':
-                    if obj.dff.pipeline == 'CUSTOM':
-                        atomic.extensions['pipeline'] = int(obj.dff.custom_pipeline, 0)
-                    else:
-                        atomic.extensions['pipeline'] = int(obj.dff.pipeline, 0)
-
-            except ValueError:
-                print("Invalid (Custom) Pipeline")
-
-            if "skin" in geometry.extensions:
-                right_to_render = dff_samp.RightToRender._make((0x0116,
-                    obj.dff.right_to_render
-                ))
-                atomic.extensions['right_to_render'] = right_to_render
-
-            self.dff.atomic_list.append(atomic)
-
+        # Export armature
+        if armature is not None:
+            self.export_armature(armature, obj)
 
 
     #######################################################

@@ -810,7 +810,7 @@ class dff_exporter:
         self.dff.geometry_list.append(geometry)
 
         # Create Atomic from geometry and frame
-        atomic          = dff.Atomic('frame', 'geometry', 'flags', 'unk')
+        atomic          = dff.Atomic()
         atomic.frame    = frame_index
         atomic.geometry = len(self.dff.geometry_list) - 1
         atomic.flags    = 0x4
@@ -1048,22 +1048,15 @@ class dff_exporter:
                 
 #######################################################
 def export_dff(options):
-    # Setup options for export without changing directory structures
-    dff_exporter.selected = options['selected']
+
+    # Shadow Function
+    dff_exporter.selected           = options['selected']
     dff_exporter.export_frame_names = options['export_frame_names']
-    dff_exporter.mass_export = options['mass_export']
+    dff_exporter.mass_export        = options['mass_export']
     dff_exporter.preserve_positions = options['preserve_positions']
     dff_exporter.preserve_rotations = options['preserve_rotations']
-    dff_exporter.path = options['directory']
-    dff_exporter.version = options['version']
-    dff_exporter.export_coll = options['export_coll']
+    dff_exporter.path               = options['directory']
+    dff_exporter.version            = options['version']
+    dff_exporter.export_coll        = options['export_coll']
 
-    # Normalize and attempt forced read on file path without directory checks
-    file_path = os.path.normpath(options['file_name'])
-
-    try:
-        # Bypass directory check and attempt to read directly
-        dff_exporter.export_dff(file_path)
-    except FileNotFoundError:
-        # Provide a clear notice for a missing file
-        print(f"Path '{file_path}' could not be accessed. Ensure file and directory are accessible.")
+    dff_exporter.export_dff(options['file_name'])
