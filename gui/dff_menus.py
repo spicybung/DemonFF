@@ -9,41 +9,46 @@ from .ext_2dfx_menus import EXT2DFXObjectProps, EXT2DFXMenus
 fx_images = ["coronastar", "shad_exp"]
 fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
-textfile = ""  # New variable to hold the path to the .txt file
+textfile = ""
 
-# Operator to force doubleside mesh
 class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
+    """Extrudes faces along their normals for all selected objects by 0.001523M"""
     bl_idname = "object.force_doubleside_mesh"
     bl_label = "Force Doubleside Mesh"
-    bl_description = "Extrude normals along faces for all selected objects by 0M"
+    bl_description = "Extrude faces along normals for all selected objects by 0.001523M"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         for obj in context.selected_objects:
             if obj.type == 'MESH':
-                # Ensure the object is in edit mode for bmesh operations
+
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.object.mode_set(mode='EDIT')
-                
-                # Create a bmesh object from the mesh data
+
+                # Create a BMesh object from the mesh data
                 bm = bmesh.from_edit_mesh(obj.data)
-                
+
                 # Extrude the faces
-                geom = bmesh.ops.extrude_face_region(bm, geom=bm.faces)
+                extrude_result = bmesh.ops.extrude_face_region(bm, geom=bm.faces)
+
+                # Collect new vertices created by the extrusion
+                new_verts = [v for v in extrude_result['geom'] if isinstance(v, bmesh.types.BMVert)]
+
                 
-                # Ensure the extruded region is offset by 0
-                bmesh.ops.translate(bm, verts=[v for v in geom['geom'] if isinstance(v, bmesh.types.BMVert)],
-                                    vec=(0.0, 0.0, 0.0))  # Offset by 0M
+                for face in bm.faces:
+                    normal = face.normal  # Get face normal
+                    for vert in new_verts:
+                        if vert in face.verts:  
+                            vert.co += normal * 0.001523
+
                 
-                # Update the mesh
                 bmesh.update_edit_mesh(obj.data)
                 bpy.ops.object.mode_set(mode='OBJECT')
 
-        self.report({'INFO'}, "Forced doubleside mesh for selected objects")
+        self.report({'INFO'}, "Forced doubleside mesh for selected objects (extruded along normals by 0.001523M)")
         return {'FINISHED'}
 
 
-# Panel to add the Force Doubleside Mesh button
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
     bl_label = "DemonFF - Misc"
     bl_idname = "OBJECT_PT_dff_misc"
@@ -56,7 +61,6 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout.label(text="Mesh Operations:")
         layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
 
-        # Add button for Force Doubleside Mesh
         layout.label(text="Normals Operations:")
         layout.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
 
@@ -222,6 +226,18 @@ class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):
     def execute(self, context):
         join_similar_named_meshes(context)
         return {'FINISHED'}
+
+class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
+    bl_label = "Join Similar Meshes"
+    bl_idname = "OBJECT_PT_join_similar_meshes"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'object'
+
+    def draw(self, context):
+        layout = self.layout
+        row = layout.row()
+        row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
 
 # Function to set all selected objects to collision objects
 def set_collision_objects(context):

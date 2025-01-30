@@ -274,3 +274,12 @@ class EXT2DFXMenus:
         }
 
         functions[effect](layout, context)
+
+def register():
+    bpy.utils.register_class(IMPORT_OT_ParticleTXDNames)
+
+def unregister():
+    bpy.utils.unregister_class(IMPORT_OT_ParticleTXDNames)
+
+if __name__ == "__main__":
+    register()

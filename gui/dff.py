@@ -1118,7 +1118,7 @@ class Particle2dfx:
 
     #######################################################
     def to_mem(self):
-        return pack("<24s", self.effect)
+        return pack("<24s", self.effect.encode('ascii'))
 
 #######################################################
 class PedAttractor2dfx:
@@ -2618,9 +2618,10 @@ class dff:
 
         # Old RW versions didn't have cameras and lights in their clump structure
         if Sections.get_rw_version() < 0x33000:
-            data = Sections.write_chunk(pack("<I",
+            data = Sections.write_chunk(Clump,
+                                        pack("<I",
                                              len(self.atomic_list)),
-                                        types["Struct"])
+                                        types["Clump"])
             
         data += self.write_frame_list()
         data += self.write_geometry_list()

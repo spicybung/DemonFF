@@ -158,7 +158,7 @@ class col_exporter:
     #######################################################
     def export_col(name):
         self = col_exporter
-        self.file_name = name
+        self.dff = name
 
         col.Sections.init_sections(self.version)
 
@@ -218,8 +218,8 @@ def export_col(options):
         if options['memory']:
             return output
 
-        with open(options['file_name'], mode='wb') as file:
+        with open(options['dff'], mode='wb') as file:
             file.write(output)
             return
         
-    return col_exporter.export_col(options['file_name'])
+    return col_exporter.export_col(options['dff'])

@@ -8,12 +8,12 @@ from bpy.types import Operator, Panel, PropertyGroup
 #Information taken from https://gtamods.com/wiki/2DFX
 # & https://gtamods.com/wiki/2d_Effect_(RW_Section)
 
-
+global entries
 # Global variables
 fx_images = ["coronastar", "shad_exp"]
 fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
-textfile = ""
+textfile = "" 
 entries = []
 
 def import_light(entry, collection):
@@ -108,7 +108,7 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
 
 
 
-def add_light_info(frames, entries):
+def add_light_info(dff):
     # Determine the collection to which objects will be linked
     if isinstance(frames, bpy.types.Context):
         collection = frames.scene.collection
@@ -122,38 +122,44 @@ def add_light_info(frames, entries):
         print(f"Warning: Unrecognized 'frames' type ({type(frames)}). Defaulting to scene collection.")
         collection = bpy.context.scene.collection
 
-    # Filter for point lights
-    point_lights = [obj for obj in bpy.context.selected_objects if obj.type == 'LIGHT' and obj.data.type == 'POINT']
+    # Process each light entry
+    for entry in entries:
 
-    if not point_lights:
-        print("No selected point lights found. Skipping light info addition.")
-        return
+        light_data = bpy.data.lights.new(name="2DFX_Light", type='POINT')
+        light_object = bpy.data.objects.new(name="2DFX_Light", object_data=light_data)
+        collection.objects.link(light_object)
 
-    # Debug: List the selected point lights
-    print(f"Selected Point Lights: {[light.name for light in point_lights]}")
 
-    # Process each light entry for the selected point lights
-    for light_object, entry in zip(point_lights, entries):
-        # Assign properties to the selected point lights
-        light_object["sdfx_drawdis"] = getattr(entry, 'corona_far_clip', 100.0)
-        light_object["sdfx_outerrange"] = getattr(entry, 'pointlight_range', 18.0)
-        light_object["sdfx_size"] = getattr(entry, 'corona_size', 1.0)
-        light_object["sdfx_innerrange"] = getattr(entry, 'shadow_size', 8.0)
-        light_object["sdfx_corona"] = getattr(entry, 'corona_tex_name', "coronastar")
-        light_object["sdfx_shad"] = getattr(entry, 'shadow_tex_name', "shad_exp")
-        light_object["sdfx_lighttype"] = getattr(entry, 'flags1', 1)
-        light_object["sdfx_color"] = getattr(entry, 'color', (15, 230, 0, 200))
-        light_object["sdfx_OnAllDay"] = getattr(entry, 'corona_enable_reflection', 1)
-        light_object["sdfx_showmode"] = getattr(entry, 'corona_show_mode', 4)
-        light_object["sdfx_reflection"] = getattr(entry, 'corona_enable_reflection', 0)
-        light_object["sdfx_flaretype"] = getattr(entry, 'corona_flare_type', 0)
-        light_object["sdfx_shadcolormp"] = getattr(entry, 'shadow_color_multiplier', 40)
-        light_object["sdfx_shadowzdist"] = getattr(entry, 'shadow_z_distance', 0)
-        light_object["sdfx_flags2"] = getattr(entry, 'flags2', 0)
-        light_object["sdfx_viewvector"] = getattr(entry, 'look_direction', (0, 156, 0))
+        # Debugging information
+        print(f"Added Point Light: {light_object.name}")
+        print(f"  Position: {light_object.location}")
+        print(f"  Color: {light_data.color}")
 
-        print(f"Added 2DFX light info to {light_object.name}")
+    for frame, entry in zip(dff):
+        light_objects = [obj for obj in frame.objects if obj.type == 'LIGHT']
+        if not light_objects:
+            print(f"No light objects found in frame: {frame.name}")
+            continue
 
+        for obj in light_objects:
+            obj["sdfx_drawdis"] = getattr(entry, 'corona_far_clip', 100.0)
+            obj["sdfx_outerrange"] = getattr(entry, 'pointlight_range', 18.0)
+            obj["sdfx_size"] = getattr(entry, 'corona_size', 1.0)
+            obj["sdfx_innerrange"] = getattr(entry, 'shadow_size', 8.0)
+            obj["sdfx_corona"] = getattr(entry, 'corona_tex_name', "coronastar")
+            obj["sdfx_shad"] = getattr(entry, 'shadow_tex_name', "shad_exp")
+            obj["sdfx_lighttype"] = getattr(entry, 'flags1', 1)
+            obj["sdfx_color"] = getattr(entry, 'color', (15, 230, 0, 200))
+            obj["sdfx_OnAllDay"] = getattr(entry, 'corona_enable_reflection', 1)
+            obj["sdfx_showmode"] = getattr(entry, 'corona_show_mode', 4)
+            obj["sdfx_reflection"] = getattr(entry, 'corona_enable_reflection', 0)
+            obj["sdfx_flaretype"] = getattr(entry, 'corona_flare_type', 0)
+            obj["sdfx_shadcolormp"] = getattr(entry, 'shadow_color_multiplier', 40)
+            obj["sdfx_shadowzdist"] = getattr(entry, 'shadow_z_distance', 0)
+            obj["sdfx_flags2"] = getattr(entry, 'flags2', 0)
+            obj["sdfx_viewvector"] = getattr(entry, 'look_direction', (0, 156, 0))
+
+            print(f"Added 2DFX light info to {obj.name} in frame {frame.name}")
 
 def process_2dfx_lights(self, effects, context):
     """
@@ -466,8 +472,9 @@ class SAEFFECTS_OT_AddLightInfo(Operator):
 
     def execute(self, context):
 
+        entries = []
         frames = context.scene.collection.children 
-        add_light_info(frames, entries)
+        add_light_info(dff)
         return {'FINISHED'}
 
 class SAEFFECTS_OT_AddParticleInfo(Operator):
