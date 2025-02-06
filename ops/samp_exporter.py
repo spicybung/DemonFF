@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from ..gtaLib import dff_samp
 from .col_samp_exporter import export_col
+from ..ops.ext_2dfx_exporter import ext_2dfx_exporter
 
 #######################################################
 def clear_extension(string):
@@ -266,6 +267,7 @@ class dff_exporter:
     version = None
     frames = {}
     bones = {}
+    frame_objects = {}
     parent_queue = {}
     collection = None
     export_coll = False
@@ -289,7 +291,7 @@ class dff_exporter:
     
     #######################################################
     @staticmethod
-    def create_frame(obj, append=True, set_parent=True):
+    def create_frame(obj, append=True, set_parent=True, matrix_local=None):
         self = dff_exporter
         
         frame       = dff_samp.Frame()
@@ -298,47 +300,55 @@ class dff_exporter:
         # Get rid of everything before the last period
         if self.export_frame_names:
             frame.name = clear_extension(obj.name)
+            if self.truncate_frame_names:
+                frame.name = truncate_frame_name(frame.name)  # Apply truncation
 
         # Is obj a bone?
         is_bone = type(obj) is bpy.types.Bone
 
-        # Scan parent queue
-        for name in self.parent_queue:
-            if name == obj.name:
-                index = self.parent_queue[name]
-                self.dff.frame_list[index].parent = frame_index
-
-        matrix = obj.matrix_local
+        matrix = matrix_local or obj.matrix_local
         if is_bone and obj.parent is not None:
             matrix = self.multiply_matrix(obj.parent.matrix_local.inverted(), matrix)
 
+        parent = self.get_object_parent(obj)
+
+        if is_bone or parent:
+            position = matrix.to_translation()
+            rotation_matrix = matrix.to_3x3().transposed()
+        else:
+            if self.preserve_positions:
+                position = matrix.to_translation()
+            else:
+                position = (0, 0, 0)
+
+            if self.preserve_rotations:
+                rotation_matrix = matrix.to_3x3().transposed()
+            else:
+                rotation_matrix = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+
         frame.creation_flags  =  0
         frame.parent          = -1
-        frame.position        = matrix.to_translation()
-        frame.rotation_matrix = dff_samp.Matrix._make(
-            matrix.to_3x3().transposed()
-        )
+        frame.position        = position
+        frame.rotation_matrix = dff_samp.Matrix._make(rotation_matrix)
 
         if "dff_user_data" in obj:
             frame.user_data = dff_samp.UserData.from_mem(obj["dff_user_data"])
 
-        id_array = self.bones if is_bone else self.frames
-        
-        if set_parent and obj.parent is not None:
+        if set_parent and parent is not None:
 
-            if obj.parent.name not in id_array:
+            if parent not in self.frame_objects:
                 raise DffExportException(f"Failed to set parent for {obj.name} "
-                                         f"to {obj.parent.name}.")
-            
-            parent_frame_idx = id_array[obj.parent.name]
-            frame.parent = parent_frame_idx
+                                         f"to {parent.name}.")
 
-        id_array[obj.name] = frame_index
+            parent_frame_idx = self.frame_objects[parent]
+            frame.parent = parent_frame_idx
 
         if append:
             self.dff.frame_list.append(frame)
 
+        self.frame_objects[obj] = frame_index
         return frame
+    
     #######################################################
     @staticmethod
     def get_last_frame_index():
@@ -909,6 +919,30 @@ class dff_exporter:
             )
             frame.bone_data = bone_data
             self.dff.frame_list.append(frame)
+    #######################################################
+    def truncate_frame_name(name):
+        """Truncates the frame name to 22 bytes to leave space for null termination."""
+        name_bytes = name.encode('utf-8')
+        if len(name_bytes) > 24:
+            return name_bytes[:22].decode('utf-8', 'ignore')  # Truncate to 22 bytes
+        return name
+
+    #######################################################
+    @staticmethod
+    def export_empty(obj):
+        self = dff_exporter
+
+        parent = self.get_object_parent(obj)
+        set_parent = False
+        matrix_local = None
+
+        if parent in self.frame_objects:
+            set_parent = True
+            if obj.parent_type == "BONE":
+                matrix_local = obj.matrix_basis
+
+        # Create new frame
+        self.create_frame(obj, set_parent=set_parent, matrix_local=matrix_local)
 
     #######################################################
     @staticmethod
@@ -920,16 +954,39 @@ class dff_exporter:
         # Skip empty collections
         if len(objects) < 1:
             return
-    
+
+        atomics_data = []
+
         for obj in objects:
+
+            # We can just ignore collision meshes here as the DFF exporter will still look for
+            # them in their own nested collection later if export_coll is true.
+            if obj.dff.type != 'OBJ':
+                continue
 
             # create atomic in this case
             if obj.type == "MESH":
-                self.populate_atomic(obj)
+                frame_index = None
+                # create an empty frame
+                if obj.dff.is_frame:
+                    self.export_empty(obj)
+                    frame_index = self.get_last_frame_index()
+                atomics_data.append((obj, frame_index))
 
             # create an empty frame
             elif obj.type == "EMPTY":
-                self.create_frame(obj)
+                self.export_empty(obj)
+
+            elif obj.type == "ARMATURE":
+                self.export_armature(obj)
+
+        atomics_data = sorted(atomics_data, key=lambda a: a[0].dff.atomic_index)
+
+        for mesh, frame_index in atomics_data:
+            self.populate_atomic(mesh, frame_index)
+
+        # 2DFX
+        ext_2dfx_exporter(self.dff.ext_2dfx).export_objects(objects)
     
         # Collision
         if self.export_coll:
@@ -1000,12 +1057,14 @@ def export_dff(options):
     # Setup options for export without changing directory structures
     dff_exporter.selected = options['selected']
     dff_exporter.export_frame_names = options['export_frame_names']
+    dff_exporter.truncate_frame_names = options.get('truncate_frame_names', False)
     dff_exporter.mass_export = options['mass_export']
     dff_exporter.preserve_positions = options['preserve_positions']
     dff_exporter.preserve_rotations = options['preserve_rotations']
     dff_exporter.path = options['directory']
     dff_exporter.version = options['version']
     dff_exporter.export_coll = options['export_coll']
+    
 
     # Normalize and attempt forced read on file path without directory checks
     file_path = os.path.normpath(options['file_name'])

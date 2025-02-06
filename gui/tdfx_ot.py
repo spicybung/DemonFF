@@ -437,12 +437,6 @@ class DFF2dfxPanel(Panel):
 
         box = layout.box()
         row = box.row()
-        row.operator("saeffects.add_light_info", text="Add Light Info")
-        row = box.row()
-        row.operator("saeffects.add_particle_info", text="Add Particle Info")
-        row = box.row()
-        row.operator("saeffects.add_text_info", text="Add 2D Text Info")
-        row = box.row()
         row.prop(context.scene, "saeffects_export_path")
         row = box.row()
         row.prop(context.scene, "saeffects_text_export_path")
@@ -450,10 +444,6 @@ class DFF2dfxPanel(Panel):
         row.operator("saeffects.export_info", text="Export Binary Info")
         row = box.row()
         row.operator("saeffects.export_text_info", text="Export Text Info")
-        row = box.row()
-        row.operator("saeffects.create_lights_from_omni", text="Create Lights from Omni Frames")
-        row = box.row()
-        row.operator("saeffects.view_light_info", text="View Light Info")
         row = box.row()
         row.operator("saeffects.import_2dfx", text="Import 2DFX File")
 

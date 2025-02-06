@@ -301,6 +301,8 @@ class dff_exporter:
         # Get rid of everything before the last period
         if self.export_frame_names:
             frame.name = clear_extension(obj.name)
+            if self.truncate_frame_names:
+                frame.name = truncate_frame_name(frame.name)  # Apply truncation
 
         # Is obj a bone?
         is_bone = type(obj) is bpy.types.Bone
@@ -918,6 +920,14 @@ class dff_exporter:
             )
             frame.bone_data = bone_data
             self.dff.frame_list.append(frame)
+    #######################################################
+    def truncate_frame_name(name):
+        """Truncates the frame name to 22 bytes to leave space for null termination."""
+        name_bytes = name.encode('utf-8')
+        if len(name_bytes) > 24:
+            return name_bytes[:22].decode('utf-8', 'ignore')  # Truncate to 22 bytes
+        return name
+
 
     #######################################################
     @staticmethod
@@ -1051,6 +1061,7 @@ def export_dff(options):
     # Setup options for export without changing directory structures
     dff_exporter.selected = options['selected']
     dff_exporter.export_frame_names = options['export_frame_names']
+    dff_exporter.truncate_frame_names = options.get('truncate_frame_names', False)
     dff_exporter.mass_export = options['mass_export']
     dff_exporter.preserve_positions = options['preserve_positions']
     dff_exporter.preserve_rotations = options['preserve_rotations']

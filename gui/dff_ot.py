@@ -37,6 +37,13 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         name="Export Frame Names",
         default=True
     )
+
+    truncate_frame_names: bpy.props.BoolProperty(
+        name="Truncate Frame Names",
+        description="Truncate object name and frame names to >24 bytes",
+        default=False
+    )
+
     
     only_selected: bpy.props.BoolProperty(
         name="Only Selected",
@@ -126,6 +133,8 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         layout.prop(self, "only_selected")
         layout.prop(self, "export_coll")
         layout.prop(self, "export_frame_names")
+        layout.prop(self, "truncate_frame_names")
+        layout.prop(self, "export_tristrips")
         layout.prop(self, "export_format")
         layout.prop(self, "export_version")
 
@@ -135,8 +144,6 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             icon = "ERROR" if col.alert else "NONE"
             
             col.prop(self, "custom_version", icon=icon)
-        
-        layout.prop(self, "export_tristrips")
 
     def get_selected_rw_version(self):
         if self.export_version != "custom":
@@ -169,7 +176,8 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
                 "export_coll": self.export_coll,
                 "export_frame_names": self.export_frame_names,
                 "export_tristrips": self.export_tristrips,
-                "objects": objects_to_export
+                "objects": objects_to_export,
+                "truncate_frame_names": self.truncate_frame_names
             }
 
             if self.export_format == 'DEFAULT':
@@ -216,7 +224,8 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):
                 "version": "0x36003",
                 "export_coll": False,
                 "export_frame_names": True,
-                "export_tristrips": False
+                "export_tristrips": False,
+                "truncate_frame_names": self.truncate_frame_names
             })
             self.report({"INFO"}, f"Finished export in {time.time() - start:.2f}s")
         except Exception as e:

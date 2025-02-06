@@ -63,6 +63,10 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
 
         layout.label(text="Normals Operations:")
         layout.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
+        
+        layout.label(text="Collision Operations:")
+        layout.operator("object.set_collision_objects", text="Set Collision Objects")
+        layout.operator("object.duplicate_all_as_collision", text="Duplicate All as Collision")
 
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
 
@@ -255,19 +259,6 @@ class OBJECT_OT_set_collision_objects(bpy.types.Operator):
     def execute(self, context):
         set_collision_objects(context)
         return {'FINISHED'}
-
-# Panel to add the Set Collision Objects button
-class OBJECT_PT_set_collision_objects_panel(bpy.types.Panel):
-    bl_label = "Set Collision Objects"
-    bl_idname = "OBJECT_PT_set_collision_objects"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'object'
-
-    def draw(self, context):
-        layout = self.layout
-        row = layout.row()
-        row.operator("object.set_collision_objects", text="Set Collision Objects")
 
 # Function to add light info to selected light objects
 def add_light_info(context):
@@ -1054,18 +1045,6 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
         self.report({'INFO'}, "Duplicated and organized all objects as collision meshes above original collections")
         return {'FINISHED'}
 
-class SCENE_PT_collision_tools(bpy.types.Panel):
-    bl_label = "DemonFF - Collision Tools"
-    bl_idname = "SCENE_PT_collision_tools"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'object'
-
-    def draw(self, context):
-        layout = self.layout
-        row = layout.row()
-        row.operator("scene.duplicate_all_as_collision", text="Duplicate All as Collision")
-
 def register():
     register_saeffects()
     bpy.utils.register_class(MATERIAL_PT_dffMaterials)
@@ -1076,10 +1055,8 @@ def register():
     bpy.utils.register_class(OBJECT_OT_join_similar_named_meshes)
     bpy.utils.register_class(OBJECT_PT_join_similar_meshes_panel)
     bpy.utils.register_class(OBJECT_OT_set_collision_objects)
-    bpy.utils.register_class(OBJECT_PT_set_collision_objects_panel)
     bpy.utils.register_class(SCENE_OT_duplicate_all_as_collision)
     bpy.utils.register_class(SAEEFFECTS_PT_Panel)
-    bpy.utils.register_class(SCENE_PT_collision_tools)
     bpy.utils.register_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.register_class(OBJECT_PT_dff_misc_panel)
 
@@ -1093,10 +1070,8 @@ def unregister():
     bpy.utils.unregister_class(OBJECT_OT_join_similar_named_meshes)
     bpy.utils.unregister_class(OBJECT_PT_join_similar_meshes_panel)
     bpy.utils.unregister_class(OBJECT_OT_set_collision_objects)
-    bpy.utils.unregister_class(OBJECT_PT_set_collision_objects_panel)
     bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_collision)
     bpy.utils.unregister_class(SAEEFFECTS_PT_Panel)
-    bpy.utils.unregister_class(SCENE_PT_collision_tools)
     bpy.utils.unregister_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.unregister_class(OBJECT_PT_dff_misc_panel)
 
