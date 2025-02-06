@@ -50,7 +50,7 @@ class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
 
 
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
-    bl_label = "DemonFF - Misc"
+    bl_label = "DemonFF - Miscellaneous"
     bl_idname = "OBJECT_PT_dff_misc"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
@@ -63,10 +63,10 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
 
         layout.label(text="Normals Operations:")
         layout.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
-        
+
         layout.label(text="Collision Operations:")
         layout.operator("object.set_collision_objects", text="Set Collision Objects")
-        layout.operator("object.duplicate_all_as_collision", text="Duplicate All as Collision")
+        layout.operator("scene.duplicate_all_as_collision", text="Duplicate All as Collision")
 
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
 
