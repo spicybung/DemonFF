@@ -7,7 +7,7 @@ from ..ops import dff_exporter, dff_importer, col_importer, samp_exporter
 class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
     
     bl_idname = "export_dff_custom.scene"
-    bl_description = "Export a Custom Renderware DFF or COL File"
+    bl_description = "Export a Renderware .DFF or .COL File"
     bl_label = "DFF/Col Export (.dff/.col)"
     filename_ext = ".dff"
 
@@ -205,7 +205,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         return {'RUNNING_MODAL'}
 
 
-class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):
+class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):  # too lazy to finish tbh
     """Operator for exporting DFF in SAMP format."""
     bl_idname = "export_dff_samp_custom.scene"
     bl_label = "Export DFF (SAMP)"

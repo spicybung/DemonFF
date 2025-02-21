@@ -625,21 +625,19 @@ class dff_exporter:
         return v_cols
 
     #######################################################
+    #######################################################
     @staticmethod
     def populate_geometry_with_mesh_data(obj, geometry):
         self = dff_exporter
 
         mesh = self.convert_to_mesh(obj)
-
         self.triangulate_mesh(mesh)
-        # NOTE: Mesh.calc_normals is no longer needed and has been removed
-        if bpy.app.version < (4, 0, 0):
 
-            # Blender 4.0 and newer
-            if hasattr(mesh, 'calc_loop_triangles'):
-                mesh.calc_loop_triangles()  # Then set tristrips
+        # Ensure compatibility with Blender versions
+        if bpy.app.version < (4, 0, 0) and hasattr(mesh, 'calc_loop_triangles'):
+            mesh.calc_loop_triangles()
 
-        vcols = self.get_vertex_colors (mesh)
+        vcols = self.get_vertex_colors(mesh)
         verts_indices = {}
         vertices_list = []
         faces_list = []
@@ -647,9 +645,10 @@ class dff_exporter:
         skin_plg, bone_groups = self.get_skin_plg_and_bone_groups(obj, mesh)
         dm_entries = self.get_delta_morph_entries(obj, mesh)
 
-        # Check for vertices once before exporting to report instanstly
+        # Clamp vertices if they exceed the limit
         if len(mesh.vertices) > 0xFFFF:
-            raise DffExportException(f"Too many vertices in mesh ({obj.name}): {len(mesh.vertices)}/65535")
+            print(f"Clamping vertices in mesh ({obj.name}). Too many vertices: {len(mesh.vertices)}/65535")
+            mesh = self.clamp_mesh_vertices(mesh)
 
         for polygon in mesh.polygons:
             face = {"verts": [], "mat_idx": polygon.material_index}
@@ -669,7 +668,6 @@ class dff_exporter:
                     vert_cols.append(vert_col[loop_index])
 
                 for group in vertex.groups:
-                    # Only upto 4 vertices per group are supported
                     if len(bones) >= 4:
                         break
 
@@ -681,35 +679,64 @@ class dff_exporter:
                         sk_cos.append(kb.data[loop.vertex_index].co)
 
                 key = (loop.vertex_index,
-                       tuple(loop.normal),
-                       tuple(tuple(uv) for uv in uvs))
+                    tuple(loop.normal),
+                    tuple(tuple(uv) for uv in uvs))
 
                 normal = loop.normal if obj.dff.export_split_normals else vertex.normal
 
                 if key not in verts_indices:
-                    face['verts'].append (len(vertices_list))
+                    face['verts'].append(len(vertices_list))
                     verts_indices[key] = len(vertices_list)
                     vertices_list.append({"idx": loop.vertex_index,
-                                          "co": vertex.co,
-                                          "normal": normal,
-                                          "uvs": uvs,
-                                          "vert_cols": vert_cols,
-                                          "bones": bones,
-                                          "sk_cos": sk_cos})
+                                        "co": vertex.co,
+                                        "normal": normal,
+                                        "uvs": uvs,
+                                        "vert_cols": vert_cols,
+                                        "bones": bones,
+                                        "sk_cos": sk_cos})
                 else:
-                    face['verts'].append (verts_indices[key])
+                    face['verts'].append(verts_indices[key])
 
             faces_list.append(face)
 
-        # Check vertices count again since duplicate vertices may have increased
-        # vertices count above the limit
+        # Check vertices count after deduplication and clamp if necessary
         if len(vertices_list) > 0xFFFF:
-            raise DffExportException(f"Too many vertices in mesh ({obj.name}): {len(vertices_list)}/65535")
+            print(f"Clamping deduplicated vertices in mesh ({obj.name}). Too many vertices: {len(vertices_list)}/65535")
+            vertices_list = vertices_list[:0xFFFF]
+            faces_list = self.clamp_faces_to_vertices(faces_list, len(vertices_list))
 
         self.populate_geometry_from_vertices_data(
             vertices_list, skin_plg, dm_entries, mesh, obj, geometry, len(vcols))
 
         self.populate_geometry_from_faces_data(faces_list, geometry)
+
+    #######################################################
+    @staticmethod
+    def clamp_mesh_vertices(mesh):
+        """
+        Clamps vertices to the first 65535.
+        """
+        new_mesh = mesh.copy()
+        new_mesh.vertices.foreach_set('select', [False] * len(new_mesh.vertices))  # Deselect all vertices
+
+        for i in range(65535):
+            new_mesh.vertices[i].select = True
+
+        # Return clamped mesh
+        return new_mesh
+
+    #######################################################
+    @staticmethod
+    def clamp_faces_to_vertices(faces_list, max_vertices):
+        """
+        Clamps faces to use vertices within the max_vertices range.
+        """
+        clamped_faces = []
+        for face in faces_list:
+            clamped_verts = [v for v in face['verts'] if v < max_vertices]
+            if len(clamped_verts) == len(face['verts']):
+                clamped_faces.append(face)  # Only add if all vertices are within range
+        return clamped_faces
         
     
     #######################################################

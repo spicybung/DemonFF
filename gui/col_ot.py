@@ -1,6 +1,6 @@
 import bpy
 from bpy_extras.io_utils import ExportHelper
-from ..ops import col_samp_exporter
+from ..ops import col_exporter, col_samp_exporter
 
 #######################################################
 class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
@@ -32,6 +32,17 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         name="Only Selected",
         default=False
     )
+
+    exporter_type: bpy.props.EnumProperty(
+        name="Exporter Type",
+        description="Choose between standard and SA-MP optimized collision exporter",
+        items=[
+            ('Original', "Normal Exporter", "Use normal collision"),
+            ('SAMP', "SA-MP Exporter", "Use SA-MP optimized collision")
+        ],
+        default='Original'
+    )
+
     
     export_version  : bpy.props.EnumProperty(
         items =
@@ -48,13 +59,32 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         default=False
     )
 
+    col_brightness: bpy.props.FloatProperty(
+        name="Collision Brightness",
+        description="Set brightness level for all exported collisions",
+        default=1.0,
+        min=0.0,
+        max=10.0
+    )
+
+    col_light: bpy.props.FloatProperty(
+        name="Collision Light Intensity",
+        description="Set light intensity for all exported collisions",
+        default=1.0,
+        min=0.0,
+        max=10.0
+    )
+
+
     #######################################################
     def draw(self, context):
         layout = self.layout
+        layout.prop(self, "exporter_type")
         layout.prop(self, "export_version")
         layout.prop(self, "only_selected")
         layout.prop(self, "mass_export")
-        layout.prop(self, "directory")
+        layout.prop(self, "col_brightness")
+        layout.prop(self, "col_light")
         return None
 
     #######################################################
@@ -64,19 +94,26 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
             "version": int(self.export_version),
             "collection": None,
             "memory": False,
+            "only_selected": self.only_selected,
             "mass_export": self.mass_export,
-            "only_selected": self.only_selected
+            "col_brightness": self.col_brightness,
+            "col_light": self.col_light,
         }
 
         if self.mass_export:
             options["directory"] = self.directory
 
-        col_samp_exporter.export_col(options)
+        # Call the correct exporter based on user selection
+        if self.exporter_type == 'SAMP':
+            col_samp_exporter.export_col(options)
+        else:
+            col_exporter.export_col(options)
 
         # Save settings of the export in scene custom properties for later
         context.scene['demonff_imported_version_col'] = self.export_version
             
         return {'FINISHED'}
+
 
     #######################################################
     def invoke(self, context, event):

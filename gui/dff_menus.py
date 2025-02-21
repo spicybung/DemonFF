@@ -676,13 +676,13 @@ class DFF_MT_ExportChoice(bpy.types.Menu):
 
     def draw(self, context):
         self.layout.operator(EXPORT_OT_dff_custom.bl_idname,
-                             text="DemonFF DFF (.dff)")
+                             text="DemonFF DFF (.dff/.col)")
         self.layout.operator(EXPORT_OT_col.bl_idname,
                              text="DemonFF Collision (.col)")
 
 #######################################################
 def import_dff_func(self, context):
-    self.layout.operator(IMPORT_OT_dff_custom.bl_idname, text="DemonFF DFF (.dff)")
+    self.layout.operator(IMPORT_OT_dff_custom.bl_idname, text="DemonFF DFF (.dff/.col)")
 
 #######################################################
 def export_dff_func(self, context):
@@ -728,7 +728,6 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
 
         box.prop(settings, "export_normals", text="Export Normals")
         box.prop(settings, "export_split_normals", text="Export Custom Split Normals")
-        box.prop(settings, "export_tristrips", text="Export as TriStrips")  # Adding the TriStrips option
         box.prop(settings, "export_binsplit", text="Export Bin Mesh PLG")
         box.prop(settings, "light", text="Enable Lighting")
         box.prop(settings, "modulate_color", text="Enable Modulate Material Color")

@@ -1,26 +1,21 @@
 from struct import unpack_from, calcsize, pack
+from struct import error as StructError
 from collections import namedtuple
-import math
-
-
-def strlen(s):
-    return len(s)
-
-# Clamp values to ensure they are within a valid range
-def clamp(value, min_value, max_value):
-    return max(min_value, min(value, max_value))
+from .dff import strlen
 
 class ColModel:
     def __init__(self):
-        # Initialise
+
+        # initialise
         self.version       = None
         self.model_name    = None
         self.model_id      = 0
         self.bounds        = None
         self.spheres       = []
-        self.cubes         = []
+        self.boxes         = []
         self.mesh_verts    = []
         self.mesh_faces    = []
+        self.face_groups   = []
         self.lines         = []
         self.flags         = 0
         self.shadow_verts  = []
@@ -36,7 +31,7 @@ TFaceGroup = None
 TVertex    = None
 TFace      = None
 TVector    = namedtuple("TVector", "x y z")
-
+        
 #######################################################
 class Sections:
 
@@ -47,41 +42,42 @@ class Sections:
 
         global TSurface, TVertex, TBox, TBounds, TSphere, TFace, TFaceGroup
         
-        TSurface = namedtuple("TSurface", "material flags brightness light")
-        TVertex  = namedtuple("TVertex", "x y z")
-        TBox     = namedtuple("TBox", "min max surface")
+        TSurface = namedtuple("TSurface" , "material flags brightness light")
+        TVertex  = namedtuple("TVertex"  , "x y z")
+        TBox     = namedtuple("TBox"     , "min max surface")
 
         if version == 1:
+            
             TBounds = namedtuple("TBounds", "radius center min max")
             TSphere = namedtuple("TSphere", "radius center surface")
-            TFace   = namedtuple("TFace", "a b c surface")
+            TFace   = namedtuple("TFace"  , "a b c surface")
+
         else:
-            TFaceGroup = namedtuple("TFaceGroup", "min max start end")
-            TFace      = namedtuple("TFace", "a b c material light")
-            TBounds    = namedtuple("TBounds", "min max center radius")
-            TSphere    = namedtuple("TSphere", "center radius surface")
+
+            TFaceGroup = namedtuple("TFaceGroup" , "min max start end")
+            TFace      = namedtuple("TFace"      , "a b c material light")
+            TBounds    = namedtuple("TBounds"    , "min max center radius")
+            TSphere    = namedtuple("TSphere"    , "center radius surface")
 
         Sections.version = version
 
         Sections.__formats = {
             # V = Vector, S = Surface
-            TBounds    : ["fVVV", "VVVf"],
-            TSurface   : ["BBBB", "BBBB"],
-            TSphere    : ["fVS", "VfS"],
-            TBox       : ["VVS", "VVS"],
-            TFaceGroup : ["VVHH", "VVHH"],
-            TVertex    : ["fff", "hhh"],
-            TFace      : ["IIIS", "HHHBB"]
+            TBounds    : [  "fVVV" , "VVVf"  ],
+            TSurface   : [  "BBBB" , "BBBB"  ],
+            TSphere    : [  "fVS"  , "VfS"   ],
+            TBox       : [  "VVS"  , "VVS"   ],
+            TFaceGroup : [  "VVHH" , "VVHH"  ],
+            TVertex    : [  "fff"  , "hhh"   ],
+            TFace      : [  "IIIS" , "HHHBB" ]
         }
 
     #######################################################
     def compress_vertices(vertices):
         compressed_vertices = []
         for vertex in vertices:
-            # Clamp vertices to the valid range of signed 16-bit integers
-            compressed_vertices.append(
-                TVertex._make(clamp(int((0 if math.isnan(i) else i) * 128), -32768, 32767) for i in vertex)
-            )
+            compressed_vertices.append(TVertex._make(int(i*128) for i in vertex))
+
         return compressed_vertices
             
     #######################################################
@@ -122,15 +118,6 @@ class Sections:
             elif char == 'S':
                 _data += Sections.write_section(TSurface, data[index])
 
-            # Handle ushort ('H') and int ('I') with clamping
-            elif char == 'H':  # For ushort
-                clamped_value = clamp(data[index], 0, 65535)
-                _data += pack(char, clamped_value)
-
-            elif char == 'I':  # For unsigned 32-bit int
-                clamped_value = clamp(data[index], 0, 4294967295)
-                _data += pack(char, clamped_value)
-
             else:
                 _data += pack(char, data[index])
             
@@ -166,7 +153,7 @@ class Sections:
         format = format.replace("S", "BBBB")
 
         return calcsize(format)
-
+        
 #######################################################
 class coll:
 
@@ -214,9 +201,9 @@ class coll:
 
         # Spheres
         model.spheres += self.__read_block(TSphere)
-        self.__incr(4)  # number of unk. data (from GTAModding)
+        self.__incr(4) # number of unk. data (from GTAModding)
 
-        model.cubes      += self.__read_block(TBox)
+        model.boxes      += self.__read_block(TBox)
         model.mesh_verts += self.__read_block(TVertex)
         model.mesh_faces += self.__read_block(TFace)
 
@@ -242,8 +229,15 @@ class coll:
 
         # Boxes
         self._pos = pos + box_offset + 4
-        model.cubes += self.__read_block(TBox, box_count)
+        model.boxes += self.__read_block(TBox, box_count)
         
+        # Face Groups
+        if flags & 8:
+            self._pos = pos + faces_offset
+            facegroup_count = unpack_from("<L", self._data, self._pos)
+            self._pos = pos + faces_offset - (28 * facegroup_count[0])
+            model.face_groups += self.__read_block(TFaceGroup, facegroup_count[0])
+
         # Faces
         self._pos = pos + faces_offset + 4
         model.mesh_faces += self.__read_block(TFace, face_count)
@@ -283,7 +277,7 @@ class coll:
             # Faces
             self._pos = pos + shadow_faces_offset + 4
             model.shadow_faces += self.__read_block(TFace, shadow_mesh_face_count)
-
+        
     #######################################################
     def __read_col(self):
         model = ColModel()
@@ -296,7 +290,10 @@ class coll:
                                        "model_id"
                                    ]
         )
-        header = header_format._make(self.__read_struct("4sI22sH"))
+        try:
+            header = header_format._make(self.__read_struct("4sI22sH"))
+        except StructError:
+            raise RuntimeError("Unexpected EOF")
 
         magic_number = header.magic_number.decode("ascii")
 
@@ -309,7 +306,7 @@ class coll:
             "COLL": 1,
             "COL2": 2,
             "COL3": 3,
-            "COL4": 4  # Unused San Andreas format, possibly meant for thin railings on the PS2?
+            "COL4": 4 # what version is this?
         }
         
         try:
@@ -332,7 +329,7 @@ class coll:
         else:
             self.__read_new_col(model, pos)
 
-        self._pos = pos + header.file_size + 8  # Move to the next model
+        self._pos = pos + header.file_size + 8 # set to next model
         return model
             
     #######################################################
@@ -354,7 +351,7 @@ class coll:
             self.load_memory(content)
 
     #######################################################
-    def __write_block(self, block_type, blocks, write_count=True):
+    def __write_block(self, block_type, blocks, write_count = True):
 
         data = b''
         
@@ -372,7 +369,7 @@ class coll:
 
         data += self.__write_block(TSphere, model.spheres)
         data += pack('<I', 0)
-        data += self.__write_block(TBox, model.cubes)
+        data += self.__write_block(TBox, model.boxes)
         data += self.__write_block(TVertex, model.mesh_verts)
         data += self.__write_block(TFace, model.mesh_faces)
 
@@ -383,7 +380,8 @@ class coll:
         data = b''
 
         flags = 0
-        flags |= 2 if model.spheres or model.cubes or model.mesh_faces else 0
+        flags |= 2 if model.spheres or model.boxes or model.mesh_faces else 0
+        flags |= 8 if model.face_groups else 0
         flags |= 16 if model.shadow_faces and model.version >= 3 else 0
         
         header_len = 104
@@ -398,47 +396,52 @@ class coll:
 
         # Boxes
         offsets.append(len(data) + header_len)
-        data += self.__write_block(TBox, model.cubes, False)
+        data += self.__write_block(TBox, model.boxes, False)
 
-        offsets.append(0)  # TODO: Cones
+        offsets.append(0) # TODO: Cones
         
         # Vertices
         offsets.append(len(data) + header_len)
-        data += self.__write_block(TVertex, Sections.compress_vertices(model.mesh_verts), False)
+        data += self.__write_block(TVertex,
+                                   Sections.compress_vertices(model.mesh_verts),
+                                   False)
         
+        # Face Groups
+        if flags & 8:
+            data += self.__write_block(TFaceGroup, model.face_groups, False)
+            data += pack("<L", len(model.face_groups))
+
         # Faces
         offsets.append(len(data) + header_len)
         data += self.__write_block(TFace, model.mesh_faces, False)
 
-        offsets.append(0)  # Tristripes?
+        offsets.append(0) # Triangle Planes (what are these?)
         
         # Shadow Mesh
 
         if model.version >= 3:
+
             # Shadow Vertices
             offsets.append(len(data) + header_len)
-            data += self.__write_block(TVertex, Sections.compress_vertices(model.shadow_verts), False)
+            data += self.__write_block(TVertex,
+                                       Sections.compress_vertices(
+                                           model.shadow_verts),
+                                       False)
             
-            # Shadow Faces
+            # Shadow Vertices
             offsets.append(len(data) + header_len)
-            data += self.__write_block(TFace, model.shadow_faces, False)
+            data += self.__write_block(TFace,
+                                       model.shadow_faces,
+                                       False)
 
-        # Clamp header values to prevent errors
-        sphere_count = clamp(len(model.spheres), 0, 65535)
-        box_count = clamp(len(model.cubes), 0, 65535)
-        face_count = clamp(len(model.mesh_faces), 0, 65535)
-        line_count = clamp(len(model.lines), 0, 65535)
-        
         # Write Header
-        header_data = pack(
-            "<HHHBxIIIIIII",
-            sphere_count,
-            box_count,
-            face_count,
-            line_count,
-            flags,
-            *offsets[:6]
-        )
+        header_data = pack("<HHHBxIIIIIII",
+                            len(model.spheres),
+                            len(model.boxes),
+                            len(model.mesh_faces),
+                            len(model.lines),
+                            flags,
+                            *offsets[:6])
 
         # Shadow Mesh (only after version 3)
         if model.version >= 3:
@@ -487,7 +490,7 @@ class coll:
             file.write(content)
             
     #######################################################
-    def __init__(self, model=None):
+    def __init__(self, model = None):
         self.models = [ColModel()] * 0
         self._data = ""
         self._pos = 0
