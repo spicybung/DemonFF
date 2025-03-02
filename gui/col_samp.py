@@ -73,13 +73,21 @@ class Sections:
         }
 
     #######################################################
+    @staticmethod
+    def clamp_value(val, min_value=-32768, max_value=32767):
+        if val < min_value:
+            return min_value
+        elif val > max_value:
+            return max_value
+        return val
+    #######################################################
     def compress_vertices(vertices):
         compressed_vertices = []
         for vertex in vertices:
-            compressed_vertices.append(TVertex._make(int(i*128) for i in vertex))
-
+            # Multiply each coordinate by 128, round it, and then clamp if needed.
+            clamped_coords = tuple(Sections.clamp_value(int(round(coord * 128))) for coord in vertex)
+            compressed_vertices.append(TVertex._make(clamped_coords))
         return compressed_vertices
-            
     #######################################################
     def __read_format(format, data, offset):
 
@@ -471,7 +479,14 @@ class coll:
         ]
              
         return pack("4sI22sH", *header) + data
-            
+    
+    #######################################################
+    def clamp_value(val, min_value=-32768, max_value=32767):
+        if val < min_value:
+            return min_value
+        elif val > max_value:
+            return max_value
+        return val  
     #######################################################
     def write_memory(self):
 
