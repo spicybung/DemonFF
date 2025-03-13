@@ -115,21 +115,26 @@ class Sections:
 
     #######################################################
     def __write_format(format, data):
-
         _data = b''
         
         for index, char in enumerate(format):
             # Custom format: Vector
             if char == 'V':
                 _data += pack("<fff", *data[index])
-
             # Custom format: Surface
             elif char == 'S':
                 _data += Sections.write_section(TSurface, data[index])
-
+            # For unsigned short ("H"), clamp the value between 0 and 65535.
+            elif char == 'H':
+                value = data[index]
+                if value < 0:
+                    value = 0
+                elif value > 65535:
+                    value = 65535
+                _data += pack("H", value)
             else:
                 _data += pack(char, data[index])
-            
+                
         return _data
 
     #######################################################
@@ -315,7 +320,7 @@ class coll:
             "COLL": 1,
             "COL2": 2,
             "COL3": 3,
-            "COL4": 4 # what version is this?
+            "COL4": 4 # Possibly a version meant for thin objects on Ps2?
         }
         
         try:
@@ -442,13 +447,16 @@ class coll:
             data += self.__write_block(TFace,
                                        model.shadow_faces,
                                        False)
+        spheres_count = min(max(len(model.spheres), 0), 65535)
+        boxes_count   = min(max(len(model.boxes), 0), 65535)
+        faces_count   = min(max(len(model.mesh_faces), 0), 65535)
+        lines_count   = min(max(len(model.lines), 0), 255)
 
-        # Write Header
         header_data = pack("<HHHBxIIIIIII",
-                            len(model.spheres),
-                            len(model.boxes),
-                            len(model.mesh_faces),
-                            len(model.lines),
+                            spheres_count,
+                            boxes_count,
+                            faces_count,
+                            lines_count,
                             flags,
                             *offsets[:6])
 

@@ -83,13 +83,14 @@ class col_samp_exporter:
             surface = [0, 0, 0, 0]
             try:
                 mat = obj.data.materials[face.material_index]
+                mat.dff.col_light = int(col_samp_exporter.col_light)
                 surface[0] = mat.dff.col_mat_index
                 surface[1] = mat.dff.col_flags
                 surface[2] = mat.dff.col_brightness
                 surface[3] = mat.dff.col_light
 
             except (IndexError, AttributeError):
-                pass
+                surface[3] = col_samp_exporter.col_light
 
             if col_samp.Sections.version == 1:
                 faces.append(col_samp.TFace._make(
@@ -286,6 +287,10 @@ def export_col(options):
     col_samp_exporter.version = options['version']
     col_samp_exporter.collection = options['collection']
     col_samp_exporter.only_selected = options['only_selected']
+
+    col_samp_exporter.col_brightness = options['col_brightness']
+    col_samp_exporter.col_light = options['col_light']
+
 
     # If mass export mode is enabled
     if options['mass_export']:
