@@ -23,8 +23,8 @@ DemonFF is a neat little fork of DragonFF made to enhance your workflow by provi
 - **Custom Section IDs**: DemonFF supports Rockstar's custom section IDs, allowing you to work with specific RW plugins seamlessly.
 
 - **SAMP/open.mp Compatibility**: DemonFF is designed for compatibility with San Andreas Multiplayer (SAMP) and open.mp, and comes with Pawn features.
-  
-- **MTA Compatibility**: DemonFF is planned to support LUA scripts for Multi Theft Auto, allowing ease during map creation.
+  0
+- **MTA Compatibility**: DemonFF is planned to support LUA scripts for Multi Theft Auto, allowing ease during map creation(SOON...).
 
 ## Getting Started
 
