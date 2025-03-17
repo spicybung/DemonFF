@@ -2453,6 +2453,10 @@ class dff:
                 # GEOMETRYLIST
                 elif chunk.type == types["Geometry List"]:  
                     self.read_geometry_list(chunk)
+                
+                # 2d Effect
+                elif chunk.type == types["2d Effect"]:  
+                    self.read_2dfx(chunk)
 
                 # ATOMIC
                 elif chunk.type == types["Atomic"]:  

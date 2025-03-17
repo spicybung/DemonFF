@@ -1197,7 +1197,7 @@ class Extension2dfx:
         for entry in self.entries:
             entry_data = entry.to_mem()
 
-            data += pack("<II", entry.effect_id)
+            data += pack("<I", entry.effect_id)
             data += entry_data
 
         return Sections.write_chunk(data, types['2d Effect'])
@@ -2188,6 +2188,10 @@ class dff:
                 # GEOMETRYLIST
                 elif chunk.type == types["Geometry List"]:  
                     self.read_geometry_list(chunk)
+                
+                # 2d Effect
+                elif chunk.type == types["2d Effect"]:  
+                    self.read_2dfx(chunk)
 
                 # ATOMIC
                 elif chunk.type == types["Atomic"]:  
@@ -2293,6 +2297,88 @@ class dff:
                 extra_extensions.append(self.ext_2dfx)
             
             data += geometry.to_mem()
+        
+        return Sections.write_chunk(data, types["Geometry List"])
+    #######################################################
+    def serialize_light_to_2dfx(light):
+        """
+        Serialize a single light object into the binary format for 2D Effect.
+        :param light: Blender light object to serialize.
+        :return: A binary representation of the light's 2D Effect data.
+        """
+        pos = light.location
+        color = light.get("sdfx_color", (255, 255, 255, 255))
+        corona_far_clip = light.get("sdfx_drawdis", 100.0)
+        pointlight_range = light.get("sdfx_outerrange", 18.0)
+        corona_size = light.get("sdfx_size", 1.0)
+        shadow_size = light.get("sdfx_innerrange", 8.0)
+        corona_show_mode = light.get("sdfx_showmode", 4)
+        corona_enable_reflection = light.get("sdfx_reflection", 0)
+        corona_flare_type = light.get("sdfx_flaretype", 0)
+        shadow_color_multiplier = light.get("sdfx_shadcolormp", 40)
+        flags1 = light.get("sdfx_OnAllDay", 1)
+        corona_tex_name = light.get("sdfx_corona", "coronastar")
+        shadow_tex_name = light.get("sdfx_shad", "shad_exp")
+        shadow_z_distance = light.get("sdfx_shadowzdist", 0)
+        flags2 = light.get("sdfx_flags2", 0)
+
+        # Construct binary data for this light
+        light_data = b''
+        light_data += struct.pack("3f", pos.x, pos.y, pos.z)  # Position
+        light_data += struct.pack("4B", int(color[0]), int(color[1]), int(color[2]), int(color[3]))  # RGBA
+        light_data += struct.pack("f", corona_far_clip)  # Draw Distance
+        light_data += struct.pack("f", pointlight_range)  # Outer Range
+        light_data += struct.pack("f", corona_size)  # Corona Size
+        light_data += struct.pack("f", shadow_size)  # Shadow Size
+        light_data += struct.pack("B", corona_show_mode)  # Corona Show Mode
+        light_data += struct.pack("B", corona_enable_reflection)  # Enable Reflection
+        light_data += struct.pack("B", corona_flare_type)  # Flare Type
+        light_data += struct.pack("B", shadow_color_multiplier)  # Shadow Color Multiplier
+        light_data += struct.pack("B", flags1)  # Flags 1
+        light_data += corona_tex_name.encode('utf-8').ljust(24, b'\0')  # Corona Texture Name
+        light_data += shadow_tex_name.encode('utf-8').ljust(24, b'\0')  # Shadow Texture Name
+        light_data += struct.pack("B", shadow_z_distance)  # Shadow Z Distance
+        light_data += struct.pack("B", flags2)  # Flags 2
+        light_data += struct.pack("B", 0)  # Padding
+
+        return light_data
+    #######################################################
+    def write_2dfx_chunk(self, collection):
+        """
+        Write the 2D Effect chunk for lights in the given collection.
+        :param collection: Blender collection containing the lights.
+        :return: A binary chunk representing the 2D Effect section.
+        """
+        # Filter lights in the collection
+        lights = [obj for obj in collection.objects if obj.type == "LIGHT"]
+
+        if not lights:
+            return b''  # No lights, return an empty chunk
+
+        # Serialize all lights into binary data
+        data = b''
+        data += struct.pack("<I", len(lights))  # Write the number of entries (header)
+        for light in lights:
+            data += self.serialize_light_to_2dfx(light)  # Serialize each light
+
+        # Wrap the data into a 2D Effect chunk
+        return Sections.write_chunk(data, types["2d Effect"])
+
+    #######################################################
+    def write_geometry_list(self):
+        data = b''
+        data += pack("<I", len(self.geometry_list))
+
+        data = Sections.write_chunk(data, types["Struct"])
+        
+        for index, geometry in enumerate(self.geometry_list):
+
+            # Append 2dfx to extra extensions in the last geometry
+            extra_extensions = []
+            if index == len(self.geometry_list) - 1 and not self.ext_2dfx.is_empty():
+                extra_extensions.append(self.ext_2dfx)
+            
+            data += geometry.to_mem(extra_extensions)
         
         return Sections.write_chunk(data, types["Geometry List"])
 
