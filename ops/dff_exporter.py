@@ -1,3 +1,18 @@
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2024 SpicyBung
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
 import bmesh
@@ -949,13 +964,11 @@ class dff_exporter:
             self.dff.frame_list.append(frame)
     #######################################################
     def truncate_frame_name(name):
-        """Truncates the frame name to 22 bytes to leave space for null termination."""
+        """Truncates the frame name to <24 bytes to leave space for null termination."""
         name_bytes = name.encode('utf-8')
         if len(name_bytes) > 24:
-            return name_bytes[:22].decode('utf-8', 'ignore')  # Truncate to 22 bytes
+            return name_bytes[:22].decode('utf-8', 'ignore')  # Truncate to <24 bytes
         return name
-
-
     #######################################################
     @staticmethod
     def export_empty(obj):
@@ -1026,12 +1039,20 @@ class dff_exporter:
                 'collection'    : self.collection,
                 'only_selected' : self.selected,
                 'mass_export'   : False,
-                'col_brightness': self.col_brightness,
-                'col_light'     : self.col_light
+                'col_brightness': col_brightness,
+                'col_light'     : col_light
             })
 
             if len(mem) != 0:
                 self.dff.collisions = [mem]
+
+        # Use per-object collision values if exist, or fallback gracefully
+        if hasattr(obj, "dff"):
+            col_brightness = getattr(obj.dff, "col_brightness", self.col_brightness)
+            col_light = getattr(obj.dff, "col_light", self.col_light)
+        else:
+            col_brightness = self.col_brightness
+            col_light = self.col_light
 
         if name is None:
             self.dff.write_file(self.file_name, self.version )

@@ -1,5 +1,5 @@
-# GTA DragonFF - Blender scripts to edit basic GTA formats
-# Copyright (C) 2019  Parik
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by

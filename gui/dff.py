@@ -1,5 +1,5 @@
-# GTA DragonFF - Blender scripts to edit basic GTA formats
-# Copyright (C) 2019  Parik
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -1188,6 +1188,64 @@ class SunGlare2dfx:
     #######################################################
     def to_mem(self):
         return b''
+    
+#######################################################
+class Escalator2DFX:
+
+    #######################################################
+    def __init__(self, loc):
+        self.effect_id = 10  # Escalator effect type
+        self.loc = loc       # This should be the standart_pos
+        self.standart_pos = loc
+        self.bottom = Vector()
+        self.top = Vector()
+        self.end = Vector()
+        self.direction = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+        self = Escalator2DFX(loc)
+
+        # Expectation: offset already at entry start (after effect ID and size)
+
+        # Bottom (12 bytes)
+        self.bottom = Sections.read(Vector, data, offset)
+        offset += 12
+
+        # Top (12 bytes)
+        self.top = Sections.read(Vector, data, offset)
+        offset += 12
+
+        # End (12 bytes)
+        self.end = Sections.read(Vector, data, offset)
+        offset += 12
+
+        # Direction (4 bytes)
+        self.direction = unpack_from('<I', data, offset)[0]
+        offset += 4
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = b''
+
+        # Write the Standard Position (used as `loc`)
+        data += Sections.write(Vector, self.standart_pos)
+
+        # Write entry type (10) and size (40)
+        data += pack('<II', self.effect_id, 40)
+
+        # Write the 3 escalator vectors
+        data += Sections.write(Vector, self.bottom)
+        data += Sections.write(Vector, self.top)
+        data += Sections.write(Vector, self.end)
+
+        # Write the direction flag
+        data += pack('<I', self.direction)
+
+        return data
         
 #######################################################
 class Extension2dfx:
@@ -1215,7 +1273,8 @@ class Extension2dfx:
                 0: Light2dfx,
                 1: Particle2dfx,
                 3: PedAttractor2dfx,
-                4: SunGlare2dfx
+                4: SunGlare2dfx,
+                10: Escalator2DFX
             }
             
             loc = Sections.read(Vector, data, pos)

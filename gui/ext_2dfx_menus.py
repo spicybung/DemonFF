@@ -1,3 +1,19 @@
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import bpy
 
 from bpy_extras.io_utils import ImportHelper
@@ -47,6 +63,7 @@ class EXT2DFXObjectProps(bpy.types.PropertyGroup):
             ('4', 'Sun Glare', 'Sun Glare'),
             ('8', 'Trigger Point', 'Trigger Point'),
             ('9', 'Cover Point', 'Cover Point'),
+            ('10', 'Escalator', 'Escalator'),
         )
     )
 
@@ -177,6 +194,17 @@ class Light2DFXObjectProps(bpy.types.PropertyGroup):
     #######################################################
     def register():
         bpy.types.Light.ext_2dfx = bpy.props.PointerProperty(type=Light2DFXObjectProps)
+#######################################################
+class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
+    standart_pos: bpy.props.FloatVectorProperty(name="Standart Position", size=3)
+    bottom_pos: bpy.props.FloatVectorProperty(name="Bottom", size=3)
+    top_pos: bpy.props.FloatVectorProperty(name="Top", size=3)
+    end_pos: bpy.props.FloatVectorProperty(name="End", size=3)
+    direction: bpy.props.EnumProperty(
+        name="Direction",
+        items=[('0', 'Down', ''), ('1', 'Up', '')],
+        default='1'
+    )
 
 #######################################################
 class EXT2DFXMenus:
@@ -260,6 +288,18 @@ class EXT2DFXMenus:
 
         box = layout.box()
         box.prop(settings, "val_int_1", text="Cover Type")
+    #######################################################
+    def draw_escalator_menu(layout, context):
+        obj = context.object
+        settings = obj.dff.escalator_2dfx
+
+        box = layout.box()
+        box.label(text="Escalator Settings", icon="MOD_ARRAY")
+        box.prop(settings, "standart_pos")
+        box.prop(settings, "bottom_pos")
+        box.prop(settings, "top_pos")
+        box.prop(settings, "end_pos")
+        box.prop(settings, "direction")
 
     #######################################################
     def draw_menu(effect, layout, context):
@@ -271,15 +311,20 @@ class EXT2DFXMenus:
             4: self.draw_sun_glare_menu,
             8: self.draw_trigger_point_menu,
             9: self.draw_cover_point_menu,
+            10: self.draw_escalator_menu,
         }
 
         functions[effect](layout, context)
 
 def register():
     bpy.utils.register_class(IMPORT_OT_ParticleTXDNames)
+    bpy.utils.register_class(Escalator2DFXObjectProps)
+    bpy.types.Object.escalator_2dfx = bpy.props.PointerProperty(type=Escalator2DFXObjectProps)
 
 def unregister():
     bpy.utils.unregister_class(IMPORT_OT_ParticleTXDNames)
+    bpy.utils.unregister_class(Escalator2DFXObjectProps)
+    del bpy.types.Object.escalator_2dfx
 
 if __name__ == "__main__":
     register()

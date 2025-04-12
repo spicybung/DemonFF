@@ -1,3 +1,19 @@
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import bpy
 import bmesh
 import struct
@@ -11,44 +27,6 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""
 
-class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
-    """Extrudes faces along their normals for all selected objects by 0.001523M"""
-    bl_idname = "object.force_doubleside_mesh"
-    bl_label = "Force Doubleside Mesh"
-    bl_description = "Extrude faces along normals for all selected objects by 0.001523M"
-    bl_options = {'REGISTER', 'UNDO'}
-
-    def execute(self, context):
-        for obj in context.selected_objects:
-            if obj.type == 'MESH':
-
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.mode_set(mode='EDIT')
-
-                # Create a BMesh object from the mesh data
-                bm = bmesh.from_edit_mesh(obj.data)
-
-                # Extrude the faces
-                extrude_result = bmesh.ops.extrude_face_region(bm, geom=bm.faces)
-
-                # Collect new vertices created by the extrusion
-                new_verts = [v for v in extrude_result['geom'] if isinstance(v, bmesh.types.BMVert)]
-
-                
-                for face in bm.faces:
-                    normal = face.normal  # Get face normal
-                    for vert in new_verts:
-                        if vert in face.verts:  
-                            vert.co += normal * 0.001523
-
-                
-                bmesh.update_edit_mesh(obj.data)
-                bpy.ops.object.mode_set(mode='OBJECT')
-
-        self.report({'INFO'}, "Forced doubleside mesh for selected objects (extruded along normals by 0.001523M)")
-        return {'FINISHED'}
-
-
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
     bl_label = "DemonFF - Miscellaneous"
     bl_idname = "OBJECT_PT_dff_misc"
@@ -60,12 +38,14 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout = self.layout
         layout.label(text="Mesh Operations:")
         layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
+        layout.operator("object.optimize_mesh", text="Optimize Mesh(SLOW)")
 
         layout.label(text="Normals Operations:")
         layout.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
+        layout.operator("object.recalculate_normals_outward", text="Recalculate Normals (Outward)")
 
         layout.label(text="Collision Operations:")
-        layout.operator("object.set_collision_objects", text="Set Collision Objects")
+        layout.operator("object.set_collision_objects", text="Set All As Collision Objects")
         layout.operator("scene.duplicate_all_as_collision", text="Duplicate All as Collision")
 
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
@@ -197,10 +177,10 @@ def join_similar_named_meshes(context):
     # Create a dictionary to store objects by their base names
     base_name_dict = {}
     
-    # Iterate through all objects in the scene
+
     for obj in context.scene.objects:
         if obj.type == 'MESH':
-            # Split the name by the dot to separate the base name and the suffix
+
             name_parts = obj.name.split('.')
             base_name = name_parts[0]
             
@@ -220,7 +200,6 @@ def join_similar_named_meshes(context):
             
             bpy.ops.object.join()
 
-# Operator to call the join_similar_named_meshes function
 class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):
     bl_idname = "object.join_similar_named_meshes"
     bl_label = "Join Similar Named Meshes"
@@ -243,16 +222,95 @@ class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
         row = layout.row()
         row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
 
-# Function to set all selected objects to collision objects
+class OBJECT_OT_optimize_mesh(bpy.types.Operator):
+    bl_idname = "object.optimize_mesh"
+    bl_label = "Optimize Mesh(Slow)"
+    bl_description = "Fix and/or optimize broken mesh"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        import bmesh
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.select_all(action='SELECT')
+
+                bm = bmesh.from_edit_mesh(obj.data)
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+                bmesh.update_edit_mesh(obj.data, loop_triangles=True)
+
+                bpy.ops.mesh.remove_doubles(threshold=0.0001)
+                bpy.ops.mesh.delete_loose()
+                bpy.ops.mesh.normals_make_consistent(inside=False)
+                bpy.ops.object.mode_set(mode='OBJECT')
+        self.report({'INFO'}, "Optimized selected meshes")
+        return {'FINISHED'}
+    
+class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
+    """Extrudes faces along their normals for all selected objects by 0.001523M"""
+    bl_idname = "object.force_doubleside_mesh"
+    bl_label = "Force Doubleside Mesh"
+    bl_description = "Extrude faces along normals for all selected objects by 0.001523M"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode='EDIT')
+
+                # Create a BMesh object from the mesh data
+                bm = bmesh.from_edit_mesh(obj.data)
+
+                # Extrude the faces
+                extrude_result = bmesh.ops.extrude_face_region(bm, geom=bm.faces)
+
+                # Collect new vertices created by the extrusion
+                new_verts = [v for v in extrude_result['geom'] if isinstance(v, bmesh.types.BMVert)]
+
+                
+                for face in bm.faces:
+                    normal = face.normal  # Get face normal
+                    for vert in new_verts:
+                        if vert in face.verts:  
+                            vert.co += normal * 0.001523
+
+                
+                bmesh.update_edit_mesh(obj.data)
+                bpy.ops.object.mode_set(mode='OBJECT')
+
+        self.report({'INFO'}, "Forced doubleside mesh for selected objects (extruded along normals by 0.001523M)")
+        return {'FINISHED'}
+
+class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
+    bl_idname = "object.recalculate_normals_outward"
+    bl_label = "Recalculate Normals (Outward)"
+    bl_description = "Quickly fix normals of selected meshes to face outward"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.select_all(action='SELECT')
+                bpy.ops.mesh.normals_make_consistent(inside=False)
+                bpy.ops.object.mode_set(mode='OBJECT')
+        self.report({'INFO'}, "Normals recalculated outward")
+        return {'FINISHED'}
+
+
+
 def set_collision_objects(context):
     for obj in context.selected_objects:
         obj.dff.type = 'COL'
         print(f"Set {obj.name} as a collision object")
 
-# Operator to set collision objects
 class OBJECT_OT_set_collision_objects(bpy.types.Operator):
     bl_idname = "object.set_collision_objects"
-    bl_label = "Set Collision Objects"
+    bl_label = "Set All As Collision Objects"
     bl_description = "Set all selected objects to collision objects"
     bl_options = {'REGISTER', 'UNDO'}
 
@@ -260,7 +318,6 @@ class OBJECT_OT_set_collision_objects(bpy.types.Operator):
         set_collision_objects(context)
         return {'FINISHED'}
 
-# Function to add light info to selected light objects
 def add_light_info(context):
     for obj in context.selected_objects:
         if obj.type == 'LIGHT':
@@ -282,14 +339,12 @@ def add_light_info(context):
             obj["sdfx_viewvector"] = (0, 156, 0)
             print(f"Added GTA Light info to {obj.name}")
 
-# Function to add particle info to selected empty objects
 def add_particle_info(context):
     for obj in context.selected_objects:
         if obj.type == 'EMPTY':
             obj["sdfx_psys"] = fx_psystems[0]  # Default particle system
             print(f"Added GTA Particle system info to {obj.name}")
 
-# Function to add 2D text info to selected plane objects
 def add_text_info(context):
     for obj in context.selected_objects:
         if obj.type == 'MESH' and "Plane" in obj.name:
@@ -299,7 +354,6 @@ def add_text_info(context):
             obj["sdfx_text4"] = ""
             print(f"Added GTA 2D Text info to {obj.name}")
 
-# Function to export info to a binary file
 def export_info(context):
     global effectfile
     global textfile
@@ -999,6 +1053,127 @@ compatibiility with DFF Viewers"
     def register():
         bpy.types.Object.dff = bpy.props.PointerProperty(type=DFFObjectProps)
 
+class COLLECTION_OT_nuke_matched(bpy.types.Operator):
+    bl_idname = "collection.nuke_matched_collections"
+    bl_label = "Clean Empty .col/.dff Collections"
+    bl_description = "Remove empty .col collections and matching .dff collections with their objects"
+
+    def execute(self, context):
+        def normalize(name):
+            return name.strip().lower().replace(" ", "")
+
+        def find_collections_recursive(root):
+            all_cols = []
+            def recurse(layer):
+                all_cols.append(layer.collection)
+                for child in layer.children:
+                    recurse(child)
+            recurse(root)
+            return all_cols
+
+        context = bpy.context
+        view_layer = context.view_layer
+        all_layer_collections = find_collections_recursive(view_layer.layer_collection)
+
+        col_dict = {normalize(col.name): col for col in bpy.data.collections}
+        to_delete_names = set()
+
+        for col in all_layer_collections:
+            col_name = normalize(col.name)
+
+            if col_name.endswith(".col") or ".col." in col_name:
+                if not col.objects and not col.children:
+                    base = col_name.replace(".col", "").split(".")[0]
+                    dff_key = f"{base}.dff"
+
+                    if dff_key in col_dict:
+                        col_target = col
+                        dff_target = col_dict[dff_key]
+
+                        print(f"🧠 Match found: {col_target.name} ↔ {dff_target.name}")
+                        to_delete_names.add(col_target.name)
+                        to_delete_names.add(dff_target.name)
+
+                        for obj in list(dff_target.objects):
+                            try:
+                                if obj.name in bpy.data.objects:
+                                    bpy.data.objects.remove(obj, do_unlink=True)
+                                    print(f"🚮 Deleted object: {obj.name}")
+                            except:
+                                continue
+
+        for name in to_delete_names:
+            col = bpy.data.collections.get(name)
+            if col:
+                print(f"🗑️ Removing collection: {col.name}")
+                for parent in bpy.data.collections:
+                    if col.name in parent.children:
+                        parent.children.unlink(col)
+                if col.name in context.scene.collection.children:
+                    context.scene.collection.children.unlink(col)
+                try:
+                    bpy.data.collections.remove(col)
+                except:
+                    pass
+
+        self.report({'INFO'}, "Cleaned empty and matched collections.")
+        return {'FINISHED'}
+    
+class COLLECTION_OT_organize_scene_collection(bpy.types.Operator):
+    bl_idname = "collection.organize_scene_collection"
+    bl_label = "Organize Scene Collection"
+    bl_description = "Organize .col above matching .dff collections"
+
+    def execute(self, context):
+
+        def get_base_name(name):
+            if ".dff" in name:
+                return name.split(".dff")[0]
+            elif ".col" in name:
+                return name.split(".col")[0]
+            return name
+
+        def organize_pairs(scene):
+            all_colls = list(scene.collection.children)
+
+            pairs = []
+            others = []
+
+            pair_map = {}
+
+            for col in all_colls:
+                base = get_base_name(col.name)
+
+                if base not in pair_map:
+                    pair_map[base] = {"col": None, "dff": None}
+
+                if ".col" in col.name:
+                    pair_map[base]["col"] = col
+                elif ".dff" in col.name:
+                    pair_map[base]["dff"] = col
+                else:
+                    others.append(col)
+
+            # Unlink all first
+            for c in all_colls:
+                scene.collection.children.unlink(c)
+
+            # Link back in pairwise order: .col first, .dff next
+            for base in sorted(pair_map.keys()):
+                pair = pair_map[base]
+                if pair["col"]:
+                    scene.collection.children.link(pair["col"])
+                if pair["dff"]:
+                    scene.collection.children.link(pair["dff"])
+
+            # Link the rest (non .col/.dff) last
+            for col in sorted(others, key=lambda c: c.name):
+                scene.collection.children.link(col)
+
+        organize_pairs(context.scene)
+        self.report({'INFO'}, ".col collections are now above their matching .dff collections.")
+        return {'FINISHED'}
+
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
@@ -1043,6 +1218,19 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
 
         self.report({'INFO'}, "Duplicated and organized all objects as collision meshes above original collections")
         return {'FINISHED'}
+    
+class COLLECTION_PT_custom_cleanup_panel(bpy.types.Panel):
+    bl_label = "DemonFF - Collection Tools"
+    bl_idname = "COLLECTION_PT_custom_cleanup_panel"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "collection"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator("collection.nuke_matched_collections", icon='TRASH')
+        layout.operator("collection.organize_scene_collection", icon='SORTALPHA')
+
 
 def register():
     register_saeffects()
@@ -1058,6 +1246,12 @@ def register():
     bpy.utils.register_class(SAEEFFECTS_PT_Panel)
     bpy.utils.register_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.register_class(OBJECT_PT_dff_misc_panel)
+    bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
+    bpy.utils.register_class(OBJECT_OT_optimize_mesh)
+    bpy.utils.register_class(COLLECTION_OT_nuke_matched)
+    bpy.utils.register_class(COLLECTION_OT_organize_scene_collection)
+    bpy.utils.register_class(COLLECTION_PT_custom_cleanup_panel)
+
 
 def unregister():
     unregister_saeffects()
@@ -1073,6 +1267,12 @@ def unregister():
     bpy.utils.unregister_class(SAEEFFECTS_PT_Panel)
     bpy.utils.unregister_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.unregister_class(OBJECT_PT_dff_misc_panel)
+    bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_outward)
+    bpy.utils.unregister_class(OBJECT_OT_optimize_mesh)
+    bpy.utils.unregister_class(COLLECTION_OT_nuke_matched)
+    bpy.utils.unregister_class(COLLECTION_PT_custom_cleanup_panel)
+    bpy.utils.unregister_class(COLLECTION_OT_organize_scene_collection)
+
 
 if __name__ == "__main__":
     register()

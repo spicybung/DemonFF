@@ -1,3 +1,19 @@
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import bpy
 import struct
 from bpy.props import StringProperty
@@ -7,9 +23,8 @@ from bpy.types import Operator, Panel
 fx_images = ["coronastar", "shad_exp"]
 fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
-textfile = ""  # New variable to hold the path to the .txt file
+textfile = ""
 
-# Function to add light info to selected light objects
 def add_light_info(context):
     for obj in context.selected_objects:
         if obj.type == 'LIGHT':
@@ -31,14 +46,12 @@ def add_light_info(context):
             obj["sdfx_viewvector"] = (0, 156, 0)
             print(f"Added GTA Light info to {obj.name}")
 
-# Function to add particle info to selected empty objects
 def add_particle_info(context):
     for obj in context.selected_objects:
         if obj.type == 'EMPTY':
             obj["sdfx_psys"] = fx_psystems[0]  # Default particle system
             print(f"Added GTA Particle system info to {obj.name}")
 
-# Function to add 2D text info to selected plane objects
 def add_text_info(context):
     for obj in context.selected_objects:
         if obj.type == 'MESH' and "Plane" in obj.name:
@@ -48,7 +61,6 @@ def add_text_info(context):
             obj["sdfx_text4"] = ""
             print(f"Added GTA 2D Text info to {obj.name}")
 
-# Function to export info to a binary file
 def export_info(context):
     global effectfile
     global textfile
@@ -71,7 +83,6 @@ def export_info(context):
             elif obj.type == 'MESH' and "Plane" in obj.name:
                 export_text_info(effect_stream, None, obj)
 
-# Function to export info to a text file
 def export_text(context):
     global textfile
     obj_to_exp = [obj for obj in context.selected_objects if any(key.startswith("sdfx_") for key in obj.keys())]

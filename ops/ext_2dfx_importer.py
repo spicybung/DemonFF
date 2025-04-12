@@ -150,6 +150,52 @@ class ext_2dfx_importer:
         obj.rotation_euler = direction.to_track_quat('Y', 'Z').to_euler()
 
         return obj
+    #######################################################
+    def import_escalator(self, entry, index=0):
+
+        parent = bpy.data.objects.new(f"Escalator_{index}", None)
+        bpy.context.collection.objects.link(parent)
+
+        # Create Standard Position Empty
+        sp = bpy.data.objects.new(f"Escalator_{index}_Standart", None)
+        sp.location = entry.standart_pos
+        sp.empty_display_size = 0.2
+        sp.empty_display_type = 'SPHERE'
+        bpy.context.collection.objects.link(sp)
+        sp.parent = parent
+
+        # Create Bottom Empty
+        btm = bpy.data.objects.new(f"Escalator_{index}_Bottom", None)
+        btm.location = entry.bottom
+        btm.empty_display_size = 0.2
+        btm.empty_display_type = 'CUBE'
+        bpy.context.collection.objects.link(btm)
+        btm.parent = parent
+
+        # Create Top Empty
+        top = bpy.data.objects.new(f"Escalator_{index}_Top", None)
+        top.location = entry.top
+        top.empty_display_size = 0.2
+        top.empty_display_type = 'CONE'
+        bpy.context.collection.objects.link(top)
+        top.parent = parent
+
+        # Create End Empty
+        end = bpy.data.objects.new(f"Escalator_{index}_End", None)
+        end.location = entry.end
+        end.empty_display_size = 0.2
+        end.empty_display_type = 'ARROWS'
+        bpy.context.collection.objects.link(end)
+        end.parent = parent
+
+        settings = parent.dff.escalator_2dfx
+        settings.standart_pos = entry.standart_pos
+        settings.bottom_pos = entry.bottom
+        settings.top_pos = entry.top
+        settings.end_pos = entry.end
+        settings.direction = str(entry.direction)
+
+        return parent
 
     #######################################################
     def get_objects(self):

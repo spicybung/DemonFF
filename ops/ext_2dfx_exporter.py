@@ -178,6 +178,36 @@ class ext_2dfx_exporter:
         entry.direction_y = direction.y
 
         return entry
+    
+    #######################################################
+    def export_escalator(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.Escalator2dfx(obj.location)
+
+        entry.standart_pos = obj.location
+
+        entry.bottom = Vector((
+            settings.val_float3_1,
+            settings.val_float3_2,
+            settings.val_float3_3
+        ))
+
+        entry.top = Vector((
+            settings.val_float3_4,
+            settings.val_float3_5,
+            settings.val_float3_6
+        ))
+
+        entry.end = Vector((
+            settings.val_float3_7,
+            settings.val_float3_8,
+            settings.val_float3_9
+        ))
+
+        entry.direction = settings.val_int_1
+
+        return entry
 
     #######################################################
     def export_objects(self, objects):
@@ -190,6 +220,7 @@ class ext_2dfx_exporter:
             4: self.export_sun_glare,
             8: self.export_trigger_point,
             9: self.export_cover_point,
+            10: self.export_escalator,
         }
 
         for obj in objects:

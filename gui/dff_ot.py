@@ -1,3 +1,19 @@
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import os
 import bpy
 import time
@@ -240,7 +256,7 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):  # too lazy to fi
 class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
     
     bl_idname = "import_scene.dff_custom"
-    bl_description = 'Import a Custom Renderware DFF or COL File'
+    bl_description = 'Import a Renderware .DFF or .COL File'
     bl_label = "DFF/Col Import (.dff/.col)"
 
     filter_glob: bpy.props.StringProperty(default="*.dff;*.col",
