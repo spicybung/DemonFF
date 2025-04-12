@@ -1,6 +1,8 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
+# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -21,7 +23,7 @@ import re
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
 from bpy.types import Operator, Panel
-from .dff_importer import import_dff  # Ensure you have a valid import_dff
+from .dff_importer import import_dff
 
 def sanitize_filename(filename):
     return re.sub(r'[^\w\-_\. ]', '_', filename)
