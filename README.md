@@ -16,7 +16,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 - **Collision Editing**: Streamline collision model editing whether your workload is large or small, as well as importing and exporting.
 
-- **Animation Editing**: Import and export .IFP animation file - modify them or craft your own animations.
+- **Animation Editing**: Import and export .IFP animation files - modify them or craft your own animations.
 
 - **Map Editing**: Easily import your IPL & IDE's - create your own maps for singleplayer and/or SAMP/open.mp.
 
