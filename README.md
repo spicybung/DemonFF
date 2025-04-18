@@ -18,7 +18,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 - **Animation Editing**: Import and export .IFP animation files from Grand Theft Auto, and modify them or create your own.
 
-- **Map Editing**: Easily import your IPL & IDE's, and create your own map for singleplayer and/or SAMP/open.mp.
+- **Map Editing**: Easily import your IPL & IDE's - create your own animations & maps for singleplayer and/or SAMP/open.mp.
 
 - **Custom Section IDs**: DemonFF supports Rockstar's custom section IDs, allowing you to work with specific RW plugins seamlessly.
 
