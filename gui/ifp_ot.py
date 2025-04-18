@@ -460,3 +460,119 @@ def write_float32(fd, vals, en='<'):
 def write_str(fd, val, max_len):
     fd.write(val.encode())
     fd.write(b'\x00' * (max_len - len(val)))
+
+def export_anp3(ifp_data, fd):
+    # Header
+    fd.write(b'ANP3')
+    offset_placeholder = fd.tell()
+    fd.write(struct.pack('<I', 0))  # Offset placeholder
+
+    internal_name = ifp_data.name.encode().ljust(24, b'\x00')
+    fd.write(internal_name)
+    fd.write(struct.pack('<I', len(ifp_data.animations)))
+
+    for anim in ifp_data.animations:
+        anim_name = anim.name.encode().ljust(24, b'\x00')
+        fd.write(anim_name)
+        fd.write(struct.pack('<I', len(anim.bones)))
+
+        frame_data_size_pos = fd.tell()
+        fd.write(struct.pack('<I', 0))  # Placeholder frame size
+        fd.write(struct.pack('<I', 1))  # Unknown (always 1)
+
+        frame_start = fd.tell()
+
+        for bone in anim.bones:
+            bone_name = bone.name.encode().ljust(24, b'\x00')
+            frame_type = 4 if bone.use_bone_id else 3
+            fd.write(bone_name)
+            fd.write(struct.pack('<III', frame_type, len(bone.keyframes), bone.bone_id))
+
+            for frame in bone.keyframes:
+                quat = (frame.rot.x, frame.rot.y, frame.rot.z, frame.rot.w)
+                time = int(frame.time * 1024)
+
+                fd.write(struct.pack('<hhhhH',
+                    int(quat[0]*4096), int(quat[1]*4096), int(quat[2]*4096), int(quat[3]*4096),
+                    time
+                ))
+
+                if frame_type == 4:
+                    fd.write(struct.pack('<hhh',
+                        int(frame.pos.x*1024), int(frame.pos.y*1024), int(frame.pos.z*1024)
+                    ))
+
+        # Fixing frame_data size
+        frame_end = fd.tell()
+        frame_data_size = frame_end - frame_start
+        current_pos = fd.tell()
+        fd.seek(frame_data_size_pos)
+        fd.write(struct.pack('<I', frame_data_size))
+        fd.seek(current_pos)
+
+    # EOF offset
+    eof_offset = fd.tell()
+    fd.seek(offset_placeholder)
+    fd.write(struct.pack('<I', eof_offset))
+
+def collect_animation_data(context):
+    arm_obj = context.object
+    action = arm_obj.animation_data.action
+    animations = []
+
+    anim = Animation(name=action.name, bones=[])
+
+    for pose_bone in arm_obj.pose.bones:
+        bone = Bone(
+            name=pose_bone.name,
+            keyframe_type='KRT0',
+            use_bone_id=False,
+            bone_id=0,
+            sibling_x=0,
+            sibling_y=0,
+            keyframes=[]
+        )
+
+        frames = sorted({kp.co[0] for fc in action.fcurves for kp in fc.keyframe_points})
+        for frame_num in frames:
+            context.scene.frame_set(int(frame_num))
+            quat = pose_bone.rotation_quaternion
+            loc = pose_bone.location
+            scale = pose_bone.scale
+            time = frame_num / context.scene.render.fps
+
+            kf = Keyframe(time=time, pos=loc.copy(), rot=quat.copy(), scl=scale.copy())
+            bone.keyframes.append(kf)
+
+        anim.bones.append(bone)
+
+    animations.append(anim)
+    return IfpData(name="BlenderIFP", animations=animations)
+
+
+class EXPORT_OT_ifp(bpy.types.Operator):
+    bl_idname = "export_scene.ifp"
+    bl_label = "Export IFP (.ifp)"
+    filename_ext = ".ifp"
+    filter_glob: bpy.props.StringProperty(default="*.ifp", options={'HIDDEN'})
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    def execute(self, context):
+        try:
+            ifp_data = collect_animation_data(context)
+            with open(self.filepath, 'wb') as fd:
+                export_anp3(ifp_data, fd)
+            self.report({'INFO'}, f"IFP file exported: {self.filepath}")
+            return {'FINISHED'}
+        except Exception as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+def export_menu_func(self, context):
+    self.layout.operator(EXPORT_OT_ifp.bl_idname, text="DemonFF Export IFP (.ifp)")
+
+

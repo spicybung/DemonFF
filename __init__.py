@@ -144,7 +144,8 @@ _classes = [
     gui.SAEEFFECTS_OT_CreateLightsFromEntries,
     gui.OBJECT_PT_SDFXLightInfoPanel,
     gui.SAEEFFECTS_PT_Panel,
-    gui.IMPORT_OT_ifp
+    gui.IMPORT_OT_ifp,
+    gui.EXPORT_OT_ifp
 ]
 
 
