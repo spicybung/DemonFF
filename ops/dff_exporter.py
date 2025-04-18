@@ -262,7 +262,6 @@ def edit_bone_matrix(edit_bone):
         prediction
     """
 
-    return edit_bone.matrix
     
     # What I wrote above is rubbish, by the way. This is a hack-ish solution
     original_tail = list(edit_bone.tail)
@@ -1032,6 +1031,16 @@ class dff_exporter:
 
         # 2DFX
         ext_2dfx_exporter(self.dff.ext_2dfx).export_objects(objects)
+
+
+        #Collision Attributes
+        if hasattr(obj, "dff"):
+            col_brightness = getattr(obj.dff, "col_brightness", self.col_brightness)
+            col_light = getattr(obj.dff, "col_light", self.col_light)
+        else:
+            col_brightness = self.col_brightness
+            col_light = self.col_light
+
 
         # Collision
         if self.export_coll:

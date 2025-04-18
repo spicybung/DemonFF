@@ -128,7 +128,64 @@ class ext_2dfx_importer:
         obj = bpy.data.objects.new("2dfx_sun_glare", None)
 
         return obj
+    #######################################################
+    def import_enter_exit(self, entry):
+        obj = bpy.data.objects.new("2dfx_enter_exit", None)
 
+        settings = obj.dff.ext_2dfx
+        settings.val_degree_1 = math.degrees(entry.enter_angle)
+        settings.val_float_1 = entry.approximation_radius_x
+        settings.val_float_2 = entry.approximation_radius_y
+        settings.val_vector_1 = entry.exit_location
+        settings.val_degree_2 = entry.exit_angle
+        settings.val_short_1 = entry.interior
+        settings.val_byte_1 = entry._flags1
+        settings.val_byte_2 = entry.sky_color
+        settings.val_str8_1 = entry.interior_name
+        settings.val_hour_1 = entry.time_on
+        settings.val_hour_2 = entry.time_off
+        settings.val_byte_3 = entry._flags2
+        settings.val_byte_4 = entry.unk
+
+        return obj
+
+    #######################################################
+    def import_road_sign(self, entry):
+        lines_num = {0:4, 1:1, 2:2, 3:3}[entry.flags & 0b11]
+        max_chars_num = {0:16, 1:2, 2:4, 3:8}[(entry.flags >> 2) & 0b11]
+
+        body = ""
+        for line in (entry.text1, entry.text2, entry.text3, entry.text4)[:lines_num]:
+            body = body + "\n" if body else body
+            body += line.replace("_", " ")[:max_chars_num]
+
+        font = bpy.data.fonts.get("DejaVu Sans Mono Book")
+        if not font:
+            font_path = os.path.join(bpy.utils.system_resource('DATAFILES'), "fonts", "DejaVuSansMono.woff2")
+            if os.path.isfile(font_path):
+                font = bpy.data.fonts.load(font_path)
+
+        data = bpy.data.curves.new(name="2dfx_road_sign", type='FONT')
+        data.body = body
+        data.align_x = data.align_y = 'CENTER'
+        data.size = 0.5
+
+        if font:
+            data.font = font
+
+        settings = data.ext_2dfx
+        settings.size = entry.size
+        settings.color = str((entry.flags >> 4) & 0b11)
+
+        obj = bpy.data.objects.new("2dfx_road_sign", data)
+        obj.rotation_mode = 'ZXY'
+        obj.rotation_euler = Vector((
+            entry.rotation.x * (math.pi / 180),
+            entry.rotation.y * (math.pi / 180),
+            entry.rotation.z * (math.pi / 180)
+        ))
+
+        return obj
     #######################################################
     def import_trigger_point(self, entry):
         obj = bpy.data.objects.new("2dfx_trigger_point", None)
@@ -152,52 +209,39 @@ class ext_2dfx_importer:
         obj.rotation_euler = direction.to_track_quat('Y', 'Z').to_euler()
 
         return obj
-    #######################################################
-    def import_escalator(self, entry, index=0):
+   #######################################################
+    def import_escalator(self, entry):
+        # Create the escalator object
+        obj = bpy.data.objects.new("2dfx_escalator", None)
+        obj.empty_display_type = 'PLAIN_AXES'
+        obj.empty_display_size = 0.5
 
-        parent = bpy.data.objects.new(f"Escalator_{index}", None)
-        bpy.context.collection.objects.link(parent)
-
-        # Create Standard Position Empty
-        sp = bpy.data.objects.new(f"Escalator_{index}_Standart", None)
-        sp.location = entry.standart_pos
-        sp.empty_display_size = 0.2
-        sp.empty_display_type = 'SPHERE'
-        bpy.context.collection.objects.link(sp)
-        sp.parent = parent
-
-        # Create Bottom Empty
-        btm = bpy.data.objects.new(f"Escalator_{index}_Bottom", None)
-        btm.location = entry.bottom
-        btm.empty_display_size = 0.2
-        btm.empty_display_type = 'CUBE'
-        bpy.context.collection.objects.link(btm)
-        btm.parent = parent
-
-        # Create Top Empty
-        top = bpy.data.objects.new(f"Escalator_{index}_Top", None)
-        top.location = entry.top
-        top.empty_display_size = 0.2
-        top.empty_display_type = 'CONE'
-        bpy.context.collection.objects.link(top)
-        top.parent = parent
-
-        # Create End Empty
-        end = bpy.data.objects.new(f"Escalator_{index}_End", None)
-        end.location = entry.end
-        end.empty_display_size = 0.2
-        end.empty_display_type = 'ARROWS'
-        bpy.context.collection.objects.link(end)
-        end.parent = parent
-
-        settings = parent.dff.escalator_2dfx
+        # Assign 2DFX settings to the OBJECT, not data
+        settings = obj.dff.ext_2dfx
         settings.standart_pos = entry.standart_pos
         settings.bottom_pos = entry.bottom
         settings.top_pos = entry.top
         settings.end_pos = entry.end
         settings.direction = str(entry.direction)
 
-        return parent
+        settings.standart_pos_rotation = entry.rotation
+        settings.standart_pos_pitch = entry.pitch
+        settings.standart_pos_yaw = entry.yaw
+
+        settings.bottom_rotation = entry.bottom_rotation
+        settings.bottom_pitch = entry.bottom_pitch
+        settings.bottom_yaw = entry.bottom_yaw
+
+        settings.top_rotation = entry.top_rotation
+        settings.top_pitch = entry.top_pitch
+        settings.top_yaw = entry.top_yaw
+
+        settings.end_rotation = entry.end_rotation
+        settings.end_pitch = entry.end_pitch
+        settings.end_yaw = entry.end_yaw
+
+        return obj
+
 
     #######################################################
     def get_objects(self):
@@ -212,6 +256,7 @@ class ext_2dfx_importer:
             4: self.import_sun_glare,
             8: self.import_trigger_point,
             9: self.import_cover_point,
+            10: self.import_escalator,
         }
 
         objects = []

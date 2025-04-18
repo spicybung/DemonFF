@@ -17,33 +17,38 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import struct
 from collections import namedtuple
 from struct import unpack_from, calcsize, pack
 from enum import Enum, IntEnum
 
+from mathutils import Vector
+
 from .pyffi.utils import tristrip
 
 # Data types
-Chunk       = namedtuple("Chunk"       , "type size version")
-Clump       = namedtuple("Clump"       , "atomics lights cameras")
-Vector      = namedtuple("Vector"      , "x y z")
-Matrix      = namedtuple("Matrix"      , "right up at")
-HAnimHeader = namedtuple("HAnimHeader" , "version id bone_count")
-Bone        = namedtuple("Bone"        , "id index type")
-RGBA        = namedtuple("RGBA"        , "r g b a")
-GeomSurfPro = namedtuple("GeomSurfPro" , "ambient specular diffuse")
-TexCoords   = namedtuple("TexCoords"   , "u v")
-Sphere      = namedtuple("Sphere"      , "x y z radius")
-Triangle    = namedtuple("Triangle"    , "b a material c")
-Atomic      = namedtuple("Atomic"      , "frame geometry flags unk")
-UVFrame     = namedtuple("UVFrame"     , "time uv prev")
-BumpMapFX   = namedtuple("BumpMapFX"   , "intensity bump_map height_map")
-EnvMapFX    = namedtuple("EnvMapFX"    , "coefficient use_fb_alpha env_map")
-DualFX      = namedtuple("DualFX"      , "src_blend dst_blend texture")
-ReflMat     = namedtuple("ReflMat"     , "s_x s_y o_x o_y intensity")
-SpecularMat = namedtuple("SpecularMap" , "level texture")
-TexDict     = namedtuple("TexDict"     , "texture_count device_id")
-PITexDict   = namedtuple("PITexDict"   , "texture_count device_id")
+Chunk         = namedtuple("Chunk"         , "type size version")
+Clump         = namedtuple("Clump"         , "atomics lights cameras")
+Vector        = namedtuple("Vector"        , "x y z")
+Matrix        = namedtuple("Matrix"        , "right up at")
+HAnimHeader   = namedtuple("HAnimHeader"   , "version id bone_count")
+Bone          = namedtuple("Bone"          , "id index type")
+RGBA          = namedtuple("RGBA"          , "r g b a")
+GeomSurfPro   = namedtuple("GeomSurfPro"   , "ambient specular diffuse")
+TexCoords     = namedtuple("TexCoords"     , "u v")
+Sphere        = namedtuple("Sphere"        , "x y z radius")
+Triangle      = namedtuple("Triangle"      , "b a material c")
+UVFrame       = namedtuple("UVFrame"       , "time uv prev")
+BumpMapFX     = namedtuple("BumpMapFX"     , "intensity bump_map height_map")
+EnvMapFX      = namedtuple("EnvMapFX"      , "coefficient use_fb_alpha env_map")
+DualFX        = namedtuple("DualFX"        , "src_blend dst_blend texture")
+ReflMat       = namedtuple("ReflMat"       , "s_x s_y o_x o_y intensity")
+SpecularMat   = namedtuple("SpecularMap"   , "level texture")
+GeomBone      = namedtuple("GeomBone"      , "start_vertex vertices_count bone_id")
+RightToRender = namedtuple("RightToRender" , "value1 value2")
+
+TexDict = namedtuple("TexDict", "texture_count device_id")
+PITexDict = namedtuple("PITexDict", "texture_count device_id")
 
 UserDataSection = namedtuple("UserDataSection", "name data")
 
@@ -135,19 +140,23 @@ class Sections:
 
     # Unpack/pack format for above data types
     formats =  {
-        Chunk       : "<3I",
-        Clump       : "<3I",
-        Vector      : "<3f",
-        HAnimHeader : "<3i",
-        Bone        : "<3i",
-        RGBA        : "<4B",
-        GeomSurfPro : "<3f",
-        Sphere      : "<4f",
-        Triangle    : "<4H",
-        Atomic      : "<4I",
-        TexCoords   : "<2f",
-        ReflMat     : "<5f4x",
-        SpecularMat : "<f24s"
+        Chunk         : "<3I",
+        Clump         : "<3I",
+        Vector        : "<3f",
+        HAnimHeader   : "<3i",
+        Bone          : "<3i",
+        RGBA          : "<4B",
+        GeomSurfPro   : "<3f",
+        Sphere        : "<4f",
+        Triangle      : "<4H",
+        TexCoords     : "<2f",
+        ReflMat       : "<5f4x",
+        SpecularMat   : "<f24s",
+        GeomBone      : "<3I",
+        RightToRender : "<II",
+
+        TexDict : "<2H",
+        PITexDict: "<2H"
     }
 
     library_id = 0 # used for writing
@@ -247,24 +256,27 @@ class Texture:
 
     __slots__ = [
         'filters',
+        'uv_addressing',
         'name',
         'mask'
     ]
-    
+
     def __init__(self):
         self.filters            = 0
+        self.uv_addressing      = 0
         self.name               = ""
         self.mask               = ""
-    
+
     #######################################################
     def from_mem(data):
 
         self = Texture()
-        
-        _Texture = namedtuple("_Texture", "filters unk")
-        _tex = _Texture._make(unpack_from("<2H", data))
- 
+
+        _Texture = namedtuple("_Texture", "filters uv_addressing unk")
+        _tex = _Texture._make(unpack_from("<2BH", data))
+
         self.filters = _tex.filters
+        self.uv_addressing = _tex.uv_addressing
 
         return self
 
@@ -272,7 +284,7 @@ class Texture:
     def to_mem(self):
 
         data = b''
-        data += pack("<H2x", self.filters)
+        data += pack("<2B2x", self.filters, self.uv_addressing)
 
         data  = Sections.write_chunk(data, types["Struct"])
         data += Sections.write_chunk(Sections.pad_string(self.name),
@@ -280,7 +292,7 @@ class Texture:
         data += Sections.write_chunk(Sections.pad_string(self.mask),
                                      types["String"])
         data += Sections.write_chunk(b'', types["Extension"])
-        
+
         return Sections.write_chunk(data, types["Texture"])
 
 #######################################################
@@ -713,6 +725,28 @@ class HAnimPLG:
             data += Sections.write(Bone, bone)
 
         return Sections.write_chunk(data, types["HAnim PLG"])
+    
+#######################################################
+# TODO: AnimationPLG data
+class AnimationPLG:
+
+    __slots__ = [
+        'id'
+    ]
+
+    #######################################################
+    def __init__(self):
+        self.id = -1
+
+    #######################################################
+    def from_mem(data):
+
+        self = AnimationPLG()
+
+        _data = unpack_from("<iI", data)
+        self.id, num = _data
+
+        return self
 
 #######################################################
 class UVAnim:
@@ -1151,8 +1185,8 @@ class Escalator2DFX:
 
     #######################################################
     def __init__(self, loc):
-        self.effect_id = 10  # Escalator effect type
-        self.loc = loc       # This should be the standart_pos
+        self.effect_id = 10  # Should go after vectors
+        self.loc = loc       # This should be the standard_pos
         self.standart_pos = loc
         self.bottom = Vector()
         self.top = Vector()
@@ -1188,22 +1222,292 @@ class Escalator2DFX:
     def to_mem(self):
         data = b''
 
-        # Write the Standard Position (used as `loc`)
-        data += Sections.write(Vector, self.standart_pos)
+        # Standard position vector (rotation, pitch, yaw)
+        data += pack('<f', self.rotation)
+        data += pack('<f', self.pitch)  # Affects belt length
+        data += pack('<f', self.yaw)    # Affects belt height
 
-        # Write entry type (10) and size (40)
-        data += pack('<II', self.effect_id, 40)
+        # Effect ID and entry size
+        data += pack('<I', self.effect_id) # Comes after position vector
+        data += pack('<I', 40)  # Usually 40 bytes per entry
 
-        # Write the 3 escalator vectors
-        data += Sections.write(Vector, self.bottom)
-        data += Sections.write(Vector, self.top)
-        data += Sections.write(Vector, self.end)
+        # Bottom vector
+        data += pack('<f', self.bottom[0])  # Affects escalator rotation
+        data += pack('<f', self.bottom[1])  # Affects belt length
+        data += pack('<f', self.bottom[2])  # Affects belt height
 
-        # Write the direction flag
+        # Top vector
+        data += pack('<f', self.top[0]) # Affects escalator rotation
+        data += pack('<f', self.top[1]) # Affects belt length(?)
+        data += pack('<f', self.top[2]) # Affects belt height
+
+        # End vector
+        data += pack('<f', self.end[0]) # Affects escalator rotation
+        data += pack('<f', self.end[1]) # Affects belt length(?)
+        data += pack('<f', self.end[2]) # Affects belt height
+
+        # Direction (0 for down, 1 for up)
         data += pack('<I', self.direction)
 
         return data
+#######################################################
+class LightEntry:
+    def __init__(self, position, effect_id, color, corona_far_clip, pointlight_range,
+                 corona_size, shadow_size, corona_show_mode, corona_enable_reflection,
+                 corona_flare_type, shadow_color_multiplier, flags1,
+                 corona_tex_name, shadow_tex_name, shadow_z_distance, flags2,
+                 look_direction):
+        self.position = position
+        self.effect_id = effect_id
+        self.color = color
+        self.corona_far_clip = corona_far_clip
+        self.pointlight_range = pointlight_range
+        self.corona_size = corona_size
+        self.shadow_size = shadow_size
+        self.corona_show_mode = corona_show_mode
+        self.corona_enable_reflection = corona_enable_reflection
+        self.corona_flare_type = corona_flare_type
+        self.shadow_color_multiplier = shadow_color_multiplier
+        self.flags1 = flags1
+        self.corona_tex_name = corona_tex_name
+        self.shadow_tex_name = shadow_tex_name
+        self.shadow_z_distance = shadow_z_distance
+        self.flags2 = flags2
+        self.look_direction = look_direction
 
+    def to_mem(self):
+        """
+        Serialize this light entry into binary format.
+        """
+    
+
+        # Start with an empty bytes object
+        entry_data = b''
+        
+        actual_size = len(entry_data)
+        data_size = min(actual_size, 80) # Clamp if larger than 80 bytes
+
+        # Position (X, Y, Z)
+        entry_data += struct.pack('<3f', *self.position)
+
+        # Effect ID and Data Size
+        effect_id = 0  
+        entry_data += struct.pack('<II', effect_id, data_size)
+
+        # Color (RGBA)
+        entry_data += struct.pack('<4B', *self.color)
+
+        # Float properties
+        entry_data += struct.pack('<4f',
+                                self.corona_far_clip,
+                                self.pointlight_range,
+                                self.corona_size,
+                                self.shadow_size)
+
+        # Byte properties
+        entry_data += struct.pack('<5B',
+                                self.corona_show_mode,
+                                self.corona_enable_reflection,
+                                self.corona_flare_type,
+                                self.shadow_color_multiplier,
+                                self.flags1)
+
+        # Texture names
+        entry_data += self.corona_tex_name.encode('ascii').ljust(24, b'\x00')
+        entry_data += self.shadow_tex_name.encode('ascii').ljust(24, b'\x00')
+
+        # Shadow Z Distance and Flags2
+        entry_data += struct.pack('<B', self.shadow_z_distance)
+        entry_data += struct.pack('<B', self.flags2)
+
+        # Look direction
+        if self.look_direction:
+            entry_data += struct.pack('<3B', *self.look_direction)
+            entry_data += b'\x00'  # Padding to align to 80 bytes
+
+        return entry_data
+    
+class EnterExit2dfx:
+
+    #######################################################
+    class Flags1(Enum):
+        UNKNOWN_INTERIOR = 1
+        UNKNOWN_PAIRING = 2
+        CREATE_LINKED_PAIRING = 4
+        REWARD_INTERIOR = 8
+        USED_REWARD_ENTRANCE = 16
+        CARS_AND_AIRCRAFT = 32
+        BIKES_AND_MOTORCYCLES = 64
+        DISABLE_ON_FOOT = 128
+
+    #######################################################
+    class Flags2(Enum):
+        ACCEPT_NPC_GROUP = 1
+        FOOD_DATE_FLAG = 2
+        UNKNOWN_BURGLARY = 4
+        DISABLE_EXIT = 8
+        BURGLARY_ACCESS = 16
+        ENTERED_WITHOUT_EXIT = 32
+        ENABLE_ACCESS = 64
+        DELETE_ENEX = 128
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 6
+        self.enter_angle = 0
+        self.approximation_radius_x = 0
+        self.approximation_radius_y = 0
+        self.exit_location = [0, 0, 0]
+        self.exit_angle = 0
+        self.interior = 0
+        self._flags1 = 0
+        self.sky_color = 0
+        self.interior_name = ""
+        self.time_on = 0
+        self.time_off = 0
+        self._flags2 = 0
+        self.unk = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = EnterExit2dfx(loc)
+
+        self.enter_angle, self.approximation_radius_x, \
+        self.approximation_radius_y = unpack_from("<fff", data, offset)
+
+        self.exit_location = Sections.read(Vector, data, offset + 12)
+
+        self.exit_angle, self.interior, \
+        self._flags1, self.sky_color, \
+        interior_name = unpack_from("<fHBB8s", data, offset + 24)
+
+        self.time_on, self.time_off ,\
+        self._flags2, self.unk = unpack_from("<4B", data, offset + 40)
+
+        self.interior_name = interior_name[:strlen(interior_name)].decode('ascii')
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = pack(
+            "<fff",
+            self.enter_angle,
+            self.approximation_radius_x,
+            self.approximation_radius_y
+        )
+        data += Sections.write(Vector, self.exit_location)
+        data += pack(
+            "<fHBB8s4B",
+            self.exit_angle,
+            self.interior,
+            self._flags1,
+            self.sky_color,
+            self.interior_name.encode(),
+            self.time_on, self.time_off,
+            self._flags2, self.unk
+        )
+
+        return data
+
+#######################################################
+class RoadSign2dfx:
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 7
+        self.size = [1, 1]
+        self.rotation = [0, 0, 0]
+        self.flags = 0
+        self.text1 = ""
+        self.text2 = ""
+        self.text3 = ""
+        self.text4 = ""
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = RoadSign2dfx(loc)
+        self.size = unpack_from("<ff", data, offset)
+        self.rotation = Sections.read(Vector, data, offset + 8)
+        self.flags, \
+        self.text1, self.text2, \
+        self.text3, self.text4 = unpack_from("<H16s16s16s16s2x", data, offset + 20)
+
+        self.text1 = self.text1.decode('ascii')
+        self.text2 = self.text2.decode('ascii')
+        self.text3 = self.text3.decode('ascii')
+        self.text4 = self.text4.decode('ascii')
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = pack("<ff", *self.size)
+        data += Sections.write(Vector, self.rotation)
+        data += pack(
+            "<H16s16s16s16s2x",
+            self.flags,
+            self.text1.encode(), self.text2.encode(),
+            self.text3.encode(), self.text4.encode()
+        )
+
+        return data
+
+#######################################################
+class TriggerPoint2dfx:
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 8
+        self.point_id = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = TriggerPoint2dfx(loc)
+        self.point_id = unpack_from("<I", data, offset)[0]
+        return self
+
+    #######################################################
+    def to_mem(self):
+        return pack("<I", self.point_id)
+
+#######################################################
+class CoverPoint2dfx:
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 9
+        self.direction_x = 0
+        self.direction_y = 0
+        self.cover_type = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = CoverPoint2dfx(loc)
+        self.direction_x, self.direction_y, \
+        self.cover_type = unpack_from("<ffI", data, offset)
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = pack(
+            "<ffI",
+            self.direction_x, self.direction_y,
+            self.cover_type
+        )
+        return data
         
 #######################################################
 class Extension2dfx:
@@ -1268,8 +1572,12 @@ class Extension2dfx:
         for entry in self.entries:
             entry_data = entry.to_mem()
 
-            data += pack("<I", entry.effect_id)
-            data += entry_data
+            # For escalators, effect_id is already written inside entry.to_mem()
+            if hasattr(entry, 'effect_id') and entry.effect_id == 10:
+                data += entry_data
+            else:
+
+                data += entry_data
 
         return Sections.write_chunk(data, types['2d Effect'])
 
@@ -1475,9 +1783,13 @@ class Geometry:
         'has_normals',
         'normals',
         'materials',
+        'split_headers',
         'extensions',
         'export_flags',
-        'pipeline',
+        'native_platform_type',
+        '_num_triangles',
+        '_num_vertices',
+        '_vertex_bone_weights',
         '_hasMatFX'
     ]
     
@@ -1494,8 +1806,14 @@ class Geometry:
         self.has_normals        = None
         self.normals            = []
         self.materials          = []
+        self.split_headers      = []
         self.extensions         = {}
-        self.pipeline           = None
+
+        # user for native plg
+        self.native_platform_type = 0
+        self._num_triangles = 0
+        self._num_vertices = 0
+        self._vertex_bone_weights = []
 
         # used for export
         self.export_flags = {

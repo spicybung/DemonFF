@@ -60,19 +60,75 @@ class IMPORT_OT_ParticleTXDNames(bpy.types.Operator, ImportHelper):
 class EXT2DFXObjectProps(bpy.types.PropertyGroup):
 
     effect : bpy.props.EnumProperty(
-        items = (
-            ('0', 'Light', 'Light'),
-            ('1', 'Particle', 'Particle'),
-            ('4', 'Sun Glare', 'Sun Glare'),
-            ('8', 'Trigger Point', 'Trigger Point'),
-            ('9', 'Cover Point', 'Cover Point'),
-            ('10', 'Escalator', 'Escalator'),
+            items = (
+                ('0', 'Light', 'Light'),
+                ('1', 'Particle', 'Particle'),
+                ('4', 'Sun Glare', 'Sun Glare'),
+                ('6', 'Enter Exit', 'Enter Exit'),
+                ('7', 'Road Sign', 'Road Sign'),
+                ('8', 'Trigger Point', 'Trigger Point'),
+                ('9', 'Cover Point', 'Cover Point'),
+                ('10', 'Escalator', 'Escalator')
+            )
         )
-    )
+
+    val_byte_1 : bpy.props.IntProperty(min = 0, max = 255)
+    val_byte_2 : bpy.props.IntProperty(min = 0, max = 255)
+    val_byte_3 : bpy.props.IntProperty(min = 0, max = 255)
+    val_byte_4 : bpy.props.IntProperty(min = 0, max = 255)
+
+    val_short_1 : bpy.props.IntProperty(min = 0, max = 65535)
 
     val_int_1 : bpy.props.IntProperty()
 
+    val_float_1 : bpy.props.FloatProperty()
+    val_float_2 : bpy.props.FloatProperty()
+
+    val_str8_1 : bpy.props.StringProperty(maxlen = 7)
+
     val_str24_1 : bpy.props.StringProperty(maxlen = 23)
+
+    val_vector_1 : bpy.props.FloatVectorProperty(default = [0, 0, 0])
+
+    val_degree_1 : bpy.props.FloatProperty(
+        min = -180,
+        max = 180
+    )
+
+    val_degree_2 : bpy.props.FloatProperty(
+        min = -180,
+        max = 180
+    )
+
+    val_hour_1 : bpy.props.IntProperty(min = 0, max = 24)
+    val_hour_2 : bpy.props.IntProperty(min = 0, max = 24)
+
+    standart_pos: bpy.props.FloatVectorProperty(name="Standard Position", size=3)
+    bottom_pos: bpy.props.FloatVectorProperty(name="Bottom Position", size=3)
+    top_pos: bpy.props.FloatVectorProperty(name="Top Position", size=3)
+    end_pos: bpy.props.FloatVectorProperty(name="End Position", size=3)
+
+    standart_pos_rotation: bpy.props.FloatProperty(name="Standard Rotation")
+    standart_pos_pitch: bpy.props.FloatProperty(name="Standard Pitch")
+    standart_pos_yaw: bpy.props.FloatProperty(name="Standard Yaw")
+
+    bottom_rotation: bpy.props.FloatProperty(name="Bottom Rotation")
+    bottom_pitch: bpy.props.FloatProperty(name="Bottom Pitch")
+    bottom_yaw: bpy.props.FloatProperty(name="Bottom Yaw")
+
+    top_rotation: bpy.props.FloatProperty(name="Top Rotation")
+    top_pitch: bpy.props.FloatProperty(name="Top Pitch")
+    top_yaw: bpy.props.FloatProperty(name="Top Yaw")
+
+    end_rotation: bpy.props.FloatProperty(name="End Rotation")
+    end_pitch: bpy.props.FloatProperty(name="End Pitch")
+    end_yaw: bpy.props.FloatProperty(name="End Yaw")
+
+    direction: bpy.props.EnumProperty(
+        name="Direction",
+        items=[('0', 'Down', ''), ('1', 'Up', '')],
+        default='1'
+    )
 
 #######################################################
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
@@ -198,18 +254,6 @@ class Light2DFXObjectProps(bpy.types.PropertyGroup):
     def register():
         bpy.types.Light.ext_2dfx = bpy.props.PointerProperty(type=Light2DFXObjectProps)
 #######################################################
-class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
-    standart_pos: bpy.props.FloatVectorProperty(name="Standart Position", size=3)
-    bottom_pos: bpy.props.FloatVectorProperty(name="Bottom", size=3)
-    top_pos: bpy.props.FloatVectorProperty(name="Top", size=3)
-    end_pos: bpy.props.FloatVectorProperty(name="End", size=3)
-    direction: bpy.props.EnumProperty(
-        name="Direction",
-        items=[('0', 'Down', ''), ('1', 'Up', '')],
-        default='1'
-    )
-
-#######################################################
 class EXT2DFXMenus:
 
     #######################################################
@@ -275,7 +319,39 @@ class EXT2DFXMenus:
     #######################################################
     def draw_sun_glare_menu(layout, context):
         pass
+    #######################################################   
+    def draw_enter_exit_menu(layout, context):
+        obj = context.object
+        settings = obj.dff.ext_2dfx
 
+        box = layout.box()
+        box.prop(settings, "val_degree_1", text="Enter Angle")
+        box.prop(settings, "val_float_1", text="Approximation Radius X")
+        box.prop(settings, "val_float_2", text="Approximation Radius Y")
+        box.prop(settings, "val_vector_1", text="Exit Location")
+        box.prop(settings, "val_degree_2", text="Exit Angle")
+        box.prop(settings, "val_short_1", text="Interior")
+        box.prop(settings, "val_byte_1", text="Flags")
+        box.prop(settings, "val_byte_2", text="Sky Color")
+        box.prop(settings, "val_str8_1", text="Interior Name")
+        box.prop(settings, "val_hour_1", text="Time On")
+        box.prop(settings, "val_hour_2", text="Time Off")
+        box.prop(settings, "val_byte_3", text="Flags 2")
+        box.prop(settings, "val_byte_4", text="Unknown")
+
+    #######################################################
+    def draw_road_sign_menu(layout, context):
+        obj = context.object
+        box = layout.box()
+
+        if obj.type != 'FONT':
+            box.label(text="This effect is only available for text objects", icon="ERROR")
+            return
+
+        settings = obj.data.ext_2dfx
+
+        box.prop(settings, "size", text="Size")
+        box.prop(settings, "color", text="Color")
     #######################################################
     def draw_trigger_point_menu(layout, context):
         obj = context.object
@@ -294,15 +370,51 @@ class EXT2DFXMenus:
     #######################################################
     def draw_escalator_menu(layout, context):
         obj = context.object
-        settings = obj.dff.escalator_2dfx
+
+        if not obj or obj.type != 'EMPTY':
+            layout.label(text="This effect is only available for empty objects", icon="ERROR")
+            return
+
+
+        settings = obj.dff.ext_2dfx
 
         box = layout.box()
         box.label(text="Escalator Settings", icon="MOD_ARRAY")
-        box.prop(settings, "standart_pos")
-        box.prop(settings, "bottom_pos")
-        box.prop(settings, "top_pos")
-        box.prop(settings, "end_pos")
-        box.prop(settings, "direction")
+
+        # Standard Position
+        col = box.column()
+        col.label(text="Standard Position:")
+        col.prop(settings, "standart_pos", text="Vector")
+        col.prop(settings, "standart_pos_rotation")
+        col.prop(settings, "standart_pos_pitch")
+        col.prop(settings, "standart_pos_yaw")
+
+        # Bottom Position
+        col = box.column()
+        col.label(text="Bottom Position:")
+        col.prop(settings, "bottom_pos", text="Vector")
+        col.prop(settings, "bottom_rotation")
+        col.prop(settings, "bottom_pitch")
+        col.prop(settings, "bottom_yaw")
+
+        # Top Position
+        col = box.column()
+        col.label(text="Top Position:")
+        col.prop(settings, "top_pos", text="Vector")
+        col.prop(settings, "top_rotation")
+        col.prop(settings, "top_pitch")
+        col.prop(settings, "top_yaw")
+
+        # End Position
+        col = box.column()
+        col.label(text="End Position:")
+        col.prop(settings, "end_pos", text="Vector")
+        col.prop(settings, "end_rotation")
+        col.prop(settings, "end_pitch")
+        col.prop(settings, "end_yaw")
+
+        # Direction
+        box.prop(settings, "direction", text="Direction")
 
     #######################################################
     def draw_menu(effect, layout, context):
@@ -312,6 +424,8 @@ class EXT2DFXMenus:
             0: self.draw_light_menu,
             1: self.draw_particle_menu,
             4: self.draw_sun_glare_menu,
+            6: self.draw_enter_exit_menu,
+            7: self.draw_road_sign_menu,
             8: self.draw_trigger_point_menu,
             9: self.draw_cover_point_menu,
             10: self.draw_escalator_menu,
@@ -321,13 +435,10 @@ class EXT2DFXMenus:
 
 def register():
     bpy.utils.register_class(IMPORT_OT_ParticleTXDNames)
-    bpy.utils.register_class(Escalator2DFXObjectProps)
-    bpy.types.Object.escalator_2dfx = bpy.props.PointerProperty(type=Escalator2DFXObjectProps)
 
 def unregister():
     bpy.utils.unregister_class(IMPORT_OT_ParticleTXDNames)
-    bpy.utils.unregister_class(Escalator2DFXObjectProps)
-    del bpy.types.Object.escalator_2dfx
+    del bpy.types.Object.ext_2dfx
 
 if __name__ == "__main__":
     register()

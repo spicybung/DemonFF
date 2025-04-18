@@ -78,22 +78,22 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         default=False
     )
 
-    col_brightness: bpy.props.FloatProperty(
+    col_brightness: bpy.props.IntProperty(
         name="Collision Brightness",
         description="Set brightness level for all exported collisions",
-        default=1.0,
-        min=0.0,
-        max=10.0
+        default=255,
+        min=0,
+        max=255
     )
 
-    col_light: bpy.props.FloatProperty(
+    col_light: bpy.props.IntProperty(
         name="Collision Light Intensity",
         description="Set light intensity for all exported collisions",
-        default=1.0,
-        min=0.0,
-        max=10.0
+        default=255,
+        min=0,
+        max=255
     )
-
+    
 
     #######################################################
     def draw(self, context):

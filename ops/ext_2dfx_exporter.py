@@ -151,6 +151,77 @@ class ext_2dfx_exporter:
         entry = dff.SunGlare2dfx(obj.location)
 
         return entry
+    
+    #######################################################
+    def export_enter_exit(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.EnterExit2dfx(obj.location)
+        entry.enter_angle = math.radians(settings.val_degree_1)
+        entry.approximation_radius_x = settings.val_float_1
+        entry.approximation_radius_y = settings.val_float_2
+        entry.exit_location = settings.val_vector_1
+        entry.exit_angle = settings.val_degree_2
+        entry.interior = settings.val_short_1
+        entry._flags1 = settings.val_byte_1
+        entry.sky_color = settings.val_byte_2
+        entry.interior_name = settings.val_str8_1
+        entry.time_on = settings.val_hour_1
+        entry.time_off = settings.val_hour_2
+        entry._flags2 = settings.val_byte_3
+        entry.unk = settings.val_byte_4
+
+        return entry
+
+    #######################################################
+    def export_road_sign(self, obj):
+        if obj.type != 'FONT':
+            return
+
+        lines = obj.data.body.split("\n")[:4]
+        if not lines:
+            return
+
+        lines_num = len(lines)
+        while len(lines) < 4:
+            lines.append("_" * 16)
+
+        max_chars_num = 2
+        for i, line in enumerate(lines):
+            if len(line) < 16:
+                line += (16 - len(line)) * "_"
+            line = line.replace(" ", "_")[:16]
+            lines[i] = line
+
+            line_chars_num = len(line.rstrip("_"))
+            if max_chars_num < line_chars_num:
+                max_chars_num = line_chars_num
+
+        max_chars_num = next((i for i in (2, 4, 8, 16) if max_chars_num <= i), max_chars_num)
+
+        settings = obj.data.ext_2dfx
+
+        flags = {1:1, 2:2, 3:3, 4:0}[lines_num]
+        flags |= {2:1, 4:2, 8:3, 16:0}[max_chars_num] << 2
+        flags |= int(settings.color) << 4
+
+        rotation = obj.matrix_local.to_euler('ZXY')
+
+        entry = dff.RoadSign2dfx(obj.location)
+
+        entry.rotation = Vector((
+            rotation.x * (180 / math.pi),
+            rotation.y * (180 / math.pi),
+            rotation.z * (180 / math.pi)
+        ))
+
+        entry.text1, entry.text2, \
+        entry.text3, entry.text4 = lines
+
+        entry.size = settings.size
+        entry.flags = flags
+
+        return entry
 
     #######################################################
     def export_trigger_point(self, obj):
@@ -185,29 +256,36 @@ class ext_2dfx_exporter:
     def export_escalator(self, obj):
         settings = obj.dff.ext_2dfx
 
-        entry = dff.Escalator2dfx(obj.location)
+        entry = dff.Escalator2DFX(obj.location) #effect_id begins after position vector for escalators
 
-        entry.standart_pos = obj.location
+        # Vectors
+        entry.standart_pos = settings.standart_pos
+        entry.rotation = settings.standart_pos_rotation
+        entry.pitch = settings.standart_pos_pitch
+        entry.yaw = settings.standart_pos_yaw
 
-        entry.bottom = Vector((
-            settings.val_float3_1,
-            settings.val_float3_2,
-            settings.val_float3_3
-        ))
+        entry.effect_id = 10
 
-        entry.top = Vector((
-            settings.val_float3_4,
-            settings.val_float3_5,
-            settings.val_float3_6
-        ))
+        # Bottom
+        entry.bottom = settings.bottom_pos
+        entry.bottom_rotation = settings.bottom_rotation
+        entry.bottom_pitch = settings.bottom_pitch
+        entry.bottom_yaw = settings.bottom_yaw
 
-        entry.end = Vector((
-            settings.val_float3_7,
-            settings.val_float3_8,
-            settings.val_float3_9
-        ))
+        # Top
+        entry.top = settings.top_pos
+        entry.top_rotation = settings.top_rotation
+        entry.top_pitch = settings.top_pitch
+        entry.top_yaw = settings.top_yaw
 
-        entry.direction = settings.val_int_1
+        # End
+        entry.end = settings.end_pos
+        entry.end_rotation = settings.end_rotation
+        entry.end_pitch = settings.end_pitch
+        entry.end_yaw = settings.end_yaw
+
+        # Direction
+        entry.direction = int(settings.direction)
 
         return entry
 

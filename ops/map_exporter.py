@@ -31,6 +31,16 @@ def quat_to_degrees(quat):
 
 IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
 
+#######################################################
+class DFFFrameProps(bpy.types.PropertyGroup):
+    obj  : bpy.props.PointerProperty(type=bpy.types.Object)
+    icon : bpy.props.StringProperty()
+
+#######################################################
+class DFFAtomicProps(bpy.types.PropertyGroup):
+    obj       : bpy.props.PointerProperty(type=bpy.types.Object)
+    frame_obj : bpy.props.PointerProperty(type=bpy.types.Object)
+#######################################################
 class DFFSceneProps(bpy.types.PropertyGroup):
 
     def update_map_sections(self, context):
@@ -94,6 +104,8 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         default=0.0,
         description="Offset for the y coordinate of the objects"
     )
+
+    frames: bpy.props.CollectionProperty(type=DFFFrameProps)
 
     @classmethod
     def register(cls):
@@ -549,6 +561,8 @@ class DemonFFPawnPanel(bpy.types.Panel):
         row.operator("object.remove_building_for_player", text="Remove Building For Player")
 
 def register():
+    bpy.utils.register_class(DFFFrameProps)
+    bpy.utils.register_class(DFFAtomicProps)
     bpy.utils.register_class(DFFSceneProps)
     bpy.utils.register_class(SAMP_IDE_Import_Operator)
     bpy.utils.register_class(Mass_IDE_Import_Operator)
@@ -556,12 +570,14 @@ def register():
     bpy.utils.register_class(ExportToIDEOperator)
     bpy.utils.register_class(ExportToPawnOperator)
     bpy.utils.register_class(RemoveBuildingForPlayerOperator)
-    bpy.utils.register_class(MapImportPanel)
+    bpy.utils.unregister_class(MapImportPanel)
     bpy.utils.register_class(DemonFFMapExportPanel)
     bpy.utils.register_class(DemonFFPawnPanel)
     DFFSceneProps.register()
 
 def unregister():
+    bpy.utils.unregister_class(DFFFrameProps)
+    bpy.utils.unregister_class(DFFAtomicProps)
     bpy.utils.unregister_class(DFFSceneProps)
     bpy.utils.unregister_class(SAMP_IDE_Import_Operator)
     bpy.utils.unregister_class(Mass_IDE_Import_Operator)

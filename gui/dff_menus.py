@@ -19,9 +19,16 @@
 
 import bpy
 import bmesh
+import gpu
 import struct
-from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom
+from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
+    IMPORT_OT_txd, \
+    OBJECT_OT_dff_generate_bone_props, \
+    OBJECT_OT_dff_set_parent_bone, OBJECT_OT_dff_clear_parent_bone
+from .dff_ot import SCENE_OT_dff_frame_move, SCENE_OT_dff_atomic_move, SCENE_OT_dff_update
 from .col_ot import EXPORT_OT_col
+from .ifp_ot import IMPORT_OT_ifp
+
 from .ext_2dfx_menus import EXT2DFXObjectProps, EXT2DFXMenus
 
 # Global variables
@@ -176,6 +183,41 @@ class Light2DFXObjectProps(bpy.types.PropertyGroup):
     def register():
         bpy.types.Light.ext_2dfx = bpy.props.PointerProperty(type=Light2DFXObjectProps)
 #######################################################
+class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
+    # Vector Positions (combined XYZ)
+    standart_pos: bpy.props.FloatVectorProperty(name="Standart Position", size=3)
+    bottom_pos: bpy.props.FloatVectorProperty(name="Bottom", size=3)
+    top_pos: bpy.props.FloatVectorProperty(name="Top", size=3)
+    end_pos: bpy.props.FloatVectorProperty(name="End", size=3)
+
+    # Direction
+    direction: bpy.props.EnumProperty(
+        name="Direction",
+        items=[('0', 'Down', ''), ('1', 'Up', '')],
+        default='1'
+    )
+
+    # Standard Position Vectors
+    standart_pos_rotation: bpy.props.FloatProperty(name="Standard Pos Rotation")
+    standart_pos_pitch: bpy.props.FloatProperty(name="Standard Pos Pitch")
+    standart_pos_yaw: bpy.props.FloatProperty(name="Standard Pos Yaw")
+
+    # Bottom Position
+    bottom_rotation: bpy.props.FloatProperty(name="Bottom Rotation")
+    bottom_pitch: bpy.props.FloatProperty(name="Bottom Pitch")
+    bottom_yaw: bpy.props.FloatProperty(name="Bottom Yaw")
+
+    # Top Position
+    top_rotation: bpy.props.FloatProperty(name="Top Rotation")
+    top_pitch: bpy.props.FloatProperty(name="Top Pitch")
+    top_yaw: bpy.props.FloatProperty(name="Top Yaw")
+
+    # End Position
+    end_rotation: bpy.props.FloatProperty(name="End Rotation")
+    end_pitch: bpy.props.FloatProperty(name="End Pitch")
+    end_yaw: bpy.props.FloatProperty(name="End Yaw")
+        
+#######################################################
 def join_similar_named_meshes(context):
     # Create a dictionary to store objects by their base names
     base_name_dict = {}
@@ -192,7 +234,7 @@ def join_similar_named_meshes(context):
             
             base_name_dict[base_name].append(obj)
     
-    # Iterate through the dictionary and join objects with similar names
+
     for base_name, objects in base_name_dict.items():
         if len(objects) > 1:
             context.view_layer.objects.active = objects[0]
@@ -726,6 +768,16 @@ class MATERIAL_PT_dffMaterials(bpy.types.Panel):
             return
 
         self.draw_mesh_menu(context)
+#######################################################
+class DFF_MT_ImportChoice(bpy.types.Menu):
+    bl_label = "DemonFF"
+
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(IMPORT_OT_dff_custom.bl_idname, 
+                        text="DemonFF DFF (.dff/.col)")
+        layout.operator(IMPORT_OT_ifp.bl_idname, 
+                        text="DemonFF IFP (.ifp)")
 
 #######################################################@
 class DFF_MT_ExportChoice(bpy.types.Menu):
@@ -739,55 +791,82 @@ class DFF_MT_ExportChoice(bpy.types.Menu):
 
 #######################################################
 def import_dff_func(self, context):
-    self.layout.operator(IMPORT_OT_dff_custom.bl_idname, text="DemonFF DFF (.dff/.col)")
-
+    self.layout.menu("DFF_MT_ImportChoice", text="DemonFF")
 #######################################################
 def export_dff_func(self, context):
     self.layout.menu("DFF_MT_ExportChoice", text="DemonFF")
 
 #######################################################
+#######################################################@
+class DFF_MT_EditArmature(bpy.types.Menu):
+    bl_label = "DemonFF"
+
+    def draw(self, context):
+        self.layout.operator(OBJECT_OT_dff_generate_bone_props.bl_idname, text="Generate Bone Properties")
+
+#######################################################
+def edit_armature_dff_func(self, context):
+    self.layout.separator()
+    self.layout.menu("DFF_MT_EditArmature", text="DemonFF")
+
+#######################################################@
+class DFF_MT_Pose(bpy.types.Menu):
+    bl_label = "DemonFF"
+
+    def draw(self, context):
+        self.layout.operator(OBJECT_OT_dff_set_parent_bone.bl_idname, text="Set Object Parent To Bone")
+        self.layout.operator(OBJECT_OT_dff_clear_parent_bone.bl_idname, text="Clear Object Parent")
+
+#######################################################
+def pose_dff_func(self, context):
+    self.layout.separator()
+    self.layout.menu("DFF_MT_Pose", text="DemonFF")
+
+#######################################################
 class OBJECT_PT_dffObjects(bpy.types.Panel):
-    bl_idname = "OBJECT_PT_dffObjects"
-    bl_label = "DemonFF - Export Object"
-    bl_space_type = "PROPERTIES"
+
+    bl_idname      = "OBJECT_PT_dffObjects"
+    bl_label       = "DemonFF - Export Object"
+    bl_space_type  = "PROPERTIES"
     bl_region_type = "WINDOW"
-    bl_context = "object"
+    bl_context     = "object"
 
     #######################################################
     def draw_labelled_prop(self, row, settings, props, label, text=""):
+        
         row.label(text=label)
         for prop in props:
             row.prop(settings, prop, text=text)
 
+
     #######################################################
     def validate_pipeline(self, pipeline):
+
         try:
             int(pipeline, 0)
         except ValueError:
             return False
 
         return True
-
+            
     #######################################################
     def draw_mesh_menu(self, context):
+
         layout = self.layout
         settings = context.object.dff
 
         box = layout.box()
-        box.prop(settings, "pipeline", text="Pipeline")
-        if settings.pipeline == 'CUSTOM':
-            col = box.column()
-
-            col.alert = not self.validate_pipeline(settings.custom_pipeline)
-            icon = "ERROR" if col.alert else "NONE"
-
-            col.prop(settings, "custom_pipeline", icon=icon, text="Custom Pipeline")
-
         box.prop(settings, "export_normals", text="Export Normals")
         box.prop(settings, "export_split_normals", text="Export Custom Split Normals")
         box.prop(settings, "export_binsplit", text="Export Bin Mesh PLG")
+        box.prop(settings, "triangle_strip", text="Use Triangle Strip")
         box.prop(settings, "light", text="Enable Lighting")
         box.prop(settings, "modulate_color", text="Enable Modulate Material Color")
+
+        row = box.row()
+        if settings.is_frame_locked:
+            row.enabled = False
+        row.prop(settings, "is_frame", text="Export As Frame")
 
         properties = [
             ["day_cols", "Day Vertex Colours"],
@@ -796,7 +875,7 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="Export Vertex Colours")
-
+        
         for property in properties:
             box.prop(settings, property[0], text=property[1])
 
@@ -808,6 +887,19 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
         # Second UV Map can only be disabled if the first UV map is enabled.
         if settings.uv_map1:
             box.prop(settings, "uv_map2", text="UV Map 2")
+
+        box = layout.box()
+        box.label(text="Atomic")
+        box.prop(settings, "pipeline", text="Pipeline")
+        if settings.pipeline == 'CUSTOM':
+            col = box.column()
+
+            col.alert = not self.validate_pipeline(settings.custom_pipeline)
+            icon = "ERROR" if col.alert else "NONE"
+
+            col.prop(settings, "custom_pipeline", icon=icon, text="Custom Pipeline")
+
+        box.prop(settings, "right_to_render", text="Right To Render")
 
     #######################################################
     def draw_col_menu(self, context):
@@ -1053,9 +1145,13 @@ compatibiility with DFF Viewers"
     # 2DFX properties
     ext_2dfx : bpy.props.PointerProperty(type=EXT2DFXObjectProps)
 
+    # Miscellaneous properties
+    is_frame_locked : bpy.props.BoolProperty()
+
     def register():
         bpy.types.Object.dff = bpy.props.PointerProperty(type=DFFObjectProps)
 
+#######################################################
 class COLLECTION_OT_nuke_matched(bpy.types.Operator):
     bl_idname = "collection.nuke_matched_collections"
     bl_label = "Clean Empty .col/.dff Collections"
@@ -1121,7 +1217,7 @@ class COLLECTION_OT_nuke_matched(bpy.types.Operator):
 
         self.report({'INFO'}, "Cleaned empty and matched collections.")
         return {'FINISHED'}
-    
+#######################################################    
 class COLLECTION_OT_organize_scene_collection(bpy.types.Operator):
     bl_idname = "collection.organize_scene_collection"
     bl_label = "Organize Scene Collection"
@@ -1177,6 +1273,7 @@ class COLLECTION_OT_organize_scene_collection(bpy.types.Operator):
         self.report({'INFO'}, ".col collections are now above their matching .dff collections.")
         return {'FINISHED'}
 
+#######################################################
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
@@ -1221,7 +1318,8 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
 
         self.report({'INFO'}, "Duplicated and organized all objects as collision meshes above original collections")
         return {'FINISHED'}
-    
+
+#######################################################    
 class COLLECTION_PT_custom_cleanup_panel(bpy.types.Panel):
     bl_label = "DemonFF - Collection Tools"
     bl_idname = "COLLECTION_PT_custom_cleanup_panel"
@@ -1234,6 +1332,270 @@ class COLLECTION_PT_custom_cleanup_panel(bpy.types.Panel):
         layout.operator("collection.nuke_matched_collections", icon='TRASH')
         layout.operator("collection.organize_scene_collection", icon='SORTALPHA')
 
+class SCENE_PT_animation_browser(bpy.types.Panel):
+    bl_label = "DemonFF - Animation Browser"
+    bl_idname = "SCENE_PT_animation_browser"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = 'scene'
+
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text="Available Actions", icon='ACTION')
+
+        obj = context.object
+        actions = bpy.data.actions
+
+        if obj and obj.type == 'ARMATURE':
+            for action in actions:
+                row = layout.row()
+                row.prop(action, "name", text="", emboss=False, icon='ANIM')
+                assign = row.operator("scene.assign_action_to_object", text="", icon='FILE_TICK')
+                assign.action_name = action.name
+        else:
+            layout.label(text="Select an armature to assign animations.", icon='INFO')
+
+
+#######################################################
+class SCENE_OT_assign_action_to_object(bpy.types.Operator):
+    bl_idname = "scene.assign_action_to_object"
+    bl_label = "Assign Action to Armature"
+    
+    action_name: bpy.props.StringProperty()
+
+    def execute(self, context):
+        obj = context.object
+        action = bpy.data.actions.get(self.action_name)
+
+        if not obj or obj.type != 'ARMATURE':
+            self.report({'WARNING'}, "You must select an armature object.")
+            return {'CANCELLED'}
+
+        if action is None:
+            self.report({'WARNING'}, f"Action '{self.action_name}' not found.")
+            return {'CANCELLED'}
+
+        # Ensure animation_data exists
+        if obj.animation_data is None:
+            obj.animation_data_create()
+
+        obj.animation_data.action = action
+
+        # Optionally reset timeline to match action
+        context.scene.frame_start = int(action.frame_range[0])
+        context.scene.frame_end = int(action.frame_range[1])
+        context.scene.frame_current = int(action.frame_range[0])
+
+        self.report({'INFO'}, f"Assigned '{action.name}' to '{obj.name}'")
+        return {'FINISHED'}
+
+#######################################################
+class DFFCollectionProps(bpy.types.PropertyGroup):
+
+    type : bpy.props.EnumProperty(
+        items = (
+            ('CMN',   'Common', 'Common collection'),
+            ('NON',   "Don't export", 'Objects in this collection will NOT be exported')
+        )
+    )
+
+    auto_bounds: bpy.props.BoolProperty(
+        default = True,
+        description = "Calculate bounds automatically"
+    )
+
+    bounds_min: bpy.props.FloatVectorProperty()
+    bounds_max: bpy.props.FloatVectorProperty()
+
+    #######################################################
+    def draw_bounds():
+        if not bpy.context.scene.dff.draw_bounds:
+            return
+
+        col = bpy.context.collection
+        if col and not col.dff.auto_bounds:
+            settings = col.dff
+
+            bounds_min = settings.bounds_min
+            bounds_max= settings.bounds_max
+
+            coords = (
+                (bounds_min[0], bounds_min[1], bounds_min[2]),
+                (bounds_min[0], bounds_min[1], bounds_max[2]),
+                (bounds_min[0], bounds_max[1], bounds_min[2]),
+                (bounds_min[0], bounds_max[1], bounds_max[2]),
+                (bounds_max[0], bounds_min[1], bounds_min[2]),
+                (bounds_max[0], bounds_min[1], bounds_max[2]),
+                (bounds_max[0], bounds_max[1], bounds_min[2]),
+                (bounds_max[0], bounds_max[1], bounds_max[2]),
+            )
+
+            if (4, 0, 0) > bpy.app.version:
+                shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
+            else:
+                shader = gpu.shader.from_builtin('UNIFORM_COLOR')
+
+            batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=box_indices)
+
+            shader.bind()
+            shader.uniform_float("color", (0.84, 0.84, 0.54, 1))
+            batch.draw(shader)
+
+    #######################################################
+    def register():
+        bpy.types.Collection.dff = bpy.props.PointerProperty(type=DFFCollectionProps)
+
+#######################################################
+class TXDImportPanel(bpy.types.Panel):
+
+    bl_label       = "DemonFF - TXD Import"
+    bl_idname      = "SCENE_PT_txdImport"
+    bl_space_type  = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context     = "scene"
+    bl_options     = {'DEFAULT_CLOSED'}
+
+    #######################################################
+    def draw(self, context):
+        layout = self.layout
+        layout.operator(IMPORT_OT_txd.bl_idname)
+
+#######################################################
+class DFF_UL_FrameItems(bpy.types.UIList):
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if item and item.obj:
+            layout.label(text=item.obj.name, icon=item.icon)
+
+    def draw_filter(self, context, layout):
+        layout.prop(context.scene.dff, "filter_collection", toggle=True)
+
+    def filter_items(self, context, data, propname):
+        frames = context.scene.dff.frames
+        frames_num = len(frames)
+
+        flt_flags = [self.bitflag_filter_item | (1 << 0)] * frames_num
+
+        active_object = context.view_layer.objects.active
+        active_collections = {active_object.users_collection} if active_object else None
+
+        if active_collections and context.scene.dff.filter_collection:
+            for i, frame in enumerate(frames):
+                if not active_collections.issubset({frame.obj.users_collection}):
+                    flt_flags[i] &= ~self.bitflag_filter_item
+
+        return flt_flags, list(range(frames_num))
+
+#######################################################
+class DFF_UL_AtomicItems(bpy.types.UIList):
+
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if item and item.obj:
+            text = item.obj.name
+            if item.frame_obj and not item.obj.dff.is_frame:
+                text += " [%s]" % item.frame_obj.name
+            layout.label(text=text, icon='MESH_DATA')
+
+    def draw_filter(self, context, layout):
+        layout.prop(context.scene.dff, "filter_collection", toggle=True)
+
+    def filter_items(self, context, data, propname):
+        atomics = context.scene.dff.atomics
+        atomics_num = len(atomics)
+
+        flt_flags = [self.bitflag_filter_item | (1 << 0)] * atomics_num
+
+        active_object = context.view_layer.objects.active
+        active_collections = {active_object.users_collection} if active_object else None
+
+        if active_collections and context.scene.dff.filter_collection:
+            for i, atomic in enumerate(atomics):
+                if not active_collections.issubset({atomic.obj.users_collection}):
+                    flt_flags[i] &= ~self.bitflag_filter_item
+
+        return flt_flags, list(range(atomics_num))
+
+#######################################################
+class SCENE_PT_dffFrames(bpy.types.Panel):
+
+    bl_idname      = "SCENE_PT_dffFrames"
+    bl_label       = "DemonFF - Frames"
+    bl_space_type  = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context     = "scene"
+    bl_options     = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        scene_dff = context.scene.dff
+
+        layout = self.layout
+        row = layout.row()
+
+        col = row.column()
+        col.template_list(
+            "DFF_UL_FrameItems",
+            "",
+            scene_dff,
+            "frames",
+            scene_dff,
+            "frames_active",
+            rows=3,
+            maxrows=8,
+            sort_lock=True
+        )
+
+        if len(scene_dff.frames) > 1:
+            col = row.column(align=True)
+            col.operator(SCENE_OT_dff_frame_move.bl_idname, icon='TRIA_UP', text="").direction = 'UP'
+            col.operator(SCENE_OT_dff_frame_move.bl_idname, icon='TRIA_DOWN', text="").direction = 'DOWN'
+
+        row = layout.row()
+        col = row.column()
+        col.prop(scene_dff, "real_time_update", toggle=True)
+        if not scene_dff.real_time_update:
+            col = row.column()
+            col.operator(SCENE_OT_dff_update.bl_idname, icon='FILE_REFRESH', text="")
+
+#######################################################
+class SCENE_PT_dffAtomics(bpy.types.Panel):
+
+    bl_idname      = "SCENE_PT_dffAtomics"
+    bl_label       = "DemonFF - Atomics"
+    bl_space_type  = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context     = "scene"
+    bl_options     = {'DEFAULT_CLOSED'}
+
+    def draw(self, context):
+        scene_dff = context.scene.dff
+
+        layout = self.layout
+        row = layout.row()
+
+        col = row.column()
+        col.template_list(
+            "DFF_UL_AtomicItems",
+            "",
+            scene_dff,
+            "atomics",
+            scene_dff,
+            "atomics_active",
+            rows=3,
+            maxrows=8,
+            sort_lock=True
+        )
+
+        if len(scene_dff.atomics) > 1:
+            col = row.column(align=True)
+            col.operator(SCENE_OT_dff_atomic_move.bl_idname, icon='TRIA_UP', text="").direction = 'UP'
+            col.operator(SCENE_OT_dff_atomic_move.bl_idname, icon='TRIA_DOWN', text="").direction = 'DOWN'
+
+        row = layout.row()
+        col = row.column()
+        col.prop(scene_dff, "real_time_update", toggle=True)
+        if not scene_dff.real_time_update:
+            col = row.column()
+            col.operator(SCENE_OT_dff_update.bl_idname, icon='FILE_REFRESH', text="")
 
 def register():
     register_saeffects()
@@ -1249,11 +1611,14 @@ def register():
     bpy.utils.register_class(SAEEFFECTS_PT_Panel)
     bpy.utils.register_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.register_class(OBJECT_PT_dff_misc_panel)
+    bpy.utils.register_class
     bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
     bpy.utils.register_class(OBJECT_OT_optimize_mesh)
     bpy.utils.register_class(COLLECTION_OT_nuke_matched)
     bpy.utils.register_class(COLLECTION_OT_organize_scene_collection)
     bpy.utils.register_class(COLLECTION_PT_custom_cleanup_panel)
+    bpy.utils.register_class(SCENE_OT_assign_action_to_object)
+    bpy.utils.register_class(SCENE_PT_animation_browser)    
 
 
 def unregister():
@@ -1275,6 +1640,8 @@ def unregister():
     bpy.utils.unregister_class(COLLECTION_OT_nuke_matched)
     bpy.utils.unregister_class(COLLECTION_PT_custom_cleanup_panel)
     bpy.utils.unregister_class(COLLECTION_OT_organize_scene_collection)
+    bpy.utils.unregister_class(SCENE_OT_assign_action_to_object)
+    bpy.utils.unregister_class(SCENE_PT_animation_browser)   
 
 
 if __name__ == "__main__":

@@ -221,6 +221,302 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         return {'RUNNING_MODAL'}
 
 
+#######################################################
+class IMPORT_OT_txd(bpy.types.Operator, ImportHelper):
+
+    bl_idname      = "import_scene.txd"
+    bl_description = 'Import a Renderware TXD File'
+    bl_label       = "Import TXD (.txd)"
+
+    filter_glob   : bpy.props.StringProperty(default="*.txd",
+                                              options={'HIDDEN'})
+
+    directory     : bpy.props.StringProperty(maxlen=1024,
+                                              default="",
+                                              subtype='FILE_PATH',
+                                              options={'HIDDEN'})
+
+    # Stores all the file names to read (not just the firsst)
+    files : bpy.props.CollectionProperty(
+        type    = bpy.types.OperatorFileListElement,
+        options = {'HIDDEN'}
+    )
+
+    # Stores a single file path
+    filepath : bpy.props.StringProperty(
+         name        = "File Path",
+         description = "Filepath used for importing the TXD file",
+         maxlen      = 1024,
+         default     = "",
+         options     = {'HIDDEN'}
+     )
+
+    skip_mipmaps :  bpy.props.BoolProperty(
+        name        = "Skip Mipmaps",
+        default     = True
+    )
+
+    pack : bpy.props.BoolProperty(
+        name        = "Pack Images",
+        description = "Pack images as embedded data into the .blend file",
+        default     = True
+    )
+
+    apply_to_objects : bpy.props.BoolProperty(
+        name        = "Apply To Objects",
+        description = "Apply to objects with missing textures in the scene",
+        default     = True
+    )
+
+    #######################################################
+    def draw(self, context):
+        layout = self.layout
+
+        layout.prop(self, "skip_mipmaps")
+        layout.prop(self, "pack")
+        layout.prop(self, "apply_to_objects")
+
+    #######################################################
+    def execute(self, context):
+
+        for file in [os.path.join(self.directory, file.name) for file in self.files] if self.files else [self.filepath]:
+
+            txd_images = txd_importer.import_txd(
+                {
+                    'file_name'      : file,
+                    'skip_mipmaps'   : self.skip_mipmaps,
+                    'pack'           : self.pack
+                }
+            ).images
+
+            if self.apply_to_objects:
+                for obj in context.scene.objects:
+                    for mat_slot in obj.material_slots:
+                        mat = mat_slot.material
+                        if not mat:
+                            continue
+
+                        node_tree = mat.node_tree
+                        if not node_tree:
+                            continue
+
+                        for node in node_tree.nodes:
+                            if node.type != 'TEX_IMAGE':
+                                continue
+
+                            txd_img = txd_images.get(node.label)
+                            if txd_img and (not node.image or not node.image.pixels):
+                                node.image = txd_img[0]
+
+        return {'FINISHED'}
+
+    #######################################################
+    def invoke(self, context, event):
+
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+#######################################################
+class SCENE_OT_dff_frame_move(bpy.types.Operator):
+
+    bl_idname           = "scene.dff_frame_move"
+    bl_description      = "Move the active frame up/down in the list"
+    bl_label            = "Move Frame"
+
+    direction           : bpy.props.EnumProperty(
+        items =
+        (
+            ("UP", "", ""),
+            ("DOWN", "", "")
+        )
+    )
+
+    #######################################################
+    def execute(self, context):
+
+        def append_children_recursive(ob):
+            for ch in ob.children:
+                children.add(ch)
+                append_children_recursive(ch)
+
+        State.update_scene(context.scene)
+
+        step = -1 if self.direction == "UP" else 1
+        scene_dff = context.scene.dff
+        old_index = scene_dff.frames_active
+        frames_num = len(scene_dff.frames)
+
+        obj1 = scene_dff.frames[old_index].obj
+        active_collections = {obj1.users_collection}
+
+        if (3, 1, 0) > bpy.app.version:
+            children = set()
+            append_children_recursive(obj1)
+        else:
+            children = {ch for ch in obj1.children_recursive}
+
+        new_index = old_index + step
+        while new_index >= 0 and new_index < frames_num:
+            obj2 = scene_dff.frames[new_index].obj
+            no_filter = not scene_dff.filter_collection or active_collections.issubset({obj2.users_collection})
+            if step < 0:
+                no_parent = obj1.parent != obj2
+            else:
+                no_parent = obj2 not in children
+
+            if no_filter and no_parent:
+                for idx in range(old_index, new_index, step):
+                    scene_dff.frames[idx].obj.dff.frame_index += step
+                obj2.dff.frame_index = old_index
+                scene_dff.frames.move(new_index, old_index)
+                scene_dff.frames_active = old_index + step
+                return {'FINISHED'}
+
+            new_index += step
+
+        return {'CANCELLED'}
+
+#######################################################
+class SCENE_OT_dff_atomic_move(bpy.types.Operator):
+
+    bl_idname           = "scene.dff_atomic_move"
+    bl_description      = "Move the active atomic up/down in the list"
+    bl_label            = "Move Atomic"
+
+    direction           : bpy.props.EnumProperty(
+        items =
+        (
+            ("UP", "", ""),
+            ("DOWN", "", "")
+        )
+    )
+
+    #######################################################
+    def execute(self, context):
+        State.update_scene(context.scene)
+
+        step = -1 if self.direction == "UP" else 1
+        scene_dff = context.scene.dff
+        old_index = scene_dff.atomics_active
+        atomics_num = len(scene_dff.atomics)
+
+        obj1 = scene_dff.atomics[old_index].obj
+        active_collections = {obj1.users_collection}
+
+        new_index = old_index + step
+        while new_index >= 0 and new_index < atomics_num:
+            obj2 = scene_dff.atomics[new_index].obj
+            no_filter = not scene_dff.filter_collection or active_collections.issubset({obj2.users_collection})
+
+            if no_filter:
+                for idx in range(old_index, new_index, step):
+                    scene_dff.atomics[idx].obj.dff.atomic_index += step
+                obj2.dff.atomic_index = old_index
+                scene_dff.atomics.move(new_index, old_index)
+                scene_dff.atomics_active = old_index + step
+                return {'FINISHED'}
+
+            new_index += step
+
+        return {'CANCELLED'}
+
+#######################################################
+class SCENE_OT_dff_update(bpy.types.Operator):
+
+    bl_idname           = "scene.dff_update"
+    bl_description      = "Update the list of objects"
+    bl_label            = "Update Scene"
+
+
+    #######################################################
+    def execute(self, context):
+        State.update_scene(context.scene)
+        return {'FINISHED'}
+
+#######################################################
+class OBJECT_OT_dff_generate_bone_props(bpy.types.Operator):
+
+    bl_idname           = "object.dff_generate_bone_props"
+    bl_description      = "Generate HAnim data for selected bones"
+    bl_label            = "Generate Bone Properties"
+
+    #######################################################
+    def execute(self, context):
+        selected_objects = context.selected_objects
+        if not selected_objects:
+            selected_objects = [context.object]
+
+        for obj in selected_objects:
+            used_bone_ids = set()
+            for e_bone in obj.data.edit_bones:
+                if 'bone_id' in e_bone:
+                    used_bone_ids.add(e_bone['bone_id'])
+
+            for i, e_bone in enumerate(obj.data.edit_bones):
+                if not e_bone.select:
+                    continue
+
+                if 'bone_id' not in e_bone:
+                    bone_id = i
+                    while bone_id in used_bone_ids:
+                        bone_id += 1
+                    e_bone['bone_id'] = bone_id
+                    used_bone_ids.add(bone_id)
+
+                bone_type = 2
+                if not e_bone.children:
+                    bone_type = 1
+                elif not e_bone.parent or e_bone.parent.children[-1] == e_bone:
+                    bone_type = 0
+                e_bone['type'] = bone_type
+
+        return {'FINISHED'}
+
+#######################################################
+class OBJECT_OT_dff_set_parent_bone(bpy.types.Operator):
+
+    bl_idname           = "object.dff_set_parent_bone"
+    bl_description      = "Set the object's parenting"
+    bl_label            = "Set Parent Bone"
+
+    #######################################################
+    def execute(self, context):
+        objects = [obj for obj in context.selected_objects if obj.type in ("MESH", "EMPTY")]
+        if not objects:
+            return {'CANCELLED'}
+
+        if not context.active_bone:
+            return {'CANCELLED'}
+
+        armature = context.active_object
+        bone_name = context.active_bone.name
+
+        for obj in objects:
+            dff_importer.set_parent_bone(obj, armature, bone_name)
+
+        return {'FINISHED'}
+
+#######################################################
+class OBJECT_OT_dff_clear_parent_bone(bpy.types.Operator):
+
+    bl_idname           = "object.dff_clear_parent_bone"
+    bl_description      = "Clear the object's parenting"
+    bl_label            = "Clear Parent Bone"
+
+    #######################################################
+    def execute(self, context):
+        objects = [obj for obj in context.selected_objects if obj.type in ("MESH", "EMPTY")]
+        if not objects:
+            return {'CANCELLED'}
+
+        armature = context.active_object
+
+        for obj in objects:
+            obj.matrix_world = armature.matrix_world
+            obj.parent_bone = ""
+
+        return {'FINISHED'}
+#######################################################
 class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):  # too lazy to finish tbh
     """Operator for exporting DFF in SAMP format."""
     bl_idname = "export_dff_samp_custom.scene"
@@ -315,6 +611,16 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
         name="Import Custom Normals",
         default=False
     )
+
+    materials_naming :  bpy.props.EnumProperty(
+        items =
+        (
+            ("DEF", "Default", "Use the object name and material properties"),
+            ("TEX", "Texture", "Use the name of the first texture")
+        ),
+        name        = "Materials Naming",
+        description = "How to name materials"
+    )
     
     image_ext: bpy.props.EnumProperty(
         items=(
@@ -358,12 +664,17 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
                 importer = dff_importer.import_dff(
                     {
                         'file_name': file,
+                        'load_txd': False,
+                        'txd_filename': "",
+                        'skip_mipmaps': True,
+                        'txd_pack': True,
                         'image_ext': image_ext,
                         'connect_bones': self.connect_bones,
                         'use_mat_split': self.read_mat_split,
                         'remove_doubles': self.remove_doubles,
                         'group_materials': self.group_materials,
-                        'import_normals': self.import_normals
+                        'import_normals': self.import_normals,
+                        'materials_naming' : self.materials_naming,
                     }, 
                 )
 

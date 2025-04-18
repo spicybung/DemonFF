@@ -118,14 +118,16 @@ class IMPORT_OT_img(Operator, ImportHelper):
 
 class IMPORT_PT_img_panel(Panel):
     bl_idname = "IMPORT_PT_img_panel"
-    bl_label = "IMG Importer"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
+    bl_label = "DemonFF - IMG Importer"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "scene"
     bl_category = 'DemonFF'
 
     def draw(self, context):
         layout = self.layout
         layout.operator("import_scene.img", text="Import IMG File")
+
 
 def menu_func_import(self, context):
     self.layout.operator(IMPORT_OT_img.bl_idname, text="Import IMG File")

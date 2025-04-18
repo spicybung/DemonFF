@@ -1,25 +1,7 @@
-# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
-# 2023 - 2025 SpicyBung
-
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
-
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
-
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-
-# You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 import bpy
 from collections import namedtuple
 
-game_version = namedtuple("game_version", "III VC SA LCS VCS")
+game_version = namedtuple("game_version", "III VC SA LCS VCS IV")
 game_version.III = 'III'
 game_version.VC = 'VC'
 game_version.SA = 'SA'
@@ -83,8 +65,8 @@ class material_helper:
             self.material.alpha = color[3] / 255
 
     #######################################################
-    def set_texture(self, image, label=""):
-        
+    def set_texture(self, image, label="", filters=0, uv_addressing=0):
+
         if self.principled:
             self.principled.base_color_texture.node_image.label = label
             self.principled.base_color_texture.image  = image
@@ -97,7 +79,7 @@ class material_helper:
 
             node_tree.links.new(image_node.outputs["Alpha"],
                                 principled_node.inputs["Alpha"])
-            
+
         else:
             slot               = self.material.texture_slots.add()
             slot.texture       = bpy.data.textures.new(
@@ -105,6 +87,10 @@ class material_helper:
                 type           = "IMAGE"
             )
             slot.texture.image = image
+
+        self.material.dff.tex_filters = str(filters)
+        self.material.dff.tex_u_addr  = str((uv_addressing >> 4) & 0xF)
+        self.material.dff.tex_v_addr  = str(uv_addressing & 0xF)
 
     #######################################################
     def set_surface_properties(self, props):
@@ -176,23 +162,65 @@ class material_helper:
     #######################################################
     def set_uv_animation(self, uv_anim):
 
-        #TODO: Add Blender Internal Support for this
-        
         if self.principled:
             mapping = self.principled.base_color_texture.node_mapping_get()
             mapping.vector_type = 'POINT'
 
             fps = bpy.context.scene.render.fps
-            
-            for frame in uv_anim.frames:
-                mapping.inputs['Location'].default_value = frame.uv[-2:] + [0]
-                mapping.inputs['Scale'].default_value = frame.uv[1:3] + [0]
 
-                # Could also use round here perhaps. I don't know what's better
-                mapping.inputs['Location'].keyframe_insert("default_value",
-                                                           frame=frame.time * fps)
-                mapping.inputs['Scale'].keyframe_insert("default_value",
-                                                        frame=frame.time * fps)
+            action = bpy.data.actions.new(uv_anim.name)
+            anim_data = self.material.node_tree.animation_data_create()
+            anim_data.action = action
+
+            fcurves = [
+                None,
+                action.fcurves.new(data_path='nodes["Mapping"].inputs[3].default_value', index=0),
+                action.fcurves.new(data_path='nodes["Mapping"].inputs[3].default_value', index=1),
+                None,
+                action.fcurves.new(data_path='nodes["Mapping"].inputs[1].default_value', index=0),
+                action.fcurves.new(data_path='nodes["Mapping"].inputs[1].default_value', index=1),
+            ]
+
+            for frame_idx, frame in enumerate(uv_anim.frames):
+                for fc_idx, fc in enumerate(fcurves):
+                    if not fc:
+                        continue
+
+                    should_add_kp = True
+
+                    # Try to add constant interpolation
+                    if frame_idx > 0 and frame.time == uv_anim.frames[frame_idx-1].time:
+
+                        # We can overwrite the very first one keyframe
+                        if len(fc.keyframe_points) < 2:
+                            should_add_kp = False
+
+                        else:
+                            prev_kp, kp = fc.keyframe_points[-2:]
+
+                            # We can overwrite the previous keyframe with constant interpolation
+                            if prev_kp.interpolation == 'CONSTANT':
+                                should_add_kp = False
+
+                            # The values ​​of the previous keyframes are equal,
+                            # so we can use constant interpolation and overwrite the last one
+                            elif prev_kp.co[1] == kp.co[1]:
+                                should_add_kp = False
+                                prev_kp.interpolation = 'CONSTANT'
+
+                    if should_add_kp:
+                        fc.keyframe_points.add(1)
+
+                    kp = fc.keyframe_points[-1]
+                    val = frame.uv[fc_idx]
+
+                    # Y coords are flipped in Blender
+                    if fc_idx == 5:
+                        val = 1 - val
+
+                    # Could also use round here perhaps. I don't know what's better
+                    kp.co = frame.time * fps, val
+                    kp.interpolation = 'LINEAR'
 
         self.material.dff.animation_name   = uv_anim.name
         self.material.dff.export_animation = True
