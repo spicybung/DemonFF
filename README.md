@@ -62,7 +62,7 @@ This project is licensed under the GPL 3.0 License - see the [LICENSE](LICENSE) 
 - Special thanks to the Blender community and contributors.
 - The GTA modding community.
 - GTA Mods Wiki for being a huge considerate help in figuring things out.
-- Kam & Goldfish for their contributions to Grand Theft Auto modding.
+- Kam, The_Hero, Goldfish, and more for their contributions to Grand Theft Auto & Renderware modding.
 - Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible.
 - Beckzy, as well as others from the SAMP/open.mp community for their testing & patience.
 - Many other special people.
