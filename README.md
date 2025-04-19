@@ -18,12 +18,12 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 - **Animation Editing**: Import and export .IFP animation files - modify them or craft your own animations.
 
-- **Map Editing**: Easily import your IPL & IDE's - create your own maps for singleplayer and/or SAMP/open.mp.
+- **Map Editing**: Easily import your IPL & IDE's - create & export your own maps for singleplayer and/or SAMP/open.mp.
 
-- **Custom Section IDs**: DemonFF supports Rockstar's custom section IDs, allowing you to work with specific RW plugins seamlessly.
+- **Rockstar Section IDs**: DemonFF supports Rockstar's Renderware section IDs, allowing you to work with R* Renderware files seamlessly.
 
 - **SAMP/open.mp Compatibility**: DemonFF is designed for compatibility with San Andreas Multiplayer (SAMP) and open.mp, and comes with Pawn features.
-  0
+  
 - **MTA Compatibility**: DemonFF is planned to support LUA scripts for Multi Theft Auto, allowing ease during map creation(SOON...).
 
 ## Getting Started
