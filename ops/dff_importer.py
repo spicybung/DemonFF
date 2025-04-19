@@ -633,6 +633,19 @@ class dff_importer:
                     modifier.use_edge_angle = False
                 
                 bm.to_mesh(mesh.data)
+
+    #######################################################
+    def process_2dfx_lights(data, offset, context):
+        """
+        Process 2DFX lights and call add_light_info for each parsed LightEntry.
+        """
+        # Read and parse the 2DFX entries
+        entries = dff_instance.read_2dfx(data, offset, context)
+
+        # Process each LightEntry
+        for i, entry in enumerate(entries):
+            print(f"Processing Light Entry {i + 1}/{len(entries)}...")
+            add_light_info(context, entry)
     ####################################################### =)
     def link_obj_to_frame_bone(obj, frame_index):
         self = dff_importer

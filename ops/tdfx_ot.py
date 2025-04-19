@@ -432,22 +432,6 @@ def import_2dfx(filepath):
             elif obj and parts[0] == "ViewVector":
                 obj["sdfx_viewvector"] = (float(parts[1]), float(parts[2]), float(parts[3]))
 
-class SAEFFECTS_OT_Import2dfx(Operator):
-    bl_idname = "saeffects.import_2dfx"
-    bl_label = "Import 2DFX File"
-    
-    filename_ext = ".2dfx"
-    filter_glob: StringProperty(default="*.2dfx", options={'HIDDEN'})
-    filepath: StringProperty(subtype="FILE_PATH")
-
-    def execute(self, context):
-        import_2dfx(self.filepath)
-        return {'FINISHED'}
-
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-
 #######################################################
 
 class DFF2dfxPanel(Panel):

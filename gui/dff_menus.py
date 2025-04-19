@@ -53,6 +53,7 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout.label(text="Normals Operations:")
         layout.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
         layout.operator("object.recalculate_normals_outward", text="Recalculate Normals (Outward)")
+        layout.operator("object.recalculate_normals_inward", text="Recalculate Normals (Inward)")
 
         layout.label(text="Collision Operations:")
         layout.operator("object.set_collision_objects", text="Set All As Collision Objects")
@@ -329,6 +330,8 @@ class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
         self.report({'INFO'}, "Forced doubleside mesh for selected objects (extruded along normals by 0.001523M)")
         return {'FINISHED'}
 
+import bpy
+
 class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_outward"
     bl_label = "Recalculate Normals (Outward)"
@@ -336,6 +339,8 @@ class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        processed_meshes = []
+
         for obj in context.selected_objects:
             if obj.type == 'MESH':
                 bpy.context.view_layer.objects.active = obj
@@ -343,9 +348,57 @@ class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
                 bpy.ops.mesh.select_all(action='SELECT')
                 bpy.ops.mesh.normals_make_consistent(inside=False)
                 bpy.ops.object.mode_set(mode='OBJECT')
-        self.report({'INFO'}, "Normals recalculated outward")
+                processed_meshes.append(obj.name)
+
+        if processed_meshes:
+            report_msg = f"Normals recalculated outward for: {', '.join(processed_meshes)}"
+        else:
+            report_msg = "No mesh objects were processed."
+
+        self.report({'INFO'}, report_msg)
         return {'FINISHED'}
 
+
+class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
+    bl_idname = "object.recalculate_normals_inward"
+    bl_label = "Recalculate Normals (Inward)"
+    bl_description = "Quickly fix normals of selected meshes to face inward"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        processed_meshes = []
+
+        for obj in context.selected_objects:
+            if obj.type == 'MESH':
+                bpy.context.view_layer.objects.active = obj
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.select_all(action='SELECT')
+                bpy.ops.mesh.normals_make_consistent(inside=True)
+                bpy.ops.object.mode_set(mode='OBJECT')
+                processed_meshes.append(obj.name)
+
+        if processed_meshes:
+            report_msg = f"Normals recalculated inward for: {', '.join(processed_meshes)}"
+        else:
+            report_msg = "No mesh objects were processed."
+
+        self.report({'INFO'}, report_msg)
+        return {'FINISHED'}
+
+
+if __name__ == "__main__":
+    register()
+
+def register():
+    bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
+    bpy.utils.register_class(OBJECT_OT_recalculate_normals_inward)
+
+def unregister():
+    bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_outward)
+    bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_inward)
+
+if __name__ == "__main__":
+    register()
 
 
 def set_collision_objects(context):
