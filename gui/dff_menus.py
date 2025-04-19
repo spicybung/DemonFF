@@ -394,17 +394,6 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
 
         self.report({'INFO'}, report_msg)
         return {'FINISHED'}
-    #######################################################
-    def register():
-        bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
-        bpy.utils.register_class(OBJECT_OT_recalculate_normals_inward)
-
-    def unregister():
-        bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_outward)
-        bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_inward)
-
-    if __name__ == "__main__":
-        register()
 
 #######################################################
 class OBJECT_OT_set_collision_objects(bpy.types.Operator):
