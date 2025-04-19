@@ -330,8 +330,6 @@ class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
         self.report({'INFO'}, "Forced doubleside mesh for selected objects (extruded along normals by 0.001523M)")
         return {'FINISHED'}
 
-import bpy
-
 class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_outward"
     bl_label = "Recalculate Normals (Outward)"
@@ -340,6 +338,11 @@ class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
 
     def execute(self, context):
         processed_meshes = []
+
+        print("Starting recalculation of normals (outward) - this may take time - please wait...")
+        self.report({'INFO'}, "Starting recalculation of normals (outward) - please wait...")
+
+        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
 
         for obj in context.selected_objects:
             if obj.type == 'MESH':
@@ -356,6 +359,7 @@ class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
             report_msg = "No mesh objects were processed."
 
         self.report({'INFO'}, report_msg)
+        print(report_msg)
         return {'FINISHED'}
 
 
@@ -367,6 +371,9 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
 
     def execute(self, context):
         processed_meshes = []
+
+        print("Starting recalculation of normals (inward) - this may take time - please wait...")
+        self.report({'INFO'}, "Starting recalculation of normals (inward) - please wait...")
 
         for obj in context.selected_objects:
             if obj.type == 'MESH':
@@ -561,7 +568,7 @@ def export_text_info(effect_stream, text_stream, obj):
     effect_stream.write(len(text_data).to_bytes(4, byteorder='little'))
     effect_stream.write(text_data.encode('utf-8'))
 
-    # Write to text file
+    # Write to text(.TXT) file
     text_stream.write(f"2dfxType         TEXT\n")
     text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
     text_stream.write(f"TextData         {obj['sdfx_text1']} {obj['sdfx_text2']} {obj['sdfx_text3']} {obj['sdfx_text4']}\n")

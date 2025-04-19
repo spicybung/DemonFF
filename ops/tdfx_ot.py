@@ -434,9 +434,9 @@ def import_2dfx(filepath):
 
 #######################################################
 
-class DFF2dfxPanel(Panel):
+class DEMONFF_PT_DFF2DFX(Panel):
     bl_label = "DemonFF - 2DFX"
-    bl_idname = "PT_DFF2DFX"
+    bl_idname = "DEMONFF_PT_DFF2DFX"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "object"

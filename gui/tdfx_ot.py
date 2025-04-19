@@ -429,9 +429,9 @@ def import_2dfx(filepath):
 
 #######################################################
 
-class DFF2dfxPanel(Panel):
+class DEMONFF_PT_DFF2DFX(Panel):
     bl_label = "DemonFF - 2DFX"
-    bl_idname = "PT_DFF2DFX"
+    bl_idname = "DEMONFF_PT_DFF2DFX"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "object"
@@ -448,8 +448,6 @@ class DFF2dfxPanel(Panel):
         row.operator("saeffects.export_info", text="Export Binary Info")
         row = box.row()
         row.operator("saeffects.export_text_info", text="Export Text Info")
-        row = box.row()
-        row.operator("saeffects.import_2dfx", text="Import 2DFX File")
 
 #######################################################
 
