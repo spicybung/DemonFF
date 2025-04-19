@@ -37,6 +37,7 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""
 
+#######################################################
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
     bl_label = "DemonFF - Miscellaneous"
     bl_idname = "OBJECT_PT_dff_misc"
@@ -62,7 +63,7 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout.label(text="Frame Operations:")
         layout.operator("object.remove_frames", text="Remove Frames")
         layout.operator("object.truncate_frame_names", text="Truncate Frame Names")
-
+#######################################################
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
 
     alpha : bpy.props.FloatProperty(
@@ -249,7 +250,7 @@ def join_similar_named_meshes(context):
                 obj.select_set(True)
             
             bpy.ops.object.join()
-
+#######################################################
 class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):
     bl_idname = "object.join_similar_named_meshes"
     bl_label = "Join Similar Named Meshes"
@@ -259,7 +260,7 @@ class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):
     def execute(self, context):
         join_similar_named_meshes(context)
         return {'FINISHED'}
-
+#######################################################
 class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
     bl_label = "Join Similar Meshes"
     bl_idname = "OBJECT_PT_join_similar_meshes"
@@ -271,7 +272,7 @@ class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
         layout = self.layout
         row = layout.row()
         row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
-
+#######################################################
 class OBJECT_OT_optimize_mesh(bpy.types.Operator):
     bl_idname = "object.optimize_mesh"
     bl_label = "Optimize Mesh(Slow)"
@@ -296,7 +297,7 @@ class OBJECT_OT_optimize_mesh(bpy.types.Operator):
                 bpy.ops.object.mode_set(mode='OBJECT')
         self.report({'INFO'}, "Optimized selected meshes")
         return {'FINISHED'}
-    
+#######################################################   
 class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
     """Extrudes faces along their normals for all selected objects by 0.001523M"""
     bl_idname = "object.force_doubleside_mesh"
@@ -333,7 +334,7 @@ class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
 
         self.report({'INFO'}, "Forced doubleside mesh for selected objects (extruded along normals by 0.001523M)")
         return {'FINISHED'}
-
+#######################################################
 class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_outward"
     bl_label = "Recalculate Normals (Outward)"
@@ -344,9 +345,7 @@ class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
         processed_meshes = []
 
         print("Starting recalculation of normals (outward) - this may take time - please wait...")
-        self.report({'INFO'}, "Starting recalculation of normals (outward) - please wait...")
-
-        bpy.ops.wm.redraw_timer(type='DRAW_WIN_SWAP', iterations=1)
+        self.report({'INFO'}, "Recalculating normals (outward) - please wait...")
 
         for obj in context.selected_objects:
             if obj.type == 'MESH':
@@ -366,7 +365,7 @@ class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
         print(report_msg)
         return {'FINISHED'}
 
-
+#######################################################
 class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_inward"
     bl_label = "Recalculate Normals (Inward)"
@@ -377,7 +376,7 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
         processed_meshes = []
 
         print("Starting recalculation of normals (inward) - this may take time - please wait...")
-        self.report({'INFO'}, "Starting recalculation of normals (inward) - please wait...")
+        self.report({'INFO'}, "Recalculating normals (inward) - please wait...")
 
         for obj in context.selected_objects:
             if obj.type == 'MESH':
@@ -395,38 +394,34 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
 
         self.report({'INFO'}, report_msg)
         return {'FINISHED'}
+    #######################################################
+    def register():
+        bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
+        bpy.utils.register_class(OBJECT_OT_recalculate_normals_inward)
 
+    def unregister():
+        bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_outward)
+        bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_inward)
 
-if __name__ == "__main__":
-    register()
+    if __name__ == "__main__":
+        register()
 
-def register():
-    bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
-    bpy.utils.register_class(OBJECT_OT_recalculate_normals_inward)
-
-def unregister():
-    bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_outward)
-    bpy.utils.unregister_class(OBJECT_OT_recalculate_normals_inward)
-
-if __name__ == "__main__":
-    register()
-
-
-def set_collision_objects(context):
-    for obj in context.selected_objects:
-        obj.dff.type = 'COL'
-        print(f"Set {obj.name} as a collision object")
-
+#######################################################
 class OBJECT_OT_set_collision_objects(bpy.types.Operator):
     bl_idname = "object.set_collision_objects"
     bl_label = "Set All As Collision Objects"
     bl_description = "Set all selected objects to collision objects"
     bl_options = {'REGISTER', 'UNDO'}
 
+    def set_collision_objects(context):
+        for obj in context.selected_objects:
+            obj.dff.type = 'COL'
+            print(f"Set {obj.name} as a collision object")
+
     def execute(self, context):
         set_collision_objects(context)
         return {'FINISHED'}
-    
+#######################################################   
 class OBJECT_OT_remove_frames(bpy.types.Operator):
     bl_idname = "object.remove_frames"
     bl_label = "Remove Frames"
@@ -442,7 +437,7 @@ class OBJECT_OT_remove_frames(bpy.types.Operator):
         self.report({'INFO'}, f"Removed {removed_count} frame objects.")
         return {'FINISHED'}
 
-
+#######################################################
 class OBJECT_OT_truncate_frame_names(bpy.types.Operator):
     bl_idname = "object.truncate_frame_names"
     bl_label = "Truncate Frame Names"
@@ -463,7 +458,7 @@ class OBJECT_OT_truncate_frame_names(bpy.types.Operator):
 
         self.report({'INFO'}, f"Truncated names of {truncated_count} frames.")
         return {'FINISHED'}
-
+#######################################################
 
 def add_light_info(context):
     for obj in context.selected_objects:
@@ -614,7 +609,7 @@ def export_text_info(effect_stream, text_stream, obj):
     text_stream.write(f"2dfxType         TEXT\n")
     text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
     text_stream.write(f"TextData         {obj['sdfx_text1']} {obj['sdfx_text2']} {obj['sdfx_text3']} {obj['sdfx_text4']}\n")
-
+#######################################################
 class SAEEFFECTS_PT_Panel(bpy.types.Panel):
     bl_label = "DemonFF - 2DFX"
     bl_idname = "SAEEFFECTS_PT_panel"
@@ -626,7 +621,7 @@ class SAEEFFECTS_PT_Panel(bpy.types.Panel):
         layout = self.layout
         layout.operator("saeeffects.create_lights_from_entries", text="Create Lights from Entries")
 
-
+#######################################################
 class SAEffectsPanel(bpy.types.Panel):
     bl_label = "SA Effects"
     bl_idname = "OBJECT_PT_saeffects"
@@ -649,7 +644,7 @@ class SAEffectsPanel(bpy.types.Panel):
         row.prop(context.scene, "saeffects_text_export_path")
         row = layout.row()
         row.operator("saeffects.export_info", text="Export Binary Info")
-
+#######################################################
 class SAEFFECTS_OT_AddLightInfo(bpy.types.Operator):
     bl_idname = "saeffects.add_light_info"
     bl_label = "Add Light Info"
@@ -657,7 +652,7 @@ class SAEFFECTS_OT_AddLightInfo(bpy.types.Operator):
     def execute(self, context):
         add_light_info(context)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_AddParticleInfo(bpy.types.Operator):
     bl_idname = "saeffects.add_particle_info"
     bl_label = "Add Particle Info"
@@ -665,7 +660,7 @@ class SAEFFECTS_OT_AddParticleInfo(bpy.types.Operator):
     def execute(self, context):
         add_particle_info(context)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_AddTextInfo(bpy.types.Operator):
     bl_idname = "saeffects.add_text_info"
     bl_label = "Add 2D Text Info"
@@ -673,7 +668,7 @@ class SAEFFECTS_OT_AddTextInfo(bpy.types.Operator):
     def execute(self, context):
         add_text_info(context)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_ExportInfo(bpy.types.Operator):
     bl_idname = "saeffects.export_info"
     bl_label = "Export Binary Info"
