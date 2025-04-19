@@ -463,8 +463,6 @@ class DFF2dfxPanel(Panel):
         row.operator("saeffects.create_lights_from_omni", text="Create Lights from Omni Frames")
         row = box.row()
         row.operator("saeffects.view_light_info", text="View Light Info")
-        row = box.row()
-        row.operator("saeffects.import_2dfx", text="Import 2DFX File")
 
 #######################################################
 

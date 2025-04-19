@@ -1954,7 +1954,6 @@ class Geometry:
             "modulate_color"     : True,
             "export_normals"     : True,
             "write_mesh_plg"     : True,
-            "triangle_strip"     : False,
         }
         self._hasMatFX = False
     #######################################################
@@ -2071,29 +2070,9 @@ class Geometry:
         data = b''
 
         meshes = {}
-        is_tri_strip = self.export_flags["triangle_strip"]
-
-        if is_tri_strip:
-            for triangle in self.triangles:
-
-                if triangle.material not in meshes:
-                    meshes[triangle.material] = []
-
-                meshes[triangle.material].append([triangle.a, triangle.b, triangle.c])
-
-            for mesh in meshes:
-                meshes[mesh] = tristrip.stripify(meshes[mesh], True)[0]
-
-        else:
-            for triangle in self.triangles:
-
-                if triangle.material not in meshes:
-                    meshes[triangle.material] = []
-
-                meshes[triangle.material] += [triangle.a, triangle.b, triangle.c]
 
         total_indices = sum(len(triangles) for triangles in meshes.values())
-        data += pack("<III", int(is_tri_strip), len(meshes), total_indices)
+        data += pack("<III", len(meshes), total_indices)
 
         for mesh in meshes:
             data += pack("<II", len(meshes[mesh]), mesh)
@@ -2127,8 +2106,6 @@ class Geometry:
 
         # Set flags
         flags = rpGEOMETRYPOSITIONS
-        if self.export_flags["triangle_strip"]:
-            flags |= rpGEOMETRYTRISTRIP
         if len(self.uv_layers) > 1:
             flags |= rpGEOMETRYTEXTURED2
         elif len(self.uv_layers) > 0:

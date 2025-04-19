@@ -912,7 +912,6 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
         box.prop(settings, "export_normals", text="Export Normals")
         box.prop(settings, "export_split_normals", text="Export Custom Split Normals")
         box.prop(settings, "export_binsplit", text="Export Bin Mesh PLG")
-        box.prop(settings, "triangle_strip", text="Use Triangle Strip")
         box.prop(settings, "light", text="Enable Lighting")
         box.prop(settings, "modulate_color", text="Enable Modulate Material Color")
 
@@ -1179,6 +1178,12 @@ compatibiility with DFF Viewers"
     col_light: bpy.props.IntProperty(
         default=0,
         description="Light used for the Sphere/Cone"
+    )
+
+    right_to_render : bpy.props.IntProperty(
+        default = 1,
+        min = 0,
+        description = "Right To Render value (only for skinned object)"
     )
 
     frame_index : bpy.props.IntProperty(
