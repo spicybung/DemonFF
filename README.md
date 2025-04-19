@@ -45,7 +45,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 ## Documentation
 
-For detailed instructions and documentation, visit the [Wiki](https://github.com/spicybung/DemonFF/wiki).
+For detailed instructions and documentation, visit the [Wiki](https://github.com/spicybung/DemonFF/wiki)(Soon for DemonFF).
 
 ## Contributing
 
