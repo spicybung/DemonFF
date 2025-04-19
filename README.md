@@ -16,7 +16,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 - **Animation Editing**: Import & export .IFP animation files - modify them or craft your own animations.
 
-- **Map Editing**: Easily import your .IPL & .IDE's - create & export your own maps for singleplayer and/or SAMP/open.mp.
+- **Map Editing**: Easily import your .IPL & .IDE's - create & export your own maps for singleplayer and/or SA-MP/open.mp.
 
 - **Rockstar Section IDs**: DemonFF supports Rockstar's Renderware section IDs, allowing you to work with R* Renderware files seamlessly.
 
