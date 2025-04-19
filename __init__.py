@@ -58,13 +58,10 @@ class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
         row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
 
 def join_similar_named_meshes(context):
-    # Create a dictionary to store objects by their base names
     base_name_dict = {}
     
-    # Iterate through all objects in the scene
     for obj in context.scene.objects:
         if obj.type == 'MESH':
-            # Split the name by the dot to separate the base name and the suffix
             name_parts = obj.name.split('.')
             base_name = name_parts[0]
             
@@ -73,7 +70,6 @@ def join_similar_named_meshes(context):
             
             base_name_dict[base_name].append(obj)
     
-    # Iterate through the dictionary and join objects with similar names
     for base_name, objects in base_name_dict.items():
         if len(objects) > 1:
             context.view_layer.objects.active = objects[0]
@@ -100,10 +96,14 @@ _classes = [
     gui.OBJECT_PT_dff_misc_panel,
     gui.OBJECT_OT_force_doubleside_mesh,
     gui.OBJECT_OT_recalculate_normals_outward,
+    gui.OBJECT_OT_recalculate_normals_inward,
     gui.OBJECT_OT_optimize_mesh,
     gui.COLLECTION_OT_nuke_matched,
     gui.COLLECTION_OT_organize_scene_collection,
+    gui.COLLECTION_OT_remove_empty_collections,
     gui.COLLECTION_PT_custom_cleanup_panel,
+    gui.OBJECT_OT_remove_frames,
+    gui.OBJECT_OT_truncate_frame_names,
     gui.EXT2DFXObjectProps,
     gui.Light2DFXObjectProps,
     gui.DFFMaterialProps,
@@ -133,7 +133,7 @@ _classes = [
     map_exporter.DemonFFPawnPanel,
     img_importer.IMPORT_PT_img_panel,
     img_importer.IMPORT_OT_img,
-    gui.DFF2dfxPanel,
+    gui.DEMONFF_PT_DFF2DFX,
     gui.SAEFFECTS_OT_AddLightInfo,
     gui.SAEFFECTS_OT_AddParticleInfo,
     gui.SAEFFECTS_OT_AddTextInfo,

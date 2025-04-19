@@ -58,6 +58,10 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout.label(text="Collision Operations:")
         layout.operator("object.set_collision_objects", text="Set All As Collision Objects")
         layout.operator("scene.duplicate_all_as_collision", text="Duplicate All as Collision")
+        
+        layout.label(text="Frame Operations:")
+        layout.operator("object.remove_frames", text="Remove Frames")
+        layout.operator("object.truncate_frame_names", text="Truncate Frame Names")
 
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
 
@@ -422,6 +426,44 @@ class OBJECT_OT_set_collision_objects(bpy.types.Operator):
     def execute(self, context):
         set_collision_objects(context)
         return {'FINISHED'}
+    
+class OBJECT_OT_remove_frames(bpy.types.Operator):
+    bl_idname = "object.remove_frames"
+    bl_label = "Remove Frames"
+    bl_description = "Remove all frame-type empties from the current scene"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        removed_count = 0
+        for obj in list(context.scene.objects):
+            if obj.type == 'EMPTY' and obj.dff.is_frame:
+                bpy.data.objects.remove(obj, do_unlink=True)
+                removed_count += 1
+        self.report({'INFO'}, f"Removed {removed_count} frame objects.")
+        return {'FINISHED'}
+
+
+class OBJECT_OT_truncate_frame_names(bpy.types.Operator):
+    bl_idname = "object.truncate_frame_names"
+    bl_label = "Truncate Frame Names"
+    bl_description = "Truncate frame names to 22 bytes, excluding specific names (2dfx, Omni, Root)"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        truncated_count = 0
+
+        for obj in context.selected_objects:
+            if obj.type == 'EMPTY' and not any(x in obj.name for x in ["2dfx", "Omni", "Root"]):
+                original_name = obj.name
+                truncated_name = original_name.encode('utf-8')[:22].decode('utf-8', 'ignore')
+                
+                if truncated_name != original_name:
+                    obj.name = truncated_name
+                    truncated_count += 1
+
+        self.report({'INFO'}, f"Truncated names of {truncated_count} frames.")
+        return {'FINISHED'}
+
 
 def add_light_info(context):
     for obj in context.selected_objects:
@@ -1337,6 +1379,23 @@ class COLLECTION_OT_organize_scene_collection(bpy.types.Operator):
         organize_pairs(context.scene)
         self.report({'INFO'}, ".col collections are now above their matching .dff collections.")
         return {'FINISHED'}
+    
+#######################################################
+class COLLECTION_OT_remove_empty_collections(bpy.types.Operator):
+    bl_idname = "collection.remove_empty_collections"
+    bl_label = "Remove Empty Collections"
+    bl_description = "Remove all empty collections from the scene"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        removed_count = 0
+        for collection in list(bpy.data.collections):
+            if not collection.objects and not collection.children:
+                bpy.data.collections.remove(collection)
+                removed_count += 1
+        self.report({'INFO'}, f"Removed {removed_count} empty collections.")
+        return {'FINISHED'}
+   
 
 #######################################################
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
@@ -1396,6 +1455,7 @@ class COLLECTION_PT_custom_cleanup_panel(bpy.types.Panel):
         layout = self.layout
         layout.operator("collection.nuke_matched_collections", icon='TRASH')
         layout.operator("collection.organize_scene_collection", icon='SORTALPHA')
+        layout.operator("collection.remove_empty_collections", icon='X')
 
 class SCENE_PT_animation_browser(bpy.types.Panel):
     bl_label = "DemonFF - Animation Browser"
