@@ -93,6 +93,7 @@ _classes = [
     gui.OBJECT_OT_dff_clear_parent_bone,
     gui.OBJECT_PT_dffObjects,
     gui.OBJECT_OT_join_similar_named_meshes,
+    gui.SCENE_OT_duplicate_all_as_objects,
     gui.OBJECT_PT_dff_misc_panel,
     gui.OBJECT_OT_force_doubleside_mesh,
     gui.OBJECT_OT_recalculate_normals_outward,

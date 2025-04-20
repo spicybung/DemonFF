@@ -49,6 +49,7 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout = self.layout
         layout.label(text="Mesh Operations:")
         layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
+        layout.operator("scene.duplicate_all_as_objects", text="Duplicate All as Objects")
         layout.operator("object.optimize_mesh", text="Optimize Mesh(SLOW)")
 
         layout.label(text="Normals Operations:")
@@ -297,6 +298,66 @@ class OBJECT_OT_optimize_mesh(bpy.types.Operator):
                 bpy.ops.object.mode_set(mode='OBJECT')
         self.report({'INFO'}, "Optimized selected meshes")
         return {'FINISHED'}
+#######################################################   
+class SCENE_OT_duplicate_all_as_objects(bpy.types.Operator):
+    bl_idname = "scene.duplicate_all_as_objects"
+    bl_label = "Duplicate All as Objects"
+    bl_description = "Duplicate all mesh objects into new '.dff' collections and select only the duplicates"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        bpy.ops.object.select_all(action='DESELECT')
+        root_collection = context.scene.collection
+        duplicated_objects = []
+        collection_pairs = []
+
+        for obj in context.scene.objects:
+            if obj.type != 'MESH' or not obj.users_collection:
+                continue
+
+            duplicate = obj.copy()
+            duplicate.data = obj.data.copy() if obj.data else None
+
+            dummy = bpy.data.collections.new("TEMP_DUMMY_LINK")
+            root_collection.children.link(dummy)
+            dummy.objects.link(duplicate)
+            bpy.context.view_layer.update()
+
+            duplicate_name = duplicate.name
+
+            dff_collection_name = f"{obj.name}.dff"
+            dff_collection = bpy.data.collections.new(dff_collection_name)
+            root_collection.children.link(dff_collection)
+            dff_collection.objects.link(duplicate)
+
+            dummy.objects.unlink(duplicate)
+            root_collection.children.unlink(dummy)
+            bpy.data.collections.remove(dummy)
+
+            if hasattr(duplicate, "dff"):
+                duplicate.dff.type = 'OBJ'
+
+            duplicate.select_set(True)
+            duplicated_objects.append(duplicate)
+
+            original_collection = obj.users_collection[0]
+            collection_pairs.append((dff_collection, original_collection))
+
+        # Reorder dff above the original
+        for dff_collection, original_collection in collection_pairs:
+            if original_collection in root_collection.children:
+                root_collection.children.unlink(original_collection)
+            if dff_collection in root_collection.children:
+                root_collection.children.unlink(dff_collection)
+            root_collection.children.link(dff_collection)
+            root_collection.children.link(original_collection)
+
+        if duplicated_objects:
+            context.view_layer.objects.active = duplicated_objects[-1]
+
+        self.report({'INFO'}, f"Duplicated {len(duplicated_objects)} mesh objects into '.dff' collections.")
+        return {'FINISHED'}
+
 #######################################################   
 class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
     """Extrudes faces along their normals for all selected objects by 0.001523M"""
@@ -1385,46 +1446,44 @@ class COLLECTION_OT_remove_empty_collections(bpy.types.Operator):
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
-    bl_description = "Duplicate all objects in the scene as collision meshes, organize them in their own collections, and place them above the original collections"
+    bl_description = "Duplicate all mesh objects in the scene as collision meshes"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         root_collection = bpy.context.scene.collection
-
-        # A list to store original .dff collections and their new .ColMesh collections
         collection_pairs = []
 
         for obj in context.scene.objects:
-
             if not obj.users_collection or obj.type != 'MESH':
                 continue
 
+            col_name = f"{obj.name}.col.{obj.name}"
 
             duplicate = obj.copy()
             duplicate.data = obj.data.copy() if obj.data else None
-            duplicate.name = f"{obj.name}.001"
+            duplicate.name = col_name
 
-            colmesh_collection_name = f"{obj.name}.ColMesh"
-            colmesh_collection = bpy.data.collections.new(colmesh_collection_name)
-            context.scene.collection.children.link(colmesh_collection)
-            colmesh_collection.objects.link(duplicate)
-
+            col_collection = bpy.data.collections.new(col_name)
+            root_collection.children.link(col_collection)
+            col_collection.objects.link(duplicate)
 
             if hasattr(duplicate, "dff"):
                 duplicate.dff.type = 'COL'
 
 
             original_collection = obj.users_collection[0]
-            collection_pairs.append((colmesh_collection, original_collection))
+            collection_pairs.append((col_collection, original_collection))
 
-        for colmesh_collection, dff_collection in collection_pairs:
-
-            root_collection.children.unlink(dff_collection)
-            root_collection.children.unlink(colmesh_collection)
-            root_collection.children.link(colmesh_collection)
+        # Reorder so col comes first
+        for col_collection, dff_collection in collection_pairs:
+            if dff_collection in root_collection.children:
+                root_collection.children.unlink(dff_collection)
+            if col_collection in root_collection.children:
+                root_collection.children.unlink(col_collection)
+            root_collection.children.link(col_collection)
             root_collection.children.link(dff_collection)
 
-        self.report({'INFO'}, "Duplicated and organized all objects as collision meshes above original collections")
+        self.report({'INFO'}, "Objects duplicated as .COL objects.")
         return {'FINISHED'}
 
 #######################################################    
@@ -1441,6 +1500,7 @@ class COLLECTION_PT_custom_cleanup_panel(bpy.types.Panel):
         layout.operator("collection.organize_scene_collection", icon='SORTALPHA')
         layout.operator("collection.remove_empty_collections", icon='X')
 
+####################################################### 
 class SCENE_PT_animation_browser(bpy.types.Panel):
     bl_label = "DemonFF - Animation Browser"
     bl_idname = "SCENE_PT_animation_browser"
@@ -1727,7 +1787,8 @@ def register():
     bpy.utils.register_class(COLLECTION_OT_organize_scene_collection)
     bpy.utils.register_class(COLLECTION_PT_custom_cleanup_panel)
     bpy.utils.register_class(SCENE_OT_assign_action_to_object)
-    bpy.utils.register_class(SCENE_PT_animation_browser)    
+    bpy.utils.register_class(SCENE_PT_animation_browser)
+    bpy.utils.register_class(SCENE_OT_duplicate_all_as_objects)    
 
 
 def unregister():
@@ -1750,7 +1811,8 @@ def unregister():
     bpy.utils.unregister_class(COLLECTION_PT_custom_cleanup_panel)
     bpy.utils.unregister_class(COLLECTION_OT_organize_scene_collection)
     bpy.utils.unregister_class(SCENE_OT_assign_action_to_object)
-    bpy.utils.unregister_class(SCENE_PT_animation_browser)   
+    bpy.utils.unregister_class(SCENE_PT_animation_browser)
+    bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_objects)   
 
 
 if __name__ == "__main__":
