@@ -744,8 +744,12 @@ class Frame:
 
         data = b''
 
-        if self.name is not None and self.name != "b": # Make sure we don't pad/null-terminate frame strings
-            data += Sections.write_chunk(self.name.encode("utf-8"), types["Frame"])
+        if self.name is not None and self.name != "b":
+            padded = Sections.pad_string(self.name)
+            raw_len = len(self.name.encode("utf-8"))  # Get real byte length for frame name
+            trimmed = padded[:raw_len]                # Strip null terminator & padding
+            data += Sections.write_chunk(trimmed, types["Frame"])
+
 
 
         if self.bone_data is not None:
@@ -1953,6 +1957,7 @@ class Geometry:
             "light"              : True,
             "modulate_color"     : True,
             "export_normals"     : True,
+            "triangle_strip"     : False,
             "write_mesh_plg"     : True,
         }
         self._hasMatFX = False
@@ -2064,17 +2069,36 @@ class Geometry:
         return Sections.write_chunk(data, types["Material List"])
 
     #######################################################
-    # TODO: Triangle Strips support
     def write_bin_split(self):
 
         data = b''
 
         meshes = {}
+        is_tri_strip = self.export_flags["triangle_strip"]
+
+        if is_tri_strip:
+            for triangle in self.triangles:
+
+                if triangle.material not in meshes:
+                    meshes[triangle.material] = []
+
+                meshes[triangle.material].append([triangle.a, triangle.b, triangle.c])
+
+            for mesh in meshes:
+                meshes[mesh] = tristrip.stripify(meshes[mesh], True)[0]
+
+        else:
+            for triangle in self.triangles:
+
+                if triangle.material not in meshes:
+                    meshes[triangle.material] = []
+
+                meshes[triangle.material] += [triangle.a, triangle.b, triangle.c]
 
         total_indices = sum(len(triangles) for triangles in meshes.values())
-        data += pack("<III", len(meshes), total_indices, 0)
+        data += pack("<III", int(is_tri_strip), len(meshes), total_indices)
 
-        for mesh in meshes:
+        for mesh in sorted(meshes):
             data += pack("<II", len(meshes[mesh]), mesh)
             data += pack("<%dI" % (len(meshes[mesh])), *meshes[mesh])
 
