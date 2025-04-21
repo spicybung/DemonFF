@@ -1182,6 +1182,7 @@ class SunGlare2dfx:
 
 #######################################################
 class Escalator2DFX:
+    # Check out: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
 
     #######################################################
     def __init__(self, loc):

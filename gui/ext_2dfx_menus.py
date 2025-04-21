@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# Check out: https://gtamods.com/wiki/2d_Effect_(RW_Section)
+
 import bpy
 
 from bpy_extras.io_utils import ImportHelper

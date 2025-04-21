@@ -35,12 +35,12 @@ effectfile = ""
 textfile = ""
 entries = []
 
+#######################################################
 def import_light(entry, collection):
     light_data = bpy.data.lights.new(name="Omni_Light", type='POINT')
     light_object = bpy.data.objects.new(name=f"Omni_Light", object_data=light_data)
     collection.objects.link(light_object)
 
-    # Assign light properties
     light_data.color = (
         entry.color[0] / 255,
         entry.color[1] / 255,
@@ -67,7 +67,7 @@ def import_light(entry, collection):
 
     return light_object
 
-
+#######################################################
 class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
     """Create lights in Blender from the parsed 2DFX entries."""
     bl_idname = "saeeffects.create_lights_from_entries"
@@ -76,11 +76,10 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
     def execute(self, context):
         global entries
 
-        if not entries:  # Check if entries exist
+        if not entries:
             self.report({'ERROR'}, "No 2DFX entries available. Import first!")
             return {'CANCELLED'}
 
-        # Create lights for each entry
         collection = context.scene.collection
         for entry in entries:
 
@@ -105,7 +104,6 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
             )
             light_data.color = normalized_color
 
-            # Assign other light properties
             light_object.location = entry.loc
             light_object["sdfx_drawdis"] = entry.corona_far_clip
             light_object["sdfx_outerrange"] = entry.pointlightRange
@@ -128,12 +126,11 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
 
 
 def add_light_info(frames, entries):
-    # Determine the collection to which objects will be linked
     if isinstance(frames, bpy.types.Context):
         collection = frames.scene.collection
     elif isinstance(frames, bpy.types.Collection):
         collection = frames
-    elif hasattr(frames, "objects"):  # Handles bpy.context.scene.objects or similar
+    elif hasattr(frames, "objects"):
         collection = bpy.context.scene.collection
     elif isinstance(frames, (list, tuple)) and all(isinstance(obj, bpy.types.Object) for obj in frames):
         collection = bpy.context.scene.collection
@@ -141,19 +138,15 @@ def add_light_info(frames, entries):
         print(f"Warning: Unrecognized 'frames' type ({type(frames)}). Defaulting to scene collection.")
         collection = bpy.context.scene.collection
 
-    # Filter for point lights
     point_lights = [obj for obj in bpy.context.selected_objects if obj.type == 'LIGHT' and obj.data.type == 'POINT']
 
     if not point_lights:
         print("No selected point lights found. Skipping light info addition.")
         return
 
-    # Debug: List the selected point lights
     print(f"Selected Point Lights: {[light.name for light in point_lights]}")
 
-    # Process each light entry for the selected point lights
     for light_object, entry in zip(point_lights, entries):
-        # Assign properties to the selected point lights
         light_object["sdfx_drawdis"] = getattr(entry, 'corona_far_clip', 100.0)
         light_object["sdfx_outerrange"] = getattr(entry, 'pointlight_range', 18.0)
         light_object["sdfx_size"] = getattr(entry, 'corona_size', 1.0)
@@ -450,7 +443,6 @@ class DEMONFF_PT_DFF2DFX(Panel):
         row.operator("saeffects.export_text_info", text="Export Text Info")
 
 #######################################################
-
 class SAEFFECTS_OT_AddLightInfo(Operator):
     bl_idname = "saeffects.add_light_info"
     bl_label = "Add Light Info"
@@ -461,7 +453,8 @@ class SAEFFECTS_OT_AddLightInfo(Operator):
         frames = context.scene.collection.children 
         add_light_info(frames, entries)
         return {'FINISHED'}
-
+    
+#######################################################
 class SAEFFECTS_OT_AddParticleInfo(Operator):
     bl_idname = "saeffects.add_particle_info"
     bl_label = "Add Particle Info"
@@ -469,7 +462,8 @@ class SAEFFECTS_OT_AddParticleInfo(Operator):
     def execute(self, context):
         add_particle_info(context)
         return {'FINISHED'}
-
+    
+#######################################################
 class SAEFFECTS_OT_AddTextInfo(Operator):
     bl_idname = "saeffects.add_text_info"
     bl_label = "Add 2D Text Info"
@@ -477,20 +471,24 @@ class SAEFFECTS_OT_AddTextInfo(Operator):
     def execute(self, context):
         add_text_info(context)
         return {'FINISHED'}
-
+    
+#######################################################
 class SAEFFECTS_OT_ExportInfo(Operator):
     bl_idname = "saeffects.export_info"
     bl_label = "Export Binary Info"
+    bl_description = "Exports selected 2DFX objects as a binary .bin file"
     
     def execute(self, context):
         global effectfile
         effectfile = bpy.path.abspath(context.scene.saeffects_export_path)
         export_info(context)
         return {'FINISHED'}
-
+    
+#######################################################
 class SAEFFECTS_OT_ExportTextInfo(Operator):
     bl_idname = "saeffects.export_text_info"
     bl_label = "Export Text Info"
+    bl_description = "Exports selected 2DFX objects as a readable text(.txt) format"
     
     filepath: StringProperty(subtype="FILE_PATH")
 
@@ -503,7 +501,8 @@ class SAEFFECTS_OT_ExportTextInfo(Operator):
         textfile = self.filepath
         export_text(context)
         return {'FINISHED'}
-
+    
+#######################################################
 class SAEFFECTS_OT_CreateLightsFromOmni(Operator):
     bl_idname = "saeffects.create_lights_from_omni"
     bl_label = "Create Lights from Omni Frames"
@@ -511,7 +510,8 @@ class SAEFFECTS_OT_CreateLightsFromOmni(Operator):
     def execute(self, context):
         create_lights_from_omni_frames()
         return {'FINISHED'}
-
+    
+#######################################################
 class SAEFFECTS_OT_ViewLightInfo(Operator):
     bl_idname = "saeffects.view_light_info"
     bl_label = "View Light Info"
@@ -522,7 +522,8 @@ class SAEFFECTS_OT_ViewLightInfo(Operator):
                 context.view_layer.objects.active = obj
                 bpy.ops.wm.properties_add(data_path='object')
         return {'FINISHED'}
-
+    
+#######################################################
 class OBJECT_PT_SDFXLightInfoPanel(Panel):
     bl_label = "SDFX Light Info"
     bl_idname = "OBJECT_PT_sdfx_light_info"

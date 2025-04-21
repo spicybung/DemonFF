@@ -1304,7 +1304,8 @@ class SunGlare2dfx:
 
 #######################################################
 class Escalator2DFX:
-
+    # Check out: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
+    
     #######################################################
     def __init__(self, loc):
         #self.effect_id = 10  # Always 10 for Escalator, moved after vector
@@ -1954,7 +1955,6 @@ class Geometry:
             "modulate_color"     : True,
             "export_normals"     : True,
             "write_mesh_plg"     : True,
-            "triangle_strip"     : False,
         }
         self._hasMatFX = False
     #######################################################

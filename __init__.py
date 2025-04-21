@@ -146,7 +146,8 @@ _classes = [
     gui.OBJECT_PT_SDFXLightInfoPanel,
     gui.SAEEFFECTS_PT_Panel,
     gui.IMPORT_OT_ifp,
-    gui.EXPORT_OT_ifp
+    gui.EXPORT_OT_ifp,
+    gui.DFF_MT_ToolWheel
 ]
 
 

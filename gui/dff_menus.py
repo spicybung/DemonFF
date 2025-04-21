@@ -18,6 +18,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
+from bpy.types import Menu
 import bmesh
 import gpu
 import struct
@@ -36,6 +37,42 @@ fx_images = ["coronastar", "shad_exp"]
 fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""
+addon_keymaps = []
+
+#######################################################
+class DFF_MT_ToolWheel(Menu):
+    bl_label = "DemonFF Quick Menu"
+    bl_idname = "DFF_MT_tool_wheel"
+
+    # Just a basic pie menu for now
+
+    def draw(self, context):
+        layout = self.layout
+        pie = layout.menu_pie()
+
+        pie.operator("import_scene.demonff_dff", text="Import DFF")
+        pie.operator("import_scene.demonff_ifp", text="Import IFP")
+        pie.operator("import_scene.txd", text="Import TXD")
+
+        pie.operator("export_scene.demonff_dff", text="Export DFF")
+        pie.operator("export_scene.demonff_col", text="Export COL")
+
+        pie.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
+
+    addon_keymaps = []
+
+    def register_keymaps():
+        wm = bpy.context.window_manager
+        km = wm.keyconfigs.addon.keymaps.new(name="3D View", space_type='VIEW_3D')
+        kmi = km.keymap_items.new("wm.call_menu_pie", type='V', value='PRESS')
+        kmi.properties.name = "DFF_MT_tool_wheel"
+        addon_keymaps.append((km, kmi))
+
+    def unregister_keymaps():
+        for km, kmi in addon_keymaps:
+            km.keymap_items.remove(kmi)
+        addon_keymaps.clear()
+
 
 #######################################################
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
@@ -47,7 +84,7 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Mesh Operations:")
+        layout.label(text="Object Operations:")
         layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
         layout.operator("scene.duplicate_all_as_objects", text="Duplicate All as Objects")
         layout.operator("object.optimize_mesh", text="Optimize Mesh(SLOW)")
@@ -1813,7 +1850,9 @@ def register():
     bpy.utils.register_class(COLLECTION_PT_custom_cleanup_panel)
     bpy.utils.register_class(SCENE_OT_assign_action_to_object)
     bpy.utils.register_class(SCENE_PT_animation_browser)
-    bpy.utils.register_class(SCENE_OT_duplicate_all_as_objects)    
+    bpy.utils.register_class(SCENE_OT_duplicate_all_as_objects)
+    bpy.utils.register_class(DFF_MT_ToolWheel)
+   
 
 
 def unregister():
@@ -1837,7 +1876,9 @@ def unregister():
     bpy.utils.unregister_class(COLLECTION_OT_organize_scene_collection)
     bpy.utils.unregister_class(SCENE_OT_assign_action_to_object)
     bpy.utils.unregister_class(SCENE_PT_animation_browser)
-    bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_objects)   
+    bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_objects)
+    bpy.utils.unregister_class(DFF_MT_ToolWheel)
+
 
 
 if __name__ == "__main__":
