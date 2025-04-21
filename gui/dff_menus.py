@@ -226,31 +226,40 @@ class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
         
 #######################################################
 def join_similar_named_meshes(context):
-    # Create a dictionary to store objects by their base names
+    import bpy
+
+    # Build dictionary of base names to list of mesh objects
     base_name_dict = {}
-    
 
     for obj in context.scene.objects:
         if obj.type == 'MESH':
-
-            name_parts = obj.name.split('.')
-            base_name = name_parts[0]
-            
-            if base_name not in base_name_dict:
-                base_name_dict[base_name] = []
-            
-            base_name_dict[base_name].append(obj)
-    
+            base_name = obj.name.split('.')[0]
+            base_name_dict.setdefault(base_name, []).append(obj)
 
     for base_name, objects in base_name_dict.items():
-        if len(objects) > 1:
-            context.view_layer.objects.active = objects[0]
-            bpy.ops.object.select_all(action='DESELECT')
-            
-            for obj in objects:
-                obj.select_set(True)
-            
-            bpy.ops.object.join()
+        if len(objects) <= 1:
+            continue
+
+        if bpy.context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        target = objects[0]
+
+        others = [obj for obj in objects[1:] if obj != target]
+
+        for obj in others:
+            if obj.name not in target.users_collection[0].objects:
+                target.users_collection[0].objects.link(obj)
+
+        for obj in context.selected_objects:
+            obj.select_set(False)
+        target.select_set(True)
+        for obj in others:
+            obj.select_set(True)
+
+        context.view_layer.objects.active = target
+        bpy.ops.object.join()
+
 #######################################################
 class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):
     bl_idname = "object.join_similar_named_meshes"
@@ -311,28 +320,28 @@ class SCENE_OT_duplicate_all_as_objects(bpy.types.Operator):
         duplicated_objects = []
         collection_pairs = []
 
+        used_names = {obj.name for obj in bpy.data.objects}
+
         for obj in context.scene.objects:
             if obj.type != 'MESH' or not obj.users_collection:
                 continue
 
-            duplicate = obj.copy()
-            duplicate.data = obj.data.copy() if obj.data else None
+            # Generate a unique name like bonerific.001 manually
+            base = obj.name
+            count = 1
+            new_name = f"{base}.{str(count).zfill(3)}"
+            while new_name in used_names:
+                count += 1
+                new_name = f"{base}.{str(count).zfill(3)}"
+            used_names.add(new_name)
 
-            dummy = bpy.data.collections.new("TEMP_DUMMY_LINK")
-            root_collection.children.link(dummy)
-            dummy.objects.link(duplicate)
-            bpy.context.view_layer.update()
+            duplicate = bpy.data.objects.new(obj.name, obj.data.copy())
+            duplicate.name = new_name
 
-            duplicate_name = duplicate.name
-
-            dff_collection_name = f"{obj.name}.dff"
+            dff_collection_name = f"{base}.dff"
             dff_collection = bpy.data.collections.new(dff_collection_name)
             root_collection.children.link(dff_collection)
             dff_collection.objects.link(duplicate)
-
-            dummy.objects.unlink(duplicate)
-            root_collection.children.unlink(dummy)
-            bpy.data.collections.remove(dummy)
 
             if hasattr(duplicate, "dff"):
                 duplicate.dff.type = 'OBJ'
@@ -343,14 +352,13 @@ class SCENE_OT_duplicate_all_as_objects(bpy.types.Operator):
             original_collection = obj.users_collection[0]
             collection_pairs.append((dff_collection, original_collection))
 
-        # Reorder dff above the original
         for dff_collection, original_collection in collection_pairs:
-            if original_collection in root_collection.children:
-                root_collection.children.unlink(original_collection)
-            if dff_collection in root_collection.children:
-                root_collection.children.unlink(dff_collection)
-            root_collection.children.link(dff_collection)
-            root_collection.children.link(original_collection)
+            if original_collection.name in root_collection.children:
+                root_collection.children.unlink(bpy.data.collections[original_collection.name])
+            if dff_collection.name in root_collection.children:
+                root_collection.children.unlink(bpy.data.collections[dff_collection.name])
+            root_collection.children.link(bpy.data.collections[dff_collection.name])
+            root_collection.children.link(bpy.data.collections[original_collection.name])
 
         if duplicated_objects:
             context.view_layer.objects.active = duplicated_objects[-1]
@@ -403,18 +411,23 @@ class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        import bmesh
+
         processed_meshes = []
 
-        print("Starting recalculation of normals (outward) - this may take time - please wait...")
+        print("Recalculating normals (outward) - please wait...")
         self.report({'INFO'}, "Recalculating normals (outward) - please wait...")
 
         for obj in context.selected_objects:
             if obj.type == 'MESH':
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.mesh.normals_make_consistent(inside=False)
-                bpy.ops.object.mode_set(mode='OBJECT')
+                mesh = obj.data
+
+                bm = bmesh.new()
+                bm.from_mesh(mesh)
+                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+                bm.to_mesh(mesh)
+                bm.free()
+
                 processed_meshes.append(obj.name)
 
         if processed_meshes:
@@ -434,19 +447,29 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
+        import bmesh
+
         processed_meshes = []
 
-        print("Starting recalculation of normals (inward) - this may take time - please wait...")
+        print("Recalculating normals (inward) - please wait...")
         self.report({'INFO'}, "Recalculating normals (inward) - please wait...")
 
         for obj in context.selected_objects:
-            if obj.type == 'MESH':
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
-                bpy.ops.mesh.normals_make_consistent(inside=True)
-                bpy.ops.object.mode_set(mode='OBJECT')
-                processed_meshes.append(obj.name)
+            if obj.type != 'MESH':
+                continue
+
+            mesh = obj.data
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+
+            bm.to_mesh(mesh)
+            bm.free()
+
+            processed_meshes.append(obj.name)
 
         if processed_meshes:
             report_msg = f"Normals recalculated inward for: {', '.join(processed_meshes)}"
@@ -454,7 +477,9 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
             report_msg = "No mesh objects were processed."
 
         self.report({'INFO'}, report_msg)
+        print(report_msg)
         return {'FINISHED'}
+
 
 #######################################################
 class OBJECT_OT_set_collision_objects(bpy.types.Operator):
