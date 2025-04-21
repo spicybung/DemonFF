@@ -27,6 +27,7 @@ from gpu_extras.batch import batch_for_shader
 from ..ops.importer_common import game_version
 from bpy.props import StringProperty, CollectionProperty
 
+#######################################################
 def quat_to_degrees(quat):
     euler = quat.to_euler('XYZ')
     return (euler.x * (180 / 3.141592653589793),
@@ -282,13 +283,11 @@ def import_ide(filepaths, context):
             continue
 
         try:
-            # Attempt to open and read as UTF-8
             with open(filepath, 'r', encoding='utf-8') as file:
                 lines = file.readlines()
         except UnicodeDecodeError:
             print(f"UTF-8 decoding failed for {filepath}, attempting ASCII decoding.")
             try:
-                # Fallback to ASCII encoding
                 with open(filepath, 'r', encoding='ascii', errors='replace') as file:
                     lines = file.readlines()
             except UnicodeDecodeError:
@@ -380,7 +379,7 @@ def mass_import_samp_ide(filepaths, context):
                 print(f"No matching SAMP ID found for {obj.name}")
 
     print("Mass SAMP IDE import completed")
-
+#######################################################
 class SAMP_IDE_Import_Operator(bpy.types.Operator):
     """Import SAMP .IDE File"""
     bl_idname = "object.samp_ide_import"
@@ -397,7 +396,7 @@ class SAMP_IDE_Import_Operator(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class Mass_IDE_Import_Operator(bpy.types.Operator):
     """Import .IDE Files"""
     bl_idname = "object.samp_mass_ide_import"
@@ -417,7 +416,7 @@ class Mass_IDE_Import_Operator(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class ExportToIPLOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ipl"
     bl_label = "Export Selected Objects to IPL"
@@ -474,7 +473,7 @@ class ExportToIPLOperator(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class ExportToIDEOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ide"
     bl_label = "Export Scene Objects to IDE"
@@ -520,7 +519,7 @@ class ExportToIDEOperator(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class ExportToPawnOperator(bpy.types.Operator):
     bl_idname = "object.export_to_pawn"
     bl_label = "Export Selected Objects to Pawn Script"
@@ -648,7 +647,7 @@ class ExportToPawnOperator(bpy.types.Operator):
         layout.prop(self, "draw_distance")
         layout.prop(self, "x_offset")
         layout.prop(self, "y_offset")
-
+#######################################################
 class RemoveBuildingForPlayerOperator(bpy.types.Operator):
     bl_idname = "object.remove_building_for_player"
     bl_label = "Remove Building For Player"
@@ -663,6 +662,7 @@ class RemoveBuildingForPlayerOperator(bpy.types.Operator):
             print(line)
         return {'FINISHED'}
     
+#######################################################
 class MapImportPanel(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
     bl_label = "DemonFF - Map Import"
@@ -706,7 +706,7 @@ class DemonFFMapExportPanel(bpy.types.Panel):
         row.operator("object.export_to_ipl", text="Export IPL")
         row.operator("object.export_to_ide", text="Export IDE")
         row.operator("object.samp_mass_ide_import", text="Import IDE")
-
+#######################################################
 class DemonFFPawnPanel(bpy.types.Panel):
     bl_label = "DemonFF - Pawn"
     bl_idname = "SCENE_PT_demonff_pawn"
@@ -719,7 +719,7 @@ class DemonFFPawnPanel(bpy.types.Panel):
         row = layout.row()
         row.operator("object.export_to_pawn", text="Export .pwn")
         row.operator("object.remove_building_for_player", text="Remove Building For Player")
-
+#######################################################
 def register():
     bpy.utils.register_class(DFFFrameProps)
     bpy.utils.register_class(DFFAtomicProps)

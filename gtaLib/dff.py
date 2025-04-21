@@ -210,7 +210,6 @@ def write_2dfx_effect_section(obj):
     # Update the placeholder size
     entry_data[2] = pack('<I', data_size)  # Replace placeholder with actual size
 
-    # Combine all data into a single binary structure
     return b''.join(entry_data)
 #######################################################
 class Sections:
@@ -745,9 +744,9 @@ class Frame:
 
         data = b''
 
-        if self.name is not None and self.name != "b":
-            data += Sections.write_chunk(Sections.pad_string(self.name),
-                                         types["Frame"])
+        if self.name is not None and self.name != "b": # Make sure we don't pad/null-terminate frame strings
+            data += Sections.write_chunk(self.name.encode("utf-8"), types["Frame"])
+
 
         if self.bone_data is not None:
             data += self.bone_data.to_mem()
@@ -1304,7 +1303,7 @@ class SunGlare2dfx:
 
 #######################################################
 class Escalator2DFX:
-    # Check out: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
+    # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
 
     #######################################################
     def __init__(self, loc): 
@@ -2073,7 +2072,7 @@ class Geometry:
         meshes = {}
 
         total_indices = sum(len(triangles) for triangles in meshes.values())
-        data += pack("<III", len(meshes), total_indices)
+        data += pack("<III", len(meshes), total_indices, 0)
 
         for mesh in meshes:
             data += pack("<II", len(meshes[mesh]), mesh)

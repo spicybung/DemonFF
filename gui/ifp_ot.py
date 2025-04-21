@@ -23,12 +23,13 @@ from dataclasses import dataclass
 from mathutils import Matrix, Vector, Quaternion
 from os import SEEK_CUR
 
+#######################################################
 bl_info = {
     "name": "GTA IFP Import/Export",
     "blender": (3, 0, 0),
     "category": "Import-Export",
 }
-
+#######################################################
 POSEDATA_PREFIX = 'pose.bones["%s"].'
 
 def invalid_active_object(self, context):
@@ -150,7 +151,7 @@ def apply_ifp_to_armature(context, ifp, fps, global_matrix):
 
     return {'FINISHED'}
 
-# Operator for importing IFP files
+#######################################################
 class IMPORT_OT_ifp(bpy.types.Operator):
     bl_idname = "import_scene.ifp"
     bl_label = "Import IFP"
@@ -189,15 +190,15 @@ def unregister():
 if __name__ == "__main__":
     register()
 
+#######################################################
 # Additional IFP reading and writing logic
-
 @dataclass
 class Keyframe:
     time: float
     pos: Vector
     rot: Quaternion
     scl: Vector
-
+#######################################################
 @dataclass
 class Bone:
     name: str
@@ -207,17 +208,17 @@ class Bone:
     sibling_x: int
     sibling_y: int
     keyframes: []
-
+#######################################################
 @dataclass
 class Animation:
     name: str
     bones: []
-
+#######################################################
 @dataclass
 class IfpData:
     name: str
     animations: []
-
+#######################################################
 class Anp3Bone(Bone):
     def get_keyframes_size(self):
         s = 16 if self.keyframe_type[2] == 'T' else 10
@@ -245,7 +246,7 @@ class Anp3Bone(Bone):
             keyframes.append(kf)
 
         return cls(name, keyframe_type, True, bone_id, 0, 0, keyframes)
-
+#######################################################
 class Anp3Animation(Animation):
     @staticmethod
     def get_bone_class():
@@ -260,7 +261,7 @@ class Anp3Animation(Animation):
         bones_num, keyframes_size, unk = read_uint32(fd, 3)
         bones = [Anp3Bone.read(fd) for _ in range(bones_num)]
         return cls(name, bones)
-
+#######################################################
 class Anp3(IfpData):
     @staticmethod
     def get_animation_class():
@@ -273,7 +274,7 @@ class Anp3(IfpData):
         animations_num = read_uint32(fd)
         animations = [cls.get_animation_class().read(fd) for _ in range(animations_num)]
         return cls(name, animations)
-
+#######################################################
 class AnpkBone(Bone):
     def get_keyframes_size(self):
         s = 20
@@ -335,7 +336,8 @@ class AnpkBone(Bone):
             keyframes = []
 
         return cls(name, keyframe_type, use_bone_id, bone_id, sibling_x, sibling_y, keyframes)
-
+    
+#######################################################
 class AnpkAnimation(Animation):
     @staticmethod
     def get_bone_class():
@@ -359,7 +361,8 @@ class AnpkAnimation(Animation):
         fd.seek(unk_size - 4, SEEK_CUR)
         bones = [AnpkBone.read(fd) for _ in range(bones_num)]
         return cls(name, bones)
-
+    
+#######################################################
 class Anpk(IfpData):
     @staticmethod
     def get_animation_class():
@@ -381,6 +384,7 @@ ANIM_CLASSES = {
     'ANPK': Anpk,
 }
 
+#######################################################
 @dataclass
 class Ifp:
     version: str
@@ -549,7 +553,7 @@ def collect_animation_data(context):
     animations.append(anim)
     return IfpData(name="BlenderIFP", animations=animations)
 
-
+#######################################################
 class EXPORT_OT_ifp(bpy.types.Operator):
     bl_idname = "export_scene.ifp"
     bl_label = "Export IFP (.ifp)"

@@ -115,7 +115,7 @@ types = {
     "Specular Material"       : 39056118,
     "2d Effect"               : 39056120,
     "Extra Vert Color"        : 39056121,
-    "Collision Model"         : 39056127,
+    "SAMP Collision Model"    : 39056127,
     "Reflection Material"     : 39056124,
     "Frame"                   : 39056126,
 }
@@ -669,9 +669,8 @@ class Frame:
 
         data = b''
 
-        if self.name is not None and self.name != "b":
-            data += Sections.write_chunk(Sections.pad_string(self.name),
-                                         types["Frame"])
+        if self.name is not None and self.name != "b": # Make sure we don't pad/null-terminate frame strings
+            data += Sections.write_chunk(self.name.encode("utf-8"), types["Frame"])
 
         if self.bone_data is not None:
             data += self.bone_data.to_mem()
@@ -1183,7 +1182,7 @@ class SunGlare2dfx:
 
 #######################################################
 class Escalator2DFX:
-    # Check out: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
+    # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
 
     #######################################################
     def __init__(self, loc):
