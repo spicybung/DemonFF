@@ -37,43 +37,9 @@ fx_images = ["coronastar", "shad_exp"]
 fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""
-addon_keymaps = []
+
 
 #######################################################
-class DFF_MT_ToolWheel(Menu):
-    bl_label = "DemonFF Quick Menu"
-    bl_idname = "DFF_MT_tool_wheel"
-
-    # Just a basic pie menu for now
-
-    def draw(self, context):
-        layout = self.layout
-        pie = layout.menu_pie()
-
-        pie.operator("import_scene.demonff_dff", text="Import DFF")
-        pie.operator("import_scene.demonff_ifp", text="Import IFP")
-        pie.operator("import_scene.txd", text="Import TXD")
-
-        pie.operator("export_scene.demonff_dff", text="Export DFF")
-        pie.operator("export_scene.demonff_col", text="Export COL")
-
-        pie.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
-
-    addon_keymaps = []
-
-    def register_keymaps():
-        wm = bpy.context.window_manager
-        km = wm.keyconfigs.addon.keymaps.new(name="3D View", space_type='VIEW_3D')
-        kmi = km.keymap_items.new("wm.call_menu_pie", type='V', value='PRESS')
-        kmi.properties.name = "DFF_MT_tool_wheel"
-        addon_keymaps.append((km, kmi))
-
-    def unregister_keymaps():
-        for km, kmi in addon_keymaps:
-            km.keymap_items.remove(kmi)
-        addon_keymaps.clear()
-
-
 #######################################################
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
     bl_label = "DemonFF - Miscellaneous"
@@ -263,9 +229,6 @@ class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
         
 #######################################################
 def join_similar_named_meshes(context):
-    import bpy
-
-    # Build dictionary of base names to list of mesh objects
     base_name_dict = {}
 
     for obj in context.scene.objects:
@@ -997,6 +960,7 @@ class DFF_MT_ExportChoice(bpy.types.Menu):
                              text="DemonFF DFF (.dff/.col)")
         self.layout.operator(EXPORT_OT_col.bl_idname,
                              text="DemonFF Collision (.col)")
+        
 
 #######################################################
 def import_dff_func(self, context):
@@ -1828,9 +1792,11 @@ class SCENE_PT_dffAtomics(bpy.types.Panel):
             col = row.column()
             col.operator(SCENE_OT_dff_update.bl_idname, icon='FILE_REFRESH', text="")
 
+
 def register():
     register_saeffects()
     bpy.utils.register_class(MATERIAL_PT_dffMaterials)
+    bpy.utils.register_class(DFF_MT_ImportChoice)
     bpy.utils.register_class(DFF_MT_ExportChoice)
     bpy.utils.register_class(OBJECT_PT_dffObjects)
     bpy.utils.register_class(DFFMaterialProps)
@@ -1842,7 +1808,6 @@ def register():
     bpy.utils.register_class(SAEEFFECTS_PT_Panel)
     bpy.utils.register_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.register_class(OBJECT_PT_dff_misc_panel)
-    bpy.utils.register_class
     bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
     bpy.utils.register_class(OBJECT_OT_optimize_mesh)
     bpy.utils.register_class(COLLECTION_OT_nuke_matched)
@@ -1851,13 +1816,14 @@ def register():
     bpy.utils.register_class(SCENE_OT_assign_action_to_object)
     bpy.utils.register_class(SCENE_PT_animation_browser)
     bpy.utils.register_class(SCENE_OT_duplicate_all_as_objects)
-    bpy.utils.register_class(DFF_MT_ToolWheel)
+    print("✅ DFF Test Pie Menu registered. Press F in 3D View.")
    
 
 
 def unregister():
     unregister_saeffects()
     bpy.utils.unregister_class(MATERIAL_PT_dffMaterials)
+    bpy.utils.unregister_class(DFF_MT_ImportChoice)
     bpy.utils.unregister_class(DFF_MT_ExportChoice)
     bpy.utils.unregister_class(OBJECT_PT_dffObjects)
     bpy.utils.unregister_class(DFFMaterialProps)
@@ -1877,9 +1843,6 @@ def unregister():
     bpy.utils.unregister_class(SCENE_OT_assign_action_to_object)
     bpy.utils.unregister_class(SCENE_PT_animation_browser)
     bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_objects)
-    bpy.utils.unregister_class(DFF_MT_ToolWheel)
-
-
 
 if __name__ == "__main__":
     register()

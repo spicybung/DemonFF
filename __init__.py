@@ -18,7 +18,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
-from .gui import gui
+from .gui import gui, pie_menus
 from .ops import map_importer, map_exporter, img_importer
 
 from bpy.utils import register_class, unregister_class
@@ -167,6 +167,8 @@ def register():
         subtype='FILE_PATH'
     )
 
+    pie_menus.register_keymaps()
+
     if (2, 80, 0) > bpy.app.version:
         bpy.types.INFO_MT_file_import.append(gui.import_dff_func)
         bpy.types.INFO_MT_file_export.append(gui.export_dff_func)
@@ -185,6 +187,8 @@ def unregister():
 
     for cls in reversed(_classes):
         unregister_class(cls)
+
+    pie_menus.unregister_keymaps()
 
     del bpy.types.Scene.saeffects_export_path
     del bpy.types.Scene.saeffects_text_export_path
