@@ -204,13 +204,27 @@ def write_2dfx_effect_section(obj):
     entry_data.append(pack('<B', sdfx_props.get('sdfx_shadowzdist', 0)))  # Shadow Z Distance
     entry_data.append(pack('<B', sdfx_props.get('sdfx_flags2', 0)))  # Flags 2
 
-    # Calculate the data size
-    data_size = sum(len(data) for data in entry_data) - 4  # Subtract placeholder size
+    data_size = sum(len(data) for data in entry_data) - 4
 
-    # Update the placeholder size
-    entry_data[2] = pack('<I', data_size)  # Replace placeholder with actual size
+    entry_data[2] = pack('<I', data_size)
 
     return b''.join(entry_data)
+
+####################################################### 
+def export_tristrips(triangle_list):
+    if not triangle_list:
+        return []
+
+    strip = []
+
+    for i, tri in enumerate(triangle_list):
+        if i == 0:
+            strip.extend(tri)
+        else:
+            strip.append(tri[2])
+
+    return strip
+
 #######################################################
 class Sections:
 
@@ -2085,7 +2099,8 @@ class Geometry:
                 meshes[triangle.material].append([triangle.a, triangle.b, triangle.c])
 
             for mesh in meshes:
-                meshes[mesh] = tristrip.stripify(meshes[mesh], True)[0]
+                meshes[mesh] = export_tristrips(meshes[mesh])
+
 
         else:
             for triangle in self.triangles:
@@ -3147,12 +3162,6 @@ class dff:
 
         return data
             
-    #######################################################
-    def write_file(self, filename, version):
-
-        with open(filename, mode='wb') as file:
-            content = self.write_memory(version)
-            file.write(content)
             
     #######################################################
     def __init__(self):

@@ -137,6 +137,77 @@ def strlen(bytes, offset=0):
     return i-offset
 
 #######################################################
+def write_2dfx_effect_section(obj):
+
+    # Prepare 2DFX entry data
+    position = obj.location
+    light_data = obj.data
+    color = light_data.color  # RGB values normalized (0.0 to 1.0)
+    sdfx_props = {key: obj[key] for key in obj.keys() if key.startswith('sdfx_')}
+
+    # Start constructing binary data for this light
+    entry_data = []
+
+    # Write the position of the light (X, Y, Z as floats)
+    entry_data.append(pack('<3f', position.x, position.y, position.z))
+
+    # Write entry type (0 for lights)
+    entry_data.append(pack('<I', 0))
+
+    # Write light properties (e.g., RGBA color)
+    entry_data.append(pack(
+        '<4B',
+        int(color[0] * 255), int(color[1] * 255), int(color[2] * 255), 255  # RGBA color
+    ))
+
+    # Write other properties (Draw Distance, Outer Range, Corona Size, Inner Range)
+    entry_data.append(pack(
+        '<4f',
+        sdfx_props.get('sdfx_drawdis', 100.0),    # Draw Distance
+        sdfx_props.get('sdfx_outerrange', 18.0),  # Outer Range
+        sdfx_props.get('sdfx_size', 1.0),        # Corona Size
+        sdfx_props.get('sdfx_innerrange', 8.0)   # Inner Range
+    ))
+
+    # Write Flags and other attributes
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_showmode', 0)))  # Show Mode
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_OnAllDay', 0)))  # Enable Reflection
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_flaretype', 0)))  # Flare Type
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_shadcolormp', 0)))  # Shadow Color Multiplier
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_flags1', 0)))  # Flags 1
+
+    # Write Corona and Shadow Texture Names
+    corona_tex = sdfx_props.get('sdfx_corona', '').encode('ascii').ljust(24, b'\x00')
+    shadow_tex = sdfx_props.get('sdfx_shad', '').encode('ascii').ljust(24, b'\x00')
+    entry_data.append(corona_tex)
+    entry_data.append(shadow_tex)
+
+    # Write Shadow Z Distance and Flags 2
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_shadowzdist', 0)))  # Shadow Z Distance
+    entry_data.append(pack('<B', sdfx_props.get('sdfx_flags2', 0)))  # Flags 2
+
+    data_size = sum(len(data) for data in entry_data) - 4
+
+    entry_data[2] = pack('<I', data_size)
+
+    return b''.join(entry_data)
+
+####################################################### 
+def export_tristrips(triangle_list):
+    if not triangle_list:
+        return []
+
+    strip = []
+
+    for i, tri in enumerate(triangle_list):
+        if i == 0:
+            strip.extend(tri)
+        else:
+            strip.append(tri[2])
+
+    return strip
+
+#######################################################
 class Sections:
 
     # Unpack/pack format for above data types
@@ -1929,7 +2000,6 @@ class Geometry:
         return Sections.write_chunk(data, types["Material List"])
 
     #######################################################
-    # TODO: Triangle Strips support
     def write_bin_split(self):
 
         data = b''
@@ -1946,7 +2016,8 @@ class Geometry:
                 meshes[triangle.material].append([triangle.a, triangle.b, triangle.c])
 
             for mesh in meshes:
-                meshes[mesh] = tristrip.stripify(meshes[mesh], True)[0]
+                meshes[mesh] = export_tristrips(meshes[mesh])
+
 
         else:
             for triangle in self.triangles:
@@ -1959,7 +2030,7 @@ class Geometry:
         total_indices = sum(len(triangles) for triangles in meshes.values())
         data += pack("<III", int(is_tri_strip), len(meshes), total_indices)
 
-        for mesh in meshes:
+        for mesh in sorted(meshes):
             data += pack("<II", len(meshes[mesh]), mesh)
             data += pack("<%dI" % (len(meshes[mesh])), *meshes[mesh])
 

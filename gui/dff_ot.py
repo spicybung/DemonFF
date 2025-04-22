@@ -20,6 +20,8 @@ import time
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from ..ops import dff_exporter, dff_importer, col_importer, samp_exporter
 
+
+#######################################################
 class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
     
     bl_idname = "export_dff_custom.scene"
@@ -548,7 +550,7 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):  # too lazy to fi
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
-
+#######################################################
 class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
     
     bl_idname = "import_scene.dff_custom"
@@ -703,4 +705,4 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################

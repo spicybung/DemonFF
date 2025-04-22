@@ -943,6 +943,7 @@ class MATERIAL_PT_dffMaterials(bpy.types.Panel):
 #######################################################
 class DFF_MT_ImportChoice(bpy.types.Menu):
     bl_label = "DemonFF"
+    bl_idname = "import_scene.demonff_dff"
 
     def draw(self, context):
         layout = self.layout
@@ -954,6 +955,7 @@ class DFF_MT_ImportChoice(bpy.types.Menu):
 #######################################################@
 class DFF_MT_ExportChoice(bpy.types.Menu):
     bl_label = "DemonFF"
+    bl_idname = "export_scene.demonff_dff"
 
     def draw(self, context):
         self.layout.operator(EXPORT_OT_dff_custom.bl_idname,

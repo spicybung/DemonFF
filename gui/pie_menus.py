@@ -1,7 +1,27 @@
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
+
+# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import bpy
 
 addon_keymaps = []
 
+#######################################################
 class DFF_MT_ToolWheel(bpy.types.Menu):
     bl_label = "DemonFF Quick Menu"
     bl_idname = "DFF_MT_tool_wheel"
@@ -9,10 +29,13 @@ class DFF_MT_ToolWheel(bpy.types.Menu):
     bl_region_type = 'WINDOW'
 
     def draw(self, context):
-        print("🌀 Pie menu triggered")
         pie = self.layout.menu_pie()
-        pie.operator("wm.call_menu", text="Import DFF").name = "TOPBAR_MT_file"
-        pie.operator("wm.call_menu", text="Export DFF").name = "TOPBAR_MT_edit"
+        pie.operator("import_scene.dff_custom", text="Import DFF")
+        pie.operator("export_dff_custom.scene", text="Export DFF")
+        pie.operator("import_scene.txd", text="Import TXD")
+        pie.operator("import_scene.img", text="Import IMG")
+        pie.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
+
 
 def register_keymaps():
     wm = bpy.context.window_manager
