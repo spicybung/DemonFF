@@ -18,7 +18,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
-from bpy.types import Menu
 import bmesh
 import gpu
 import struct
@@ -38,8 +37,6 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""
 
-
-#######################################################
 #######################################################
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
     bl_label = "DemonFF - Miscellaneous"
@@ -50,7 +47,7 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Object Operations:")
+        layout.label(text="Mesh Operations:")
         layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
         layout.operator("scene.duplicate_all_as_objects", text="Duplicate All as Objects")
         layout.operator("object.optimize_mesh", text="Optimize Mesh(SLOW)")
@@ -229,6 +226,9 @@ class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
         
 #######################################################
 def join_similar_named_meshes(context):
+    import bpy
+
+    # Build dictionary of base names to list of mesh objects
     base_name_dict = {}
 
     for obj in context.scene.objects:
@@ -943,7 +943,6 @@ class MATERIAL_PT_dffMaterials(bpy.types.Panel):
 #######################################################
 class DFF_MT_ImportChoice(bpy.types.Menu):
     bl_label = "DemonFF"
-    bl_idname = "import_scene.demonff_dff"
 
     def draw(self, context):
         layout = self.layout
@@ -955,14 +954,12 @@ class DFF_MT_ImportChoice(bpy.types.Menu):
 #######################################################@
 class DFF_MT_ExportChoice(bpy.types.Menu):
     bl_label = "DemonFF"
-    bl_idname = "export_scene.demonff_dff"
 
     def draw(self, context):
         self.layout.operator(EXPORT_OT_dff_custom.bl_idname,
                              text="DemonFF DFF (.dff/.col)")
         self.layout.operator(EXPORT_OT_col.bl_idname,
                              text="DemonFF Collision (.col)")
-        
 
 #######################################################
 def import_dff_func(self, context):
@@ -1794,11 +1791,9 @@ class SCENE_PT_dffAtomics(bpy.types.Panel):
             col = row.column()
             col.operator(SCENE_OT_dff_update.bl_idname, icon='FILE_REFRESH', text="")
 
-
 def register():
     register_saeffects()
     bpy.utils.register_class(MATERIAL_PT_dffMaterials)
-    bpy.utils.register_class(DFF_MT_ImportChoice)
     bpy.utils.register_class(DFF_MT_ExportChoice)
     bpy.utils.register_class(OBJECT_PT_dffObjects)
     bpy.utils.register_class(DFFMaterialProps)
@@ -1810,6 +1805,7 @@ def register():
     bpy.utils.register_class(SAEEFFECTS_PT_Panel)
     bpy.utils.register_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.register_class(OBJECT_PT_dff_misc_panel)
+    bpy.utils.register_class
     bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
     bpy.utils.register_class(OBJECT_OT_optimize_mesh)
     bpy.utils.register_class(COLLECTION_OT_nuke_matched)
@@ -1817,15 +1813,12 @@ def register():
     bpy.utils.register_class(COLLECTION_PT_custom_cleanup_panel)
     bpy.utils.register_class(SCENE_OT_assign_action_to_object)
     bpy.utils.register_class(SCENE_PT_animation_browser)
-    bpy.utils.register_class(SCENE_OT_duplicate_all_as_objects)
-    print("✅ DFF Test Pie Menu registered. Press F in 3D View.")
-   
+    bpy.utils.register_class(SCENE_OT_duplicate_all_as_objects)    
 
 
 def unregister():
     unregister_saeffects()
     bpy.utils.unregister_class(MATERIAL_PT_dffMaterials)
-    bpy.utils.unregister_class(DFF_MT_ImportChoice)
     bpy.utils.unregister_class(DFF_MT_ExportChoice)
     bpy.utils.unregister_class(OBJECT_PT_dffObjects)
     bpy.utils.unregister_class(DFFMaterialProps)
@@ -1844,7 +1837,8 @@ def unregister():
     bpy.utils.unregister_class(COLLECTION_OT_organize_scene_collection)
     bpy.utils.unregister_class(SCENE_OT_assign_action_to_object)
     bpy.utils.unregister_class(SCENE_PT_animation_browser)
-    bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_objects)
+    bpy.utils.unregister_class(SCENE_OT_duplicate_all_as_objects)   
+
 
 if __name__ == "__main__":
     register()

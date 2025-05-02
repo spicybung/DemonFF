@@ -78,21 +78,6 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         default=False
     )
 
-    col_brightness: bpy.props.IntProperty(
-        name="Collision Brightness",
-        description="Set brightness level for all exported collisions",
-        default=255,
-        min=0,
-        max=255
-    )
-
-    col_light: bpy.props.IntProperty(
-        name="Collision Light Intensity",
-        description="Set light intensity for all exported collisions",
-        default=255,
-        min=0,
-        max=255
-    )
     
 
     #######################################################
@@ -102,8 +87,6 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         layout.prop(self, "export_version")
         layout.prop(self, "only_selected")
         layout.prop(self, "mass_export")
-        layout.prop(self, "col_brightness")
-        layout.prop(self, "col_light")
         return None
 
     #######################################################
@@ -115,8 +98,6 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
             "memory": False,
             "only_selected": self.only_selected,
             "mass_export": self.mass_export,
-            "col_brightness": self.col_brightness,
-            "col_light": self.col_light,
         }
 
         if self.mass_export:

@@ -23,17 +23,17 @@ addon_keymaps = []
 
 #######################################################
 class DFF_MT_ToolWheel(bpy.types.Menu):
-    bl_label = "DemonFF Quick Menu"
+    bl_label = "DemonFF - Quick Menu"
     bl_idname = "DFF_MT_tool_wheel"
     bl_space_type = 'VIEW_3D'
     bl_region_type = 'WINDOW'
 
     def draw(self, context):
         pie = self.layout.menu_pie()
-        pie.operator("import_scene.dff_custom", text="Import DFF")
-        pie.operator("export_dff_custom.scene", text="Export DFF")
+        pie.operator("wm.call_menu", text="Import DFF").name = "DFF_MT_ImportChoice"
         pie.operator("import_scene.txd", text="Import TXD")
         pie.operator("import_scene.img", text="Import IMG")
+        pie.operator("object.export_to_ipl", text="Export IPL")
         pie.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
 
 

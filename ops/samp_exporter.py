@@ -289,8 +289,7 @@ class dff_exporter:
     parent_queue = {}
     collection = None
     export_coll = False
-    col_brightness = 1.0
-    col_light = 1.0
+
 
     #######################################################
     @staticmethod
@@ -1044,8 +1043,6 @@ class dff_exporter:
                 'collection'    : self.collection,
                 'only_selected' : self.selected,
                 'mass_export'   : False,
-                'col_brightness': self.col_brightness,
-                'col_light'     : self.col_light
             })
 
             if len(mem) != 0:
