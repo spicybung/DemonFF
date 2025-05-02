@@ -115,7 +115,7 @@ types = {
     "Specular Material"       : 39056118,
     "2d Effect"               : 39056120,
     "Extra Vert Color"        : 39056121,
-    "SAMP Collision Model"    : 39056127,
+    "Collision Model"         : 39056127,
     "Reflection Material"     : 39056124,
     "Frame"                   : 39056126,
 }
@@ -2669,7 +2669,7 @@ class dff:
                 elif chunk.type == types["Atomic"]:  
                     self.read_atomic(chunk)
 
-                elif chunk.type == types["SAMP Collision Model"]:
+                elif chunk.type == types["Collision Model"]:
                     self.collisions.append(
                         self.data[self.pos:self.pos + chunk.size]
                     )
@@ -2920,7 +2920,7 @@ class dff:
             data += self.write_atomic(atomic)
 
         for coll_data in self.collisions:
-            _data = Sections.write_chunk(coll_data, types["SAMP Collision Model"])
+            _data = Sections.write_chunk(coll_data, types["Collision Model"])
             data += Sections.write_chunk(_data, types["Extension"])
             
         data += Sections.write_chunk(b'', types["Extension"])
@@ -3483,7 +3483,7 @@ class dff_samp:
                 elif chunk.type == types["Atomic"]:  
                     self.read_atomic(chunk)
 
-                elif chunk.type == types["SAMP Collision Model"]:
+                elif chunk.type == types["Collision Model"]:
                     self.collisions.append(
                         self.data[self.pos:self.pos + chunk.size]
                     )
@@ -3646,7 +3646,7 @@ class dff_samp:
             data += self.write_atomic(atomic)
 
         for coll_data in self.collisions:
-            _data = Sections.write_chunk(coll_data, types["SAMP Collision Model"])
+            _data = Sections.write_chunk(coll_data, types["Collision Model"])
             data += Sections.write_chunk(_data, types["Extension"])
             
         data += Sections.write_chunk(b'', types["Extension"])
