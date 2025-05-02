@@ -136,12 +136,35 @@ class dff_importer:
                         vert_index += 3
                         continue
 
+                v1 = bm.verts[f.a]
+                v2 = bm.verts[f.b]
+                v3 = bm.verts[f.c]
+
+                if v1 == v2 or v2 == v3 or v1 == v3:
+                    continue
+
+                # Skip if face already exists with the same vertex set
+                vert_set = {v1, v2, v3}
+                found = False
+                for face in bm.faces:
+                    if vert_set == set(face.verts):
+                        found = True
+                        break
+                if found:
+                    continue
+
                 try:
-                    face = bm.faces.new([
-                        bm.verts[f.a],
-                        bm.verts[f.b],
-                        bm.verts[f.c]
-                    ])
+                    face = bm.faces.new([v1, v2, v3])
+
+                    if len(mat_indices) > 0:
+                        face.material_index = mat_indices[f.material]
+
+                    for loop in face.loops:
+                        if use_face_loops:
+                            for i, layer in enumerate(geom.uv_layers):
+                                uv = layer[loop.vert.index]
+                                loop[uv_layers[i]].uv = (uv.u, 1 - uv.v)
+
 
                     if len(mat_indices) > 0:
                         face.material_index = mat_indices[f.material]
