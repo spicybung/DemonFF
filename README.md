@@ -6,9 +6,37 @@
 
 DemonFF is a neat little fork of DragonFF made to further enhance your workflow for working with Renderware files, and more. Whether you're working with GTA game assets - or it happens to be another Renderware game, DemonFF simplifies the process of importing and exporting many RW types such as .DFF files, as well as .IFP animation, and map editing(.IPL/.IDE/.PWN/.LUA).
 
+#### File Types
 
+- [X] Model files
+- [ ] Texture Files
+  - [X] Import *(Partial, experimental)*
+  - [x] Export
+- [X] Collision files (including the ones packed in dff)
+  - [X] Import
+  - [X] Export
+- [x] Map files (.ipl, .ide)
+  - [X] Import *(Partial, experimental)*
+  - [X] Export
+- [X] Animation files ( .ifp)
+- [X] IMG archives (.img)
+  - [X] Import *(Partial, experimental)*
+  - [ ] Export
 
-## Features
+#### Model Features
+
+- [X] Skinned mesh support
+- [X] Multiple UV Maps
+- [X] Mass export (.dff/.col)
+- [X] Material Effects
+  - [X] Environment/Normal Maps
+  - [ ] Dual Textures
+  - [X] UV Animation
+- [X] Rockstar Specular and Reflection Extensions
+- [X] 2D Effects *(Including escalators)*
+- [X] SAMP compatible models
+
+## Features Further Explained
 
 - **Renderware Compatibility**: DemonFF is planned to work with all Renderware .DFF files, offering support for various versions and features.
 
