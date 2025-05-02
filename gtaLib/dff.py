@@ -3161,8 +3161,12 @@ class dff:
         data += self.write_clump()
 
         return data
-            
-            
+    #######################################################
+    def write_file(self, filename, version):
+
+        with open(filename, mode='wb') as file:
+            content = self.write_memory(version)
+            file.write(content)
     #######################################################
     def __init__(self):
         self.clear()
