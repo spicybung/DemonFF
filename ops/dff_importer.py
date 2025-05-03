@@ -675,7 +675,7 @@ class dff_importer:
 
         frame_bone = self.frame_bones[frame_index]
         armature, bone_name = frame_bone['armature'], frame_bone['name']
-        #set_parent_bone(obj, armature, bone_name)
+        #set_parent_bone(obj, armature, bone_name) # Broken
 
     #######################################################
     def import_frames():
@@ -770,13 +770,16 @@ class dff_importer:
                 else:
                     mesh.dff.is_frame = True
 
-            # Set parent
             if frame.parent != -1:
                 if frame.parent in self.frame_bones:
                     self.link_obj_to_frame_bone(obj, frame.parent)
-
-                else:
+                elif frame.parent in self.objects:
                     obj.parent = self.objects[frame.parent]
+                else:
+                    print(f"Frame {index} ('{obj.name}') skipped — missing parent frame ID {frame.parent}") # Skip object if no frame parent
+                    continue 
+
+
 
             obj.dff.frame_index = index
 
@@ -829,7 +832,6 @@ class dff_importer:
     #######################################################
     def import_2dfx():
         self = dff_importer
-        global entries
 
         # Validate entries
         for entry in self.dff.ext_2dfx.entries:
