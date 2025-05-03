@@ -227,7 +227,7 @@ class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
         
 #######################################################
 def join_similar_named_meshes(context):
-
+    
     suffix_pattern = re.compile(r"(.*)\.\d{3}$")
 
     # Build dictionary of base names to list of mesh objects
@@ -245,20 +245,19 @@ def join_similar_named_meshes(context):
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        # Prefer object with exact base name
+        # Prefer object with exact base name (no suffix) as join target
         target = next((obj for obj in objects if obj.name == base_name), objects[0])
-
         others = [obj for obj in objects if obj != target]
 
-        # Ensure all objects are in the same collection as target
+        # Ensure all others are linked to the same collection
+        target_coll = target.users_collection[0]
         for obj in others:
-            if obj.name not in target.users_collection[0].objects:
-                target.users_collection[0].objects.link(obj)
+            if obj.name not in target_coll.objects:
+                target_coll.objects.link(obj)
 
+        # Deselect all, then select only the target and its group
         for obj in context.selected_objects:
             obj.select_set(False)
-
-        # Select target and others for joining
         target.select_set(True)
         for obj in others:
             obj.select_set(True)
@@ -266,16 +265,14 @@ def join_similar_named_meshes(context):
         context.view_layer.objects.active = target
         bpy.ops.object.join()
 
-        # Rename object to remove suffix if present
-        match = suffix_pattern.match(target.name)
-        if match:
-            target.name = match.group(1)
+        # Forcefully rename object to base name
+        target.name = base_name
 
-        # Rename mesh data to remove suffix if present
-        mesh = target.data
-        match = suffix_pattern.match(mesh.name)
-        if match:
-            mesh.name = match.group(1)
+        # Forcefully rename mesh data to base name
+        if target.type == 'MESH' and target.data:
+            target.data.name = base_name
+
+    print(f"Finished joining and renaming similar named meshes.")
 
 #######################################################
 class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):

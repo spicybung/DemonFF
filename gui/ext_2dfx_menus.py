@@ -322,6 +322,7 @@ class EXT2DFXMenus:
     def draw_particle_menu(layout, context):
         obj = context.object
         settings = obj.dff.ext_2dfx
+        box.label(text="Particle Settings", icon='FORCE_FORCE')
 
         box = layout.box()
         box.prop(settings, "val_str24_1", text="Effect Name")
@@ -333,15 +334,21 @@ class EXT2DFXMenus:
 
         box = layout.box()
         box.label(text="Ped Attractor Settings", icon='ARMATURE_DATA')
-        box.prop(settings, "queue_dir", text="Queue Dir")
-        box.prop(settings, "use_dir", text="Use Dir")
-        box.prop(settings, "forward_dir", text="Forward Dir")
-        box.prop(settings, "script_name", text="Script")
-        box.prop(settings, "ped_probability", text="Spawn Chance")
-        box.prop(settings, "attractor_type", text="Attractor Type")
+        box.prop(settings, "attractor_type", text="Attractor Type")         # int32
+        box.prop(settings, "ped_probability", text="Ped Spawn Probability") # int32
+        box.prop(settings, "queue_dir", text="Queue Direction")             # Vector3
+        box.prop(settings, "use_dir", text="Use Direction")                 # Vector3
+        box.prop(settings, "forward_dir", text="Forward Direction")         # Vector3
+        box.prop(settings, "script_name", text="External Script")           # CHAR[8]
+        box.prop(settings, "val_byte_1", text="Unknown Byte 1")             # BYTE
+        box.prop(settings, "val_byte_2", text="Unused Byte 2")              # BYTE
+        box.prop(settings, "val_byte_3", text="Unknown Byte 3")             # BYTE
+        box.prop(settings, "val_byte_4", text="Unused Byte 4")              # BYTE
+
 
     #######################################################
     def draw_sun_glare_menu(layout, context):
+        layout.label(text="Sun Glare Settings", icon='LIGHT_SUN')
         pass
     #######################################################   
     def draw_enter_exit_menu(layout, context):
@@ -367,6 +374,8 @@ class EXT2DFXMenus:
     def draw_road_sign_menu(layout, context):
         obj = context.object
         box = layout.box()
+        box.label(text="Road Sign Settings", icon='FONT_DATA')
+
 
         if obj.type != 'FONT':
             box.label(text="This effect is only available for text objects", icon="ERROR")
@@ -380,6 +389,8 @@ class EXT2DFXMenus:
     def draw_trigger_point_menu(layout, context):
         obj = context.object
         settings = obj.dff.ext_2dfx
+        box.label(text="Trigger Point Settings", icon='KEYFRAME')
+
 
         box = layout.box()
         box.prop(settings, "val_int_1", text="Point ID")
@@ -388,6 +399,7 @@ class EXT2DFXMenus:
     def draw_cover_point_menu(layout, context):
         obj = context.object
         settings = obj.dff.ext_2dfx
+        box.label(text="Cover Point Settings", icon='MOD_PHYSICS')
 
         box = layout.box()
         box.prop(settings, "val_int_1", text="Cover Type")

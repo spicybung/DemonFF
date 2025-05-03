@@ -23,8 +23,6 @@ from enum import Enum, IntEnum
 import struct
 from mathutils import Vector
 
-
-
 from .pyffi.utils import tristrip
 
 global entries  # Use global to store parsed entries
@@ -1214,34 +1212,75 @@ class PedAttractor2dfx:
         
     #######################################################
     def __init__(self, loc):
-
         self.effect_id = 3
-        
         self.loc = loc
-        self.type = 0
-        self.rotation_matrix = None
-        self.external_script = ""
-        self.ped_existing_probability = 0
+
+        self.attractor_type = 0               # INT32 - Attractor behavior/type (0 = PED_ATM_ATTRACTOR, etc.)
+        self.queue_dir = (0.0, 0.0, 0.0)       # float[3] - Queue direction vector
+        self.use_dir = (0.0, 0.0, 0.0)         # float[3] - Use direction vector
+        self.forward_dir = (0.0, 1.0, 0.0)     # float[3] - Forward direction vector
+        self.external_script = "none"         # CHAR[8] - External script name
+
+        self.unknown1 = 0                     # BYTE - Unknown
+        self.unknown2 = 0                     # BYTE - Unused
+        self.unknown3 = 0                     # BYTE - Unknown
+        self.unknown4 = 0                     # BYTE - Unused
+
 
     #######################################################
     @staticmethod
     def from_mem(loc, data, offset, size):
         self = PedAttractor2dfx(loc)
 
-        self.type = unpack_from("<I", data, offset)[0]
-        self.rotation_matrix = Sections.read(Matrix, data, offset + 4)
-        self.external_script = data[offset + 40: strlen(data, offset + 40)]
-        self.ped_existing_probabiliy = unpack_from("<I", data, offset + 48)[0]
+        self.effect_id = struct.unpack_from('<I', data, offset)[0]  # Should be 3
+        offset += 4
 
-        self.external_script = self.external_script.decode('ascii')
-        
+        self.chunk_size = struct.unpack_from('<I', data, offset)[0]  # Should be 56
+        offset += 4
+
+        self.attractor_type = struct.unpack_from('<I', data, offset)[0]
+        offset += 4
+
+        self.queue_dir = struct.unpack_from('<3f', data, offset)
+        offset += 12
+
+        self.use_dir = struct.unpack_from('<3f', data, offset)
+        offset += 12
+
+        self.forward_dir = struct.unpack_from('<3f', data, offset)
+        offset += 12
+
+        script_bytes = data[offset:offset+8]
+        self.external_script = script_bytes.split(b'\x00')[0].decode('ascii', errors='ignore')
+        offset += 8
+
+        self.ped_existing_probability = struct.unpack_from('<I', data, offset)[0]
+        offset += 4
+
+        self.unknown1, self.unknown2, self.unknown3, self.unknown4 = struct.unpack_from('<BBBB', data, offset)
+        offset += 4
+
         return self
+
 
     #######################################################
     def to_mem(self):
-        data = pack("<I", self.type)
-        data += Sections.write(Matrix, self.rotation_matrix)
-        data += pack("<8sI", self.external_script, self.ped_existing_probability)
+        data = b''
+
+        data += pack('<I', self.effect_id)              # Always 3 for Ped Attractor
+        data += pack('<I', self.chunk_size)             # Usually 56
+        data += pack('<I', self.attractor_type)
+
+        data += pack('<3f', *self.queue_dir)
+        data += pack('<3f', *self.use_dir)
+        data += pack('<3f', *self.forward_dir)
+
+        script_padded = self.external_script.encode('ascii')[:8]
+        script_padded += b'\x00' * (8 - len(script_padded))
+        data += script_padded
+
+        data += pack('<I', self.ped_existing_probability)
+        data += pack('<BBBB', self.unknown1, self.unknown2, self.unknown3, self.unknown4)
 
         return data
 
