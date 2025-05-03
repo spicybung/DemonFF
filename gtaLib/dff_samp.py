@@ -1611,8 +1611,13 @@ class Extension2dfx:
                 1: Particle2dfx,
                 3: PedAttractor2dfx,
                 4: SunGlare2dfx,
-                10: Escalator2DFX
+                6: EnterExit2dfx,
+                7: RoadSign2dfx,
+                8: TriggerPoint2dfx,
+                9: CoverPoint2dfx,
+                10: Escalator2DFX,
             }
+            
             
             loc = Sections.read(Vector, data, pos)
             entry_type, size = unpack_from("<II", data, pos + 12)

@@ -65,6 +65,7 @@ class EXT2DFXObjectProps(bpy.types.PropertyGroup):
             items = (
                 ('0', 'Light', 'Light'),
                 ('1', 'Particle', 'Particle'),
+                ('3', 'Ped Attractor', 'Ped Attractor'),
                 ('4', 'Sun Glare', 'Sun Glare'),
                 ('6', 'Enter Exit', 'Enter Exit'),
                 ('7', 'Road Sign', 'Road Sign'),
@@ -131,6 +132,13 @@ class EXT2DFXObjectProps(bpy.types.PropertyGroup):
         items=[('0', 'Down', ''), ('1', 'Up', '')],
         default='1'
     )
+
+    queue_dir: bpy.props.FloatVectorProperty(name="Queue Direction", size=3)
+    use_dir: bpy.props.FloatVectorProperty(name="Use Direction", size=3)
+    forward_dir: bpy.props.FloatVectorProperty(name="Forward Direction", size=3)
+    script_name: bpy.props.StringProperty(name="External Script", maxlen=8)
+    ped_probability: bpy.props.IntProperty(name="Ped Spawn Chance", min=0, max=100)
+    attractor_type: bpy.props.IntProperty(name="Attractor Type", min=0, max=9)
 
 #######################################################
 class Light2DFXObjectProps(bpy.types.PropertyGroup):
@@ -319,6 +327,20 @@ class EXT2DFXMenus:
         box.prop(settings, "val_str24_1", text="Effect Name")
 
     #######################################################
+    def draw_ped_attractor_menu(layout, context):
+        obj = context.object
+        settings = obj.dff.ext_2dfx
+
+        box = layout.box()
+        box.label(text="Ped Attractor Settings", icon='ARMATURE_DATA')
+        box.prop(settings, "queue_dir", text="Queue Dir")
+        box.prop(settings, "use_dir", text="Use Dir")
+        box.prop(settings, "forward_dir", text="Forward Dir")
+        box.prop(settings, "script_name", text="Script")
+        box.prop(settings, "ped_probability", text="Spawn Chance")
+        box.prop(settings, "attractor_type", text="Attractor Type")
+
+    #######################################################
     def draw_sun_glare_menu(layout, context):
         pass
     #######################################################   
@@ -425,6 +447,7 @@ class EXT2DFXMenus:
         functions = {
             0: self.draw_light_menu,
             1: self.draw_particle_menu,
+            3: self.draw_ped_attractor_menu,
             4: self.draw_sun_glare_menu,
             6: self.draw_enter_exit_menu,
             7: self.draw_road_sign_menu,

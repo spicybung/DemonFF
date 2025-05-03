@@ -145,6 +145,25 @@ class ext_2dfx_exporter:
         entry.effect = settings.val_str24_1
 
         return entry
+    
+    #######################################################
+    def export_ped_attractor(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.PedAttractor2dfx(obj.location)
+
+        entry.queue_dir = settings.queue_dir
+        entry.use_dir = settings.use_dir
+        entry.forward_dir = settings.forward_dir
+        entry.script = settings.script_name[:8].ljust(8, '\x00')
+        entry.probability = settings.ped_probability
+        entry.attractor_type = settings.attractor_type
+        entry.unknown1 = 0
+        entry.unknown2 = 0
+        entry.unknown3 = 0
+
+        entry.effect_id = 3
+        return entry
 
     #######################################################
     def export_sun_glare(self, obj):
@@ -297,7 +316,10 @@ class ext_2dfx_exporter:
         functions = {
             0: self.export_light,
             1: self.export_particle,
+            3: self.export_ped_attractor,
             4: self.export_sun_glare,
+            6: self.export_enter_exit,
+            7: self.export_road_sign,
             8: self.export_trigger_point,
             9: self.export_cover_point,
             10: self.export_escalator,
