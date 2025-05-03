@@ -1173,7 +1173,6 @@ class Particle2dfx:
     def from_mem(loc, data, offset, size):
 
         self = Particle2dfx(loc)
-        self.effect = unpack_from("<24s", data, offset)[0].decode('ascii')
         return self
 
     #######################################################

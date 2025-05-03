@@ -263,7 +263,8 @@ class ext_2dfx_importer:
 
         objects = []
 
-        for entry in self.effects.entries:
+        # self.effects is now a list, not an object with .entries — fixed to iterate directly
+        for entry in self.effects:
                 obj = functions[entry.effect_id](entry)
                 obj.dff.type = '2DFX'
                 obj.dff.ext_2dfx.effect = str(entry.effect_id)
