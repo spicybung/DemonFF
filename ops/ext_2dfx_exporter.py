@@ -152,18 +152,24 @@ class ext_2dfx_exporter:
 
         entry = dff.PedAttractor2dfx(obj.location)
 
-        entry.queue_dir = settings.queue_dir
-        entry.use_dir = settings.use_dir
-        entry.forward_dir = settings.forward_dir
-        entry.script = settings.script_name[:8].ljust(8, '\x00')
-        entry.probability = settings.ped_probability
-        entry.attractor_type = settings.attractor_type
-        entry.unknown1 = 0
-        entry.unknown2 = 0
-        entry.unknown3 = 0
+        # Construct rotation matrix from the three direction vectors
+        queue = settings.queue_dir
+        use = settings.use_dir
+        forward = settings.forward_dir
 
-        entry.effect_id = 3
+        entry.rotation_matrix = [
+            queue[0], queue[1], queue[2],
+            use[0], use[1], use[2],
+            forward[0], forward[1], forward[2],
+            0.0, 0.0, 0.0  # final row usually padding
+        ]
+
+        entry.type = settings.attractor_type
+        entry.external_script = settings.script_name[:8].ljust(8, '\x00')
+        entry.ped_existing_probability = settings.ped_probability
+
         return entry
+
 
     #######################################################
     def export_sun_glare(self, obj):

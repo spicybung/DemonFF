@@ -124,6 +124,39 @@ class ext_2dfx_importer:
         settings.val_str24_1 = entry.effect
 
         return obj
+    
+    #######################################################
+    def import_ped_attractor(self, entry):
+        mesh = create_arrow_mesh("_2dfx_ped_attractor")
+        obj = bpy.data.objects.new("2dfx_ped_attractor", mesh)
+        obj.lock_rotation[0] = True
+        obj.lock_rotation[1] = True
+
+        settings = obj.dff.ext_2dfx
+
+        # rotation_matrix = 12 floats (3 vectors, each 3 floats)
+        if hasattr(entry, "rotation_matrix") and len(entry.rotation_matrix) >= 9:
+            queue_dir = entry.rotation_matrix[0:3]
+            use_dir = entry.rotation_matrix[3:6]
+            forward_dir = entry.rotation_matrix[6:9]
+        else:
+            queue_dir = (0.0, 0.0, 0.0)
+            use_dir = (0.0, 0.0, 0.0)
+            forward_dir = (0.0, 1.0, 0.0)
+
+        forward = Vector(forward_dir)
+        obj.rotation_euler = forward.to_track_quat('Y', 'Z').to_euler()
+
+        settings.queue_dir = Vector(queue_dir)
+        settings.use_dir = Vector(use_dir)
+        settings.forward_dir = Vector(forward_dir)
+
+        settings.script_name = entry.external_script
+        settings.ped_probability = entry.ped_existing_probability
+        settings.attractor_type = entry.type
+
+        return obj
+
 
     #######################################################
     def import_sun_glare(self, entry):
@@ -255,7 +288,10 @@ class ext_2dfx_importer:
         functions = {
             0: self.import_light,
             1: self.import_particle,
+            3: self.import_ped_attractor,
             4: self.import_sun_glare,
+            6: self.import_enter_exit,
+            7: self.import_road_sign,
             8: self.import_trigger_point,
             9: self.import_cover_point,
             10: self.import_escalator,
