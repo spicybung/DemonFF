@@ -17,6 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import re
 import bpy
 import bmesh
 import gpu
@@ -226,7 +227,8 @@ class Escalator2DFXObjectProps(bpy.types.PropertyGroup):
         
 #######################################################
 def join_similar_named_meshes(context):
-    import bpy
+
+    suffix_pattern = re.compile(r"(.*)\.\d{3}$")
 
     # Build dictionary of base names to list of mesh objects
     base_name_dict = {}
@@ -243,22 +245,37 @@ def join_similar_named_meshes(context):
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
 
-        target = objects[0]
+        # Prefer object with exact base name
+        target = next((obj for obj in objects if obj.name == base_name), objects[0])
 
-        others = [obj for obj in objects[1:] if obj != target]
+        others = [obj for obj in objects if obj != target]
 
+        # Ensure all objects are in the same collection as target
         for obj in others:
             if obj.name not in target.users_collection[0].objects:
                 target.users_collection[0].objects.link(obj)
 
         for obj in context.selected_objects:
             obj.select_set(False)
+
+        # Select target and others for joining
         target.select_set(True)
         for obj in others:
             obj.select_set(True)
 
         context.view_layer.objects.active = target
         bpy.ops.object.join()
+
+        # Rename object to remove suffix if present
+        match = suffix_pattern.match(target.name)
+        if match:
+            target.name = match.group(1)
+
+        # Rename mesh data to remove suffix if present
+        mesh = target.data
+        match = suffix_pattern.match(mesh.name)
+        if match:
+            mesh.name = match.group(1)
 
 #######################################################
 class OBJECT_OT_join_similar_named_meshes(bpy.types.Operator):

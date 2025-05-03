@@ -58,27 +58,57 @@ class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
         row.operator("object.join_similar_named_meshes", text="Join Similar Meshes")
 
 def join_similar_named_meshes(context):
+
+    suffix_pattern = re.compile(r"(.*)\.\d{3}$")
+
+    # Build dictionary of base names to list of mesh objects
     base_name_dict = {}
-    
+
     for obj in context.scene.objects:
         if obj.type == 'MESH':
-            name_parts = obj.name.split('.')
-            base_name = name_parts[0]
-            
-            if base_name not in base_name_dict:
-                base_name_dict[base_name] = []
-            
-            base_name_dict[base_name].append(obj)
-    
+            base_name = obj.name.split('.')[0]
+            base_name_dict.setdefault(base_name, []).append(obj)
+
     for base_name, objects in base_name_dict.items():
-        if len(objects) > 1:
-            context.view_layer.objects.active = objects[0]
-            bpy.ops.object.select_all(action='DESELECT')
-            
-            for obj in objects:
-                obj.select_set(True)
-            
-            bpy.ops.object.join()
+        if len(objects) <= 1:
+            continue
+
+        if bpy.context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+        # Prefer object with exact base name
+        target = next((obj for obj in objects if obj.name == base_name), objects[0])
+
+        others = [obj for obj in objects if obj != target]
+
+        # Ensure all objects are in the same collection as target
+        for obj in others:
+            if obj.name not in target.users_collection[0].objects:
+                target.users_collection[0].objects.link(obj)
+
+        for obj in context.selected_objects:
+            obj.select_set(False)
+
+        # Select target and others for joining
+        target.select_set(True)
+        for obj in others:
+            obj.select_set(True)
+
+        context.view_layer.objects.active = target
+        bpy.ops.object.join()
+
+        # Rename object to remove suffix if present
+        match = suffix_pattern.match(target.name)
+        if match:
+            target.name = match.group(1)
+
+        # Rename mesh data to remove suffix if present
+        mesh = target.data
+        match = suffix_pattern.match(mesh.name)
+        if match:
+            mesh.name = match.group(1)
+
+
 
 # Class list to register
 _classes = [
@@ -167,7 +197,7 @@ def register():
         subtype='FILE_PATH'
     )
 
-    pie_menus.register_keymaps()
+
 
     if (2, 80, 0) > bpy.app.version:
         bpy.types.INFO_MT_file_import.append(gui.import_dff_func)
@@ -175,6 +205,8 @@ def register():
     else:
         bpy.types.TOPBAR_MT_file_import.append(gui.import_dff_func)
         bpy.types.TOPBAR_MT_file_export.append(gui.export_dff_func)
+        
+    pie_menus.register_keymaps()
 
 
 def unregister():
