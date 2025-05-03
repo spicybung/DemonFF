@@ -181,26 +181,12 @@ def add_light_info(dff):
             print(f"Added 2DFX light info to {obj.name} in frame {frame.name}")
 
 def process_2dfx_lights(self, effects, context):
-    """
-    Process each 2DFX light entry and add it to Blender using add_light_info.
-
-    Args:
-        effects: Parsed 2DFX effects containing LightEntries.
-        context: Blender context.
-    """
     for i, entry in enumerate(effects.entries):
         if entry.effect_id == 0:  # Only process light entries (effect_id = 0)
             print(f"Processing Light Entry {i + 1}/{len(effects.entries)}...")
             add_light_info(context, entry)
 
 def import_2dfx(self, effects, context):
-    """
-    Import 2DFX effects into Blender.
-
-    Args:
-        effects: Parsed 2DFX effects containing entries.
-        context: Blender context.
-    """
     print("Importing 2DFX effects...")
     self.process_2dfx_lights(effects, context)
 

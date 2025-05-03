@@ -830,10 +830,17 @@ class dff_importer:
     def import_2dfx():
         self = dff_importer
 
-        importer = ext_2dfx_importer(self.dff.ext_2dfx)
+        # Skip if 2dfx entry or script causes NoneType or malformed(most likely the entry)
+        for entry in self.dff.ext_2dfx:
+            if entry is None or not hasattr(entry, 'effect_id'):
+                print("Skipping 2DFX section due to invalid entry.")
+                return
 
+        # Otherwise safe to proceed with import
+        importer = ext_2dfx_importer(self.dff.ext_2dfx)
         for obj in importer.get_objects():
             link_object(obj, self.current_collection)
+
 
     #######################################################
     def set_parent_bone(obj, armature, bone_name):
