@@ -164,7 +164,7 @@ class ext_2dfx_exporter:
             0.0, 0.0, 0.0  # final row usually padding
         ]
 
-        entry.type = settings.attractor_type
+        entry.Types = settings.attractor_type
         entry.external_script = settings.script_name[:8].ljust(8, '\x00')
         entry.ped_existing_probability = settings.ped_probability
 

@@ -19,7 +19,7 @@
 # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)
 
 import bpy
-
+import math 
 from mathutils import Vector
 
 from ..gtaLib import dff
@@ -134,29 +134,44 @@ class ext_2dfx_importer:
 
         settings = obj.dff.ext_2dfx
 
-        # rotation_matrix = 12 floats (3 vectors, each 3 floats)
-        if hasattr(entry, "rotation_matrix") and len(entry.rotation_matrix) >= 9:
+        # Extract rotation matrix vectors
+        if hasattr(entry, "rotation_matrix") and isinstance(entry.rotation_matrix, (list, tuple)) and len(entry.rotation_matrix) >= 9:
             queue_dir = entry.rotation_matrix[0:3]
             use_dir = entry.rotation_matrix[3:6]
             forward_dir = entry.rotation_matrix[6:9]
         else:
+            # Fallback default directions
             queue_dir = (0.0, 0.0, 0.0)
             use_dir = (0.0, 0.0, 0.0)
             forward_dir = (0.0, 1.0, 0.0)
 
+        # Apply rotation from forward direction
         forward = Vector(forward_dir)
-        obj.rotation_euler = forward.to_track_quat('Y', 'Z').to_euler()
+        try:
+            obj.rotation_euler = forward.to_track_quat('Y', 'Z').to_euler()
+        except:
+            obj.rotation_euler = (0.0, 0.0, 0.0)  # fallback if vector math fails
 
+        # Assign values to Blender custom properties
         settings.queue_dir = Vector(queue_dir)
         settings.use_dir = Vector(use_dir)
         settings.forward_dir = Vector(forward_dir)
+        settings.script_name = entry.external_script or "none"
+        settings.ped_probability = entry.ped_existing_probability if entry.ped_existing_probability is not None else 0
+        settings.attractor_type = entry.attractor_type if entry.attractor_type is not None else 0
 
-        settings.script_name = entry.external_script
-        settings.ped_probability = entry.ped_existing_probability
-        settings.attractor_type = entry.type
+        print("===== Imported Ped Attractor 2DFX =====")
+        print(f"Position: {entry.loc}")
+        print(f"QueueDir: {queue_dir}")
+        print(f"UseDir: {use_dir}")
+        print(f"ForwardDir: {forward_dir}")
+        print(f"Script: '{settings.script_name}'")
+        print(f"Probability: {settings.ped_probability}")
+        print(f"Attractor Type: {settings.attractor_type} ({getattr(entry, 'Types', 'UNKNOWN')})")
+        print("=======================================")
+
 
         return obj
-
 
     #######################################################
     def import_sun_glare(self, entry):

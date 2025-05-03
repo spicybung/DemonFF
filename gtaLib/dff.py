@@ -1212,31 +1212,28 @@ class PedAttractor2dfx:
         
     #######################################################
     def __init__(self, loc):
-        self.effect_id = 3
-        self.loc = loc
+        self.effect_id = 3                      # INT32 - Effect ID for Ped Attractor
+        self.chunk_size = 50                    # INT32 - Chunk size (typically 56 bytes)
+        self.loc = loc                          # Vector3 - Position of the effect
+        self.Types = 0                        # INT32 - Type (PED_ATM_ATTRACTOR, etc.)
 
-        self.attractor_type = 0               # INT32 - Attractor behavior/type (0 = PED_ATM_ATTRACTOR, etc.)
-        self.queue_dir = (0.0, 0.0, 0.0)       # float[3] - Queue direction vector
-        self.use_dir = (0.0, 0.0, 0.0)         # float[3] - Use direction vector
-        self.forward_dir = (0.0, 1.0, 0.0)     # float[3] - Forward direction vector
-        self.external_script = "none"         # CHAR[8] - External script name
+        self.attractor_type = None               
+        self.queue_dir = (0.0, 0.0, 0.0)        # float[3] - Queue direction
+        self.use_dir = (0.0, 0.0, 0.0)          # float[3] - Use direction
+        self.forward_dir = (0.0, 1.0, 0.0)      # float[3] - Forward direction
+        self.external_script = "none"           # CHAR[8] - Script name (like 'TICKET', 'none', etc.)
 
-        self.unknown1 = 0                     # BYTE - Unknown
-        self.unknown2 = 0                     # BYTE - Unused
-        self.unknown3 = 0                     # BYTE - Unknown
-        self.unknown4 = 0                     # BYTE - Unused
+        self.ped_existing_probability = None     # INT32 - Chance ped will appear (0–100)
 
+        self.unknown1 = 0                       # BYTE - Unknown
+        self.unknown2 = 0                       # BYTE - Not used
+        self.unknown3 = 0                       # BYTE - Unknown
+        self.unknown4 = 0                       # BYTE - Not used
 
     #######################################################
     @staticmethod
     def from_mem(loc, data, offset, size):
         self = PedAttractor2dfx(loc)
-
-        self.effect_id = struct.unpack_from('<I', data, offset)[0]  # Should be 3
-        offset += 4
-
-        self.chunk_size = struct.unpack_from('<I', data, offset)[0]  # Should be 56
-        offset += 4
 
         self.attractor_type = struct.unpack_from('<I', data, offset)[0]
         offset += 4
@@ -1250,7 +1247,7 @@ class PedAttractor2dfx:
         self.forward_dir = struct.unpack_from('<3f', data, offset)
         offset += 12
 
-        script_bytes = data[offset:offset+8]
+        script_bytes = data[offset:offset + 8]
         self.external_script = script_bytes.split(b'\x00')[0].decode('ascii', errors='ignore')
         offset += 8
 
@@ -1352,7 +1349,188 @@ class SunGlare2dfx:
             entry_data += b'\x00'  # Padding to align to 80 bytes
 
         return entry_data
+#######################################################
+class EnterExit2dfx:
 
+    #######################################################
+    class Flags1(Enum):
+        UNKNOWN_INTERIOR = 1
+        UNKNOWN_PAIRING = 2
+        CREATE_LINKED_PAIRING = 4
+        REWARD_INTERIOR = 8
+        USED_REWARD_ENTRANCE = 16
+        CARS_AND_AIRCRAFT = 32
+        BIKES_AND_MOTORCYCLES = 64
+        DISABLE_ON_FOOT = 128
+
+    #######################################################
+    class Flags2(Enum):
+        ACCEPT_NPC_GROUP = 1
+        FOOD_DATE_FLAG = 2
+        UNKNOWN_BURGLARY = 4
+        DISABLE_EXIT = 8
+        BURGLARY_ACCESS = 16
+        ENTERED_WITHOUT_EXIT = 32
+        ENABLE_ACCESS = 64
+        DELETE_ENEX = 128
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 6
+        self.enter_angle = 0
+        self.approximation_radius_x = 0
+        self.approximation_radius_y = 0
+        self.exit_location = [0, 0, 0]
+        self.exit_angle = 0
+        self.interior = 0
+        self._flags1 = 0
+        self.sky_color = 0
+        self.interior_name = ""
+        self.time_on = 0
+        self.time_off = 0
+        self._flags2 = 0
+        self.unk = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = EnterExit2dfx(loc)
+
+        self.enter_angle, self.approximation_radius_x, \
+        self.approximation_radius_y = unpack_from("<fff", data, offset)
+
+        self.exit_location = Sections.read(Vector, data, offset + 12)
+
+        self.exit_angle, self.interior, \
+        self._flags1, self.sky_color, \
+        interior_name = unpack_from("<fHBB8s", data, offset + 24)
+
+        self.time_on, self.time_off ,\
+        self._flags2, self.unk = unpack_from("<4B", data, offset + 40)
+
+        self.interior_name = interior_name[:strlen(interior_name)].decode('ascii')
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = pack(
+            "<fff",
+            self.enter_angle,
+            self.approximation_radius_x,
+            self.approximation_radius_y
+        )
+        data += Sections.write(Vector, self.exit_location)
+        data += pack(
+            "<fHBB8s4B",
+            self.exit_angle,
+            self.interior,
+            self._flags1,
+            self.sky_color,
+            self.interior_name.encode(),
+            self.time_on, self.time_off,
+            self._flags2, self.unk
+        )
+
+        return data
+
+#######################################################
+class RoadSign2dfx:
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 7
+        self.size = [1, 1]
+        self.rotation = [0, 0, 0]
+        self.flags = 0
+        self.text1 = ""
+        self.text2 = ""
+        self.text3 = ""
+        self.text4 = ""
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = RoadSign2dfx(loc)
+        self.size = unpack_from("<ff", data, offset)
+        self.rotation = Sections.read(Vector, data, offset + 8)
+        self.flags, \
+        self.text1, self.text2, \
+        self.text3, self.text4 = unpack_from("<H16s16s16s16s2x", data, offset + 20)
+
+        self.text1 = self.text1.decode('ascii')
+        self.text2 = self.text2.decode('ascii')
+        self.text3 = self.text3.decode('ascii')
+        self.text4 = self.text4.decode('ascii')
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = pack("<ff", *self.size)
+        data += Sections.write(Vector, self.rotation)
+        data += pack(
+            "<H16s16s16s16s2x",
+            self.flags,
+            self.text1.encode(), self.text2.encode(),
+            self.text3.encode(), self.text4.encode()
+        )
+
+        return data
+
+#######################################################
+class TriggerPoint2dfx:
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 8
+        self.point_id = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = TriggerPoint2dfx(loc)
+        self.point_id = unpack_from("<I", data, offset)[0]
+        return self
+
+    #######################################################
+    def to_mem(self):
+        return pack("<I", self.point_id)
+
+#######################################################
+class CoverPoint2dfx:
+
+    #######################################################
+    def __init__(self, loc):
+        self.loc = loc
+        self.effect_id = 9
+        self.direction_x = 0
+        self.direction_y = 0
+        self.cover_type = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+
+        self = CoverPoint2dfx(loc)
+        self.direction_x, self.direction_y, \
+        self.cover_type = unpack_from("<ffI", data, offset)
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = pack(
+            "<ffI",
+            self.direction_x, self.direction_y,
+            self.cover_type
+        )
+        return data
 #######################################################
 class Escalator2DFX:
     # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
