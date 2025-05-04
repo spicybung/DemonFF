@@ -1861,9 +1861,14 @@ class Escalator2DFX:
         data += pack('<f', self.pitch)  # Affects belt length
         data += pack('<f', self.yaw)    # Affects belt height
 
+        entry_data = b""
+
+        actual_size = len(entry_data)
+        data_size = min(actual_size, 80)
+
         # Effect ID and entry size
         data += pack('<I', self.effect_id) # Comes after position vector
-        data += pack('<I', 40)  # Usually 40 bytes per entry
+        entry_data += struct.pack('<I', data_size)
 
         # Bottom vector
         data += pack('<f', self.bottom[0])  # Affects escalator rotation
