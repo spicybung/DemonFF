@@ -106,10 +106,11 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         items = update_map_sections
     )
 
-    custom_ipl_path : bpy.props.StringProperty(
-        name        = "IPL path",
-        default     = '',
-        description = "Custom IPL path"
+    custom_ipl_path: bpy.props.StringProperty(
+        name="Custom IPL",
+        description="Path to IPL file",
+        default="",
+        subtype='FILE_PATH'
     )
  
     use_custom_map_section : bpy.props.BoolProperty(
@@ -725,9 +726,7 @@ class MapImportPanel(bpy.types.Panel):
         col = flow.column()
         col.prop(settings, "game_version_dropdown", text="Game")
         if settings.use_custom_map_section:
-            row = col.row(align=True)
-            row.prop(settings, "custom_ipl_path")
-            row.operator(SCENE_OT_ipl_select.bl_idname, text="", icon='FILEBROWSER')
+            col.prop(settings, "custom_ipl_path", text="Custom IPL")
         else:
             col.prop(settings, "map_sections", text="Map segment")
         col.prop(settings, "use_custom_map_section", text="Use custom map segment")
