@@ -1570,13 +1570,9 @@ class LightEntry:
         self.shadow_z_distance = shadow_z_distance
         self.flags2 = flags2
         self.look_direction = look_direction
-
+    #######################################################
     def to_mem(self):
-        """
-        Serialize this light entry into binary format.
-        """
     
-
         # Start with an empty bytes object
         entry_data = b''
         
@@ -2469,23 +2465,43 @@ class dff:
         # Clamp position to ensure it's within bounds
         self.pos = min(self.pos, len(self.data))
 
-        # Ensure we don't exceed buffer limits
-        if self.pos + 12 > len(self.data):
-            # Clamp the chunk read to the available size
-            clamped_size = len(self.data) - self.pos
-            chunk_data = self.data[self.pos:self.pos + clamped_size]
-            # Fill the remainder with zeros or default
-            chunk_data += b'\x00' * (12 - len(chunk_data))
-            chunk = Sections.read(Chunk, chunk_data, 0)
-        else:
-            chunk = Sections.read(Chunk, self.data, self._read(12))
+        try:
+            # Try reading a normal 12-byte chunk
+            if self.pos + 12 > len(self.data):
+                clamped_size = len(self.data) - self.pos
+                chunk_data = self.data[self.pos:self.pos + clamped_size]
+                chunk_data += b'\x00' * (12 - len(chunk_data))
+                chunk = Sections.read(Chunk, chunk_data, 0)
+            else:
+                offset = self.pos
+                self._read(12)
+                chunk = Sections.read(Chunk, self.data, offset)
 
-        # Clamp chunk size to remaining data
+        except struct.error as e:
+            print(f"Chunk read failed at {self.pos}, retrying 8 bytes earlier: {e}")
+
+            # Move back 8 bytes and try again
+            self.pos = max(self.pos - 8, 0)
+
+            try:
+                if self.pos + 12 > len(self.data):
+                    clamped_size = len(self.data) - self.pos
+                    chunk_data = self.data[self.pos:self.pos + clamped_size]
+                    chunk_data += b'\x00' * (12 - len(chunk_data))
+                    chunk = Sections.read(Chunk, chunk_data, 0)
+                else:
+                    offset = self.pos
+                    self._read(12)
+                    chunk = Sections.read(Chunk, self.data, offset)
+            except struct.error as e2:
+                print(f"Chunk retry also failed at {self.pos}: {e2}")
+                raise
+
+        # Clamp chunk size to avoid overflow
         chunk_size = min(chunk.size, len(self.data) - self.pos)
         chunk = chunk._replace(size=chunk_size)
 
         return chunk
-
 
     #######################################################
     def read_frame_list(self, parent_chunk):
