@@ -23,6 +23,7 @@ import gpu
 from ..data import map_data
 import numpy as np
 import random
+from bpy_extras.io_utils import ImportHelper
 from gpu_extras.batch import batch_for_shader
 from ..ops.importer_common import game_version
 from bpy.props import StringProperty, CollectionProperty
@@ -104,6 +105,18 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         name = 'Map segment',
         items = update_map_sections
     )
+
+    custom_ipl_path : bpy.props.StringProperty(
+        name        = "IPL path",
+        default     = '',
+        description = "Custom IPL path"
+    )
+ 
+    use_custom_map_section : bpy.props.BoolProperty(
+        name        = "Use Custom Map Section",
+        default     = False
+    )
+ 
 
     skip_lod: bpy.props.BoolProperty(
         name        = "Skip LOD Objects",
@@ -275,6 +288,38 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     #######################################################
     def register():
         bpy.types.Scene.dff = bpy.props.PointerProperty(type=DFFSceneProps)
+
+
+#######################################################
+class SCENE_OT_ipl_select(bpy.types.Operator, ImportHelper):
+ 
+    bl_idname = "scene.select_ipl"
+    bl_label = "Select IPL File"
+ 
+    filename_ext = ".ipl"
+ 
+    filter_glob : bpy.props.StringProperty(
+        default="*.ipl",
+        options={'HIDDEN'})
+ 
+    def invoke(self, context, event):
+        if not context.scene.dff.game_root:
+            self.report({'WARNING'}, "Specify game root folder first")
+            return {'CANCELLED'}
+ 
+        self.filepath = context.scene.dff.game_root + "/DATA/MAPS/"
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+ 
+    def execute(self, context):
+        if os.path.splitext(self.filepath)[-1] == self.filename_ext:
+             filepath = os.path.normpath(self.filepath)
+             sep_pos = filepath.upper().find(f"DATA{os.sep}MAPS")
+             game_root = filepath[:sep_pos]
+             context.scene.dff.game_root = game_root
+             context.scene.dff.custom_ipl_path = os.path.relpath(filepath, game_root)
+        return {'FINISHED'}
+ 
 #######################################################
 def import_ide(filepaths, context):
     for filepath in filepaths:
@@ -679,7 +724,13 @@ class MapImportPanel(bpy.types.Panel):
 
         col = flow.column()
         col.prop(settings, "game_version_dropdown", text="Game")
-        col.prop(settings, "map_sections", text="Map segment")
+        if settings.use_custom_map_section:
+            row = col.row(align=True)
+            row.prop(settings, "custom_ipl_path")
+            row.operator(SCENE_OT_ipl_select.bl_idname, text="", icon='FILEBROWSER')
+        else:
+            col.prop(settings, "map_sections", text="Map segment")
+        col.prop(settings, "use_custom_map_section", text="Use custom map segment")
         col.separator()
         col.prop(settings, "skip_lod", text="Skip LOD objects")
 

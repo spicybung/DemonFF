@@ -146,15 +146,26 @@ class Map_Import_Operator(bpy.types.Operator):
         self.settings = context.scene.dff
         self._model_cache = {}
 
+        if self.settings.use_custom_map_section:
+            map_section = self.settings.custom_ipl_path
+        else:
+            map_section = self.settings.map_sections
+ 
+
         # Get all the necessary IDE and IPL data
         map_data = map_utilites.MapDataUtility.getMapData(
             self.settings.game_version_dropdown,
             self.settings.game_root,
-            self.settings.map_sections
+            self.settings.map_sections,
+            map_section,
+            self.settings.use_custom_map_section
         )
         
         self._object_instances = map_data['object_instances']
         self._object_data = map_data['object_data']
+
+        self._ipl_collection = bpy.data.collections.new(map_section)
+        self._mesh_collection.children.link(self._ipl_collection)
 
         wm = context.window_manager
         wm.progress_begin(0, 100.0)
