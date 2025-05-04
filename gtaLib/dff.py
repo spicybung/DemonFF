@@ -162,7 +162,7 @@ def write_2dfx_effect_section(obj):
     sdfx_props = {key: obj[key] for key in obj.keys() if key.startswith('sdfx_')}
 
     # Start constructing binary data for this light
-    entry_data = []
+    entry_data = b""
 
     # Write the position of the light (X, Y, Z as floats)
     entry_data.append(pack('<3f', position.x, position.y, position.z))
@@ -1216,14 +1216,17 @@ class PedAttractor2dfx:
         self.chunk_size = 50                    # INT32 - Chunk size (typically 56 bytes)
         self.loc = loc                          # Vector3 - Position of the effect
         self.Types = 0                        # INT32 - Type (PED_ATM_ATTRACTOR, etc.)
+        self.Right = loc.x
+        self.up = loc.y
+        self.forward = loc.z
 
-        self.attractor_type = None               
+        self.attractor_type = 0               
         self.queue_dir = (0.0, 0.0, 0.0)        # float[3] - Queue direction
         self.use_dir = (0.0, 0.0, 0.0)          # float[3] - Use direction
         self.forward_dir = (0.0, 1.0, 0.0)      # float[3] - Forward direction
         self.external_script = "none"           # CHAR[8] - Script name (like 'TICKET', 'none', etc.)
 
-        self.ped_existing_probability = None     # INT32 - Chance ped will appear (0–100)
+        self.ped_existing_probability = 0     # INT32 - Chance ped will appear (0–100)
 
         self.unknown1 = 0                       # BYTE - Unknown
         self.unknown2 = 0                       # BYTE - Not used
@@ -1264,10 +1267,21 @@ class PedAttractor2dfx:
     def to_mem(self):
         data = b''
 
-        data += pack('<I', self.effect_id)              # Always 3 for Ped Attractor
-        data += pack('<I', self.chunk_size)             # Usually 56
-        data += pack('<I', self.attractor_type)
+        data += pack('<f', self.Right)
+        data += pack('<f', self.up)
+        data += pack('<f', self.forward)
 
+        # Start with an empty bytes object
+        entry_data = b''
+
+        actual_size = len(entry_data)
+        data_size = min(actual_size, 80)
+
+        # Effect ID and entry size
+        data += pack('<I', self.effect_id)
+        entry_data += struct.pack('<I', data_size)
+
+        data += pack('<I', self.attractor_type)
         data += pack('<3f', *self.queue_dir)
         data += pack('<3f', *self.use_dir)
         data += pack('<3f', *self.forward_dir)
@@ -1280,6 +1294,7 @@ class PedAttractor2dfx:
         data += pack('<BBBB', self.unknown1, self.unknown2, self.unknown3, self.unknown4)
 
         return data
+
 
 #######################################################
 class SunGlare2dfx:
@@ -1531,85 +1546,6 @@ class CoverPoint2dfx:
             self.cover_type
         )
         return data
-#######################################################
-class Escalator2DFX:
-    # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
-
-    #######################################################
-    def __init__(self, loc): 
-        self.effect_id = 10
-        self.rotation = loc.x
-        self.pitch = loc.y
-        self.yaw = loc.z
-        self.loc = loc
-        self.standart_pos = loc
-
-        self.bottom = Vector(0.0, 0.0, 0.0)
-        self.top = Vector(0.0, 0.0, 0.0)
-        self.end = Vector(0.0, 0.0, 0.0)
-        self.direction = 0
-
-    #######################################################
-    @staticmethod
-    def from_mem(loc, data, offset, size):
-        self = Escalator2DFX(loc)
-
-        # Bottom Vector
-        self.bottom_rotation = unpack_from('<f', data, offset)[0]; offset += 4
-        self.bottom_pitch = unpack_from('<f', data, offset)[0]; offset += 4
-        self.bottom_yaw = unpack_from('<f', data, offset)[0]; offset += 4
-
-        # Top Vector
-        self.top_rotation = unpack_from('<f', data, offset)[0]; offset += 4
-        self.top_pitch = unpack_from('<f', data, offset)[0]; offset += 4
-        self.top_yaw = unpack_from('<f', data, offset)[0]; offset += 4
-
-        # End Vector
-        self.end_rotation = unpack_from('<f', data, offset)[0]; offset += 4
-        self.end_pitch = unpack_from('<f', data, offset)[0]; offset += 4
-        self.end_yaw = unpack_from('<f', data, offset)[0]; offset += 4
-
-        # Direction
-        self.direction = unpack_from('<I', data, offset)[0]; offset += 4
-
-        self.bottom = Vector(self.bottom_rotation, self.bottom_pitch, self.bottom_yaw)
-        self.top = Vector(self.top_rotation, self.top_pitch, self.top_yaw)
-        self.end = Vector(self.end_rotation, self.end_pitch, self.end_yaw)
-
-        return self
-
-    #######################################################
-    def to_mem(self):
-        data = b''
-
-        # Standard position vector (rotation, pitch, yaw)
-        data += pack('<f', self.rotation)
-        data += pack('<f', self.pitch)  # Affects belt length
-        data += pack('<f', self.yaw)    # Affects belt height
-
-        # Effect ID and entry size
-        data += pack('<I', self.effect_id) # Comes after position vector
-        data += pack('<I', 40)  # Usually 40 bytes per entry
-
-        # Bottom vector
-        data += pack('<f', self.bottom[0])  # Affects escalator rotation
-        data += pack('<f', self.bottom[1])  # Affects belt length
-        data += pack('<f', self.bottom[2])  # Affects belt height
-
-        # Top vector
-        data += pack('<f', self.top[0]) # Affects escalator rotation
-        data += pack('<f', self.top[1]) # Affects belt length(?)
-        data += pack('<f', self.top[2]) # Affects belt height
-
-        # End vector
-        data += pack('<f', self.end[0]) # Affects escalator rotation
-        data += pack('<f', self.end[1]) # Affects belt length(?)
-        data += pack('<f', self.end[2]) # Affects belt height
-
-        # Direction (0 for down, 1 for up)
-        data += pack('<I', self.direction)
-
-        return data
 #######################################################   
 class LightEntry:
     def __init__(self, position, effect_id, color, corona_far_clip, pointlight_range,
@@ -1686,7 +1622,7 @@ class LightEntry:
             entry_data += b'\x00'  # Padding to align to 80 bytes
 
         return entry_data
-
+#################################################
 class EnterExit2dfx:
 
     #######################################################
@@ -1868,6 +1804,86 @@ class CoverPoint2dfx:
             self.cover_type
         )
         return data
+    
+#######################################################
+class Escalator2DFX:
+    # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)#Entry_Type_10_-_Escalator
+
+    #######################################################
+    def __init__(self, loc): 
+        self.effect_id = 10
+        self.rotation = loc.x
+        self.pitch = loc.y
+        self.yaw = loc.z
+        self.loc = loc
+        self.standart_pos = loc
+
+        self.bottom = Vector(0.0, 0.0, 0.0)
+        self.top = Vector(0.0, 0.0, 0.0)
+        self.end = Vector(0.0, 0.0, 0.0)
+        self.direction = 0
+
+    #######################################################
+    @staticmethod
+    def from_mem(loc, data, offset, size):
+        self = Escalator2DFX(loc)
+
+        # Bottom Vector
+        self.bottom_rotation = unpack_from('<f', data, offset)[0]; offset += 4
+        self.bottom_pitch = unpack_from('<f', data, offset)[0]; offset += 4
+        self.bottom_yaw = unpack_from('<f', data, offset)[0]; offset += 4
+
+        # Top Vector
+        self.top_rotation = unpack_from('<f', data, offset)[0]; offset += 4
+        self.top_pitch = unpack_from('<f', data, offset)[0]; offset += 4
+        self.top_yaw = unpack_from('<f', data, offset)[0]; offset += 4
+
+        # End Vector
+        self.end_rotation = unpack_from('<f', data, offset)[0]; offset += 4
+        self.end_pitch = unpack_from('<f', data, offset)[0]; offset += 4
+        self.end_yaw = unpack_from('<f', data, offset)[0]; offset += 4
+
+        # Direction
+        self.direction = unpack_from('<I', data, offset)[0]; offset += 4
+
+        self.bottom = Vector(self.bottom_rotation, self.bottom_pitch, self.bottom_yaw)
+        self.top = Vector(self.top_rotation, self.top_pitch, self.top_yaw)
+        self.end = Vector(self.end_rotation, self.end_pitch, self.end_yaw)
+
+        return self
+
+    #######################################################
+    def to_mem(self):
+        data = b''
+
+        # Standard position vector (rotation, pitch, yaw)
+        data += pack('<f', self.rotation)
+        data += pack('<f', self.pitch)  # Affects belt length
+        data += pack('<f', self.yaw)    # Affects belt height
+
+        # Effect ID and entry size
+        data += pack('<I', self.effect_id) # Comes after position vector
+        data += pack('<I', 40)  # Usually 40 bytes per entry
+
+        # Bottom vector
+        data += pack('<f', self.bottom[0])  # Affects escalator rotation
+        data += pack('<f', self.bottom[1])  # Affects belt length
+        data += pack('<f', self.bottom[2])  # Affects belt height
+
+        # Top vector
+        data += pack('<f', self.top[0]) # Affects escalator rotation
+        data += pack('<f', self.top[1]) # Affects belt length(?)
+        data += pack('<f', self.top[2]) # Affects belt height
+
+        # End vector
+        data += pack('<f', self.end[0]) # Affects escalator rotation
+        data += pack('<f', self.end[1]) # Affects belt length(?)
+        data += pack('<f', self.end[2]) # Affects belt height
+
+        # Direction (0 for down, 1 for up)
+        data += pack('<I', self.direction)
+
+        return data
 
 #######################################################
 class Extension2dfx:
@@ -1935,11 +1951,12 @@ class Extension2dfx:
 
         # Serialize each entry
         for entry in self.entries:
-            if isinstance(entry, Escalator2DFX):
-                entry_data = entry.to_mem()  # effect_id after position vectors for escalators
+            if isinstance(entry, (PedAttractor2dfx, Escalator2DFX)): # Avoid writing effectid after entry for these
+                entry_data = entry.to_mem()
                 data += entry_data
+
             else:
-                entry_data = entry.to_mem() # Otherwise, write as normal only if effect_id =/= 10
+                entry_data = entry.to_mem() # Otherwise, write as normal only if effect_id =/= 3, 10
                 data += pack('<I', entry.effect_id)
                 data += entry_data
 

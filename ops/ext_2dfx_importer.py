@@ -157,8 +157,8 @@ class ext_2dfx_importer:
         settings.use_dir = Vector(use_dir)
         settings.forward_dir = Vector(forward_dir)
         settings.script_name = entry.external_script or "none"
-        settings.ped_probability = entry.ped_existing_probability if entry.ped_existing_probability is not None else 0
-        settings.attractor_type = entry.attractor_type if entry.attractor_type is not None else 0
+        settings.ped_probability = entry.ped_existing_probability
+        settings.attractor_type = entry.attractor_type
 
         print("===== Imported Ped Attractor 2DFX =====")
         print(f"Position: {entry.loc}")
