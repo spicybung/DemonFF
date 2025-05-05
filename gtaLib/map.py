@@ -14,7 +14,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
+import struct
 from ..data import map_data
+from bpy_extras.io_utils import ImportHelper
+from ..ops.importer_common import game_version
 from collections import namedtuple
 
 Vector = namedtuple("Vector", "x y z")
@@ -129,50 +133,102 @@ class MapDataUtility:
 
     # Returns a dictionary of sections found in the given file
     #######################################################
-    def readFile(filename, dataStructures):
+    def readFile(filepath, filename, dataStructures):
 
-        print('\nMapDataUtility reading: ' + filename)
+        fullpath = "%s%s" % (filepath, filename)
+        print('\nMapDataUtility reading: ' + fullpath)
 
         sections = {}
 
-        with open(filename, 'r', encoding='latin-1') as fileStream:
-            line = fileStream.readline().strip()
-            while line:
+        try:
+            fileStream = open(fullpath, 'r', encoding='latin-1')
 
-                # Presume we have a section start
-                sectionName = line
-                sectionUtility = None
+        except FileNotFoundError:
 
-                if line in specialSections:
-                    # Section requires some special reading / writing procedures
-                    sectionUtility = specialSections[sectionName](
-                        sectionName, dataStructures
-                    )
-                elif line in dataStructures:
-                    # Section is generic,
-                    # can be read / written to with the default utility
-                    sectionUtility = GenericSectionUtility(
-                        sectionName, dataStructures
-                    )
+            # If file doesn't exist, look for binary file inside gta3.img file (credit to Allerek)
+            fullpath = "%s%s" % (filepath, 'models/gta3.img')
+            with open(fullpath, 'rb') as img_file:
+                # Read the first 8 bytes for the header and unpack
+                header = img_file.read(8)
+                magic, num_entries = struct.unpack('4sI', header)
 
-                if sectionUtility is not None:
-                    sections[sectionName] = sectionUtility.read(fileStream)
-                    print("%s: %d entries" % (
-                        sectionName, len(sections[sectionName]
-                        )
-                    ))
+                # Read and process directory entries
+                entry_size = 32
+                entries = []
+                for i in range(num_entries):
+                    entry_data = img_file.read(entry_size)
+                    offset, streaming_size, _, name = struct.unpack('IHH24s', entry_data)
+                    name = name.split(b'\x00', 1)[0].decode('utf-8')
+                    entries.append((offset, streaming_size, name))
 
-                # Get next section
+                # Look for ipl file in gta3.img
+                for offset, streaming_size, name in entries:
+                    if name == filename:
+
+                        # Read and unpack the header
+                        img_file.seek(offset * 2048)
+                        header = img_file.read(32)
+                        _, num_of_instances, _, _, _, _, _, instances_offset = struct.unpack('4siiiiiii', header)
+
+                        # Read and process instance definitions
+                        item_size = 40
+                        read_base = offset * 2048 + instances_offset
+                        insts = []
+                        current_offset = read_base
+                        for i in range(num_of_instances):
+                            img_file.seek(current_offset)
+                            instances = img_file.read(40)
+
+                            # Read binary instance
+                            x_pos, y_pos, z_pos, x_rot, y_rot, z_rot, w_rot, obj_id, interior, lod = struct.unpack('fffffffiii', instances)
+
+                            # Create value list (with values as strings) and map to the data struct
+                            vals = [obj_id, "", interior, x_pos, y_pos, z_pos, x_rot, y_rot, z_rot, w_rot, lod]
+                            insts.append(dataStructures['inst'](*[str(v) for v in vals]))
+
+                            # Prepare for reading of next instance inside of .ipl
+                            current_offset = read_base + i * item_size
+
+                        sections["inst"] = insts
+
+        else:
+            with fileStream:
                 line = fileStream.readline().strip()
-        
+
+                while line:
+
+                    # Presume we have a section start
+                    sectionName = line
+                    sectionUtility = None
+
+                    if line in specialSections:
+                        # Section requires some special reading / writing procedures
+                        sectionUtility = specialSections[sectionName](
+                            sectionName, dataStructures
+                        )
+                    elif line in dataStructures:
+                        # Section is generic,
+                        # can be read / written to with the default utility
+                        sectionUtility = GenericSectionUtility(
+                            sectionName, dataStructures
+                        )
+
+                    if sectionUtility is not None:
+                        sections[sectionName] = sectionUtility.read(fileStream)
+                        print("%s: %d entries" % (
+                            sectionName, len(sections[sectionName]
+                            )
+                        ))
+
+                    # Get next section
+                    line = fileStream.readline().strip()
+
         return sections
 
     ########################################################################
     def getMapData(gameID, gameRoot, iplSection, isCustomIPL):
-        
-        # TODO: choose correct IDE/IPL files dict
-        data = map_data.data[gameID]
 
+        data = map_data.data[gameID].copy()
 
         if isCustomIPL:
             # Find paths to all IDEs
@@ -183,7 +239,7 @@ class MapDataUtility:
                         full_path = os.path.join(root_path, file)
                         ide_paths.append(os.path.relpath(full_path, gameRoot))
             data['IDE_paths'] = ide_paths
- 
+
         else:
             # Prune IDEs unrelated to current IPL section (SA only). First, make IDE_paths a mutable list, then iterate
             # over a copy so we can remove elements during iteration. This is a naive pruning which keeps all ides with a
@@ -202,7 +258,7 @@ class MapDataUtility:
 
         for file in data['IDE_paths']:
             sections = MapDataUtility.readFile(
-                "%s%s" % (gameRoot, file),
+                gameRoot, file,
                 data['structures']
             )
             ide = MapDataUtility.merge_dols(ide, sections)
@@ -210,7 +266,7 @@ class MapDataUtility:
         ipl = {}
 
         sections = MapDataUtility.readFile(
-            "%s%s" % (gameRoot, iplSection),
+            gameRoot, iplSection,
             data['structures']
         )
         ipl = MapDataUtility.merge_dols(ipl, sections)
@@ -245,7 +301,6 @@ class MapDataUtility:
             'object_data': object_data
             }
 
-    # Merge Dictionaries of Lists
     #######################################################
     def merge_dols(dol1, dol2):
         result = dict(dol1, **dol2)

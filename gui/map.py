@@ -27,7 +27,26 @@ from bpy_extras.io_utils import ImportHelper
 from gpu_extras.batch import batch_for_shader
 from ..ops.importer_common import game_version
 from bpy.props import StringProperty, CollectionProperty
+from bpy.types import Operator
 
+
+#######################################################
+class SCENE_OT_demonff_map_filebrowser(bpy.types.Operator, ImportHelper):
+    """Opens file browser to select custom IPL, then imports it"""
+    bl_idname = "scene.demonff_map_filebrowser"
+    bl_label = "Import Map Section (.ipl)"
+
+    filename_ext = ".ipl"
+    filter_glob: StringProperty(default="*.ipl", options={'HIDDEN'})
+
+    def execute(self, context):
+        settings = context.scene.dff
+        settings.custom_ipl_path = self.filepath
+        settings.use_custom_map_section = True
+
+        # Call the actual import operator after setting path
+        bpy.ops.scene.demonff_map_import('INVOKE_DEFAULT')
+        return {'FINISHED'}
 #######################################################
 def quat_to_degrees(quat):
     euler = quat.to_euler('XYZ')
@@ -290,6 +309,39 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     def register():
         bpy.types.Scene.dff = bpy.props.PointerProperty(type=DFFSceneProps)
 
+#######################################################
+class SCENE_OT_select_ipl_and_import(bpy.types.Operator, ImportHelper):
+    """Select IPL file and immediately import"""
+    bl_idname = "scene.select_ipl_and_import"
+    bl_label = "Select and Import IPL"
+
+    filename_ext = ".ipl"
+    filter_glob: StringProperty(default="*.ipl", options={'HIDDEN'})
+
+    def execute(self, context):
+        scene = context.scene
+        dff = scene.dff
+
+        if os.path.splitext(self.filepath)[-1].lower() == ".ipl":
+            filepath = os.path.normpath(self.filepath)
+            sep_pos = filepath.upper().find(f"DATA{os.sep}MAPS")
+            if sep_pos != -1:
+                game_root = filepath[:sep_pos]
+                dff.game_root = game_root
+                dff.custom_ipl_path = os.path.normpath(self.filepath)
+            else:
+                dff.custom_ipl_path = filepath
+
+            dff.use_custom_map_section = True
+
+            bpy.ops.scene.select_ipl_and_import('INVOKE_DEFAULT')
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, "Not a valid .ipl file")
+            return {'CANCELLED'}
+
+    def invoke(self, context, event):
+        return context.window_manager.fileselect_add(self)
 
 #######################################################
 class SCENE_OT_ipl_select(bpy.types.Operator, ImportHelper):
@@ -738,8 +790,12 @@ class MapImportPanel(bpy.types.Panel):
         layout.prop(settings, 'game_root')
         layout.prop(settings, 'dff_folder')
 
-        row = layout.row()
-        row.operator("scene.demonff_map_import")
+        if settings.use_custom_map_section:
+            layout.operator("scene.demonff_map_import", text="Import custom IPL", icon='FILE_FOLDER')
+        else:
+            layout.operator("scene.demonff_map_import", text="Import map section")
+
+
 
 #######################################################
 
