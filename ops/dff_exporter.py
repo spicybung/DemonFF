@@ -1018,8 +1018,11 @@ class dff_exporter:
             elif obj.type == "EMPTY":
                 self.export_empty(obj)
 
+                
+
             elif obj.type == "ARMATURE":
-                self.export_armature(obj)
+                parent = next((child for child in obj.children if child.type == "MESH"), None)
+                self.export_armature(obj, parent)
 
         atomics_data = sorted(atomics_data, key=lambda a: a[0].dff.atomic_index)
 
