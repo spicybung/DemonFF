@@ -1,6 +1,9 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -17,6 +20,8 @@
 import os
 import bpy
 import time
+
+from ..ops.state import State
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from ..ops import dff_exporter, dff_importer, col_importer, samp_exporter
 
@@ -122,7 +127,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         description="Export the model using triangle strips",
         default=False
     )
-
+    #######################################################
     def verify_rw_version(self):
         if len(self.custom_version) != 7:
             return False
@@ -134,7 +139,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
                 return False
 
         return True
-    
+    #######################################################
     def draw(self, context):
         layout = self.layout
 
@@ -162,7 +167,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             icon = "ERROR" if col.alert else "NONE"
             
             col.prop(self, "custom_version", icon=icon)
-
+    #######################################################
     def get_selected_rw_version(self):
         if self.export_version != "custom":
             return int(self.export_version, 0)
@@ -172,7 +177,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
                                  self.custom_version[2],
                                  self.custom_version[4],
                                  self.custom_version[6]), 0)
-
+    #######################################################
     def execute(self, context):
         if self.export_version == "custom":
             if not self.verify_rw_version():
@@ -212,7 +217,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         context.scene['custom_custom_version'] = self.custom_version
             
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         if 'custom_imported_version' in context.scene:
             self.export_version = context.scene['custom_imported_version']
@@ -335,7 +340,7 @@ class SCENE_OT_dff_frame_move(bpy.types.Operator):
 
     #######################################################
     def execute(self, context):
-
+        #######################################################
         def append_children_recursive(ob):
             for ch in ob.children:
                 children.add(ch)
@@ -637,7 +642,7 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
         name="Extension",
         description="Image extension to search textures in"
     )
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
 
@@ -653,7 +658,7 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
         layout.prop(self, "remove_doubles")
         layout.prop(self, "import_normals")
         layout.prop(self, "group_materials")
-        
+    #######################################################    
     def execute(self, context):
         start = time.time()
 
@@ -701,7 +706,7 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
         self.report({"INFO"}, f"Finished import in {time.time() - start:.2f}s")
 
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}

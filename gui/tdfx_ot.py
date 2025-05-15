@@ -18,15 +18,15 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
-import struct
 import math
+import struct
 import mathutils
-from bpy.props import StringProperty, FloatProperty, IntProperty, FloatVectorProperty, BoolProperty
+
 from bpy.types import Operator, Panel, PropertyGroup
+from bpy.props import StringProperty, FloatProperty, IntProperty, FloatVectorProperty, BoolProperty
 
 #Information taken from https://gtamods.com/wiki/2DFX
 # & https://gtamods.com/wiki/2d_Effect_(RW_Section)
-
 
 # Global variables
 fx_images = ["coronastar", "shad_exp"]
@@ -34,6 +34,7 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""
 entries = []
+
 
 #######################################################
 def import_light(entry, collection):
@@ -124,7 +125,7 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
 
 
 
-
+#######################################################
 def add_light_info(frames, entries):
     if isinstance(frames, bpy.types.Context):
         collection = frames.scene.collection
@@ -166,7 +167,7 @@ def add_light_info(frames, entries):
 
         print(f"Added 2DFX light info to {light_object.name}")
 
-
+#######################################################
 def process_2dfx_lights(self, effects, context):
     """
     Process each 2DFX light entry and add it to Blender using add_light_info.
@@ -179,7 +180,7 @@ def process_2dfx_lights(self, effects, context):
         if entry.effect_id == 0:  # Only process light entries (effect_id = 0)
             print(f"Processing Light Entry {i + 1}/{len(effects.entries)}...")
             add_light_info(context, entry)
-
+#######################################################
 def import_2dfx(self, effects, context):
     """
     Import 2DFX effects into Blender.
@@ -191,7 +192,7 @@ def import_2dfx(self, effects, context):
     print("Importing 2DFX effects...")
     self.process_2dfx_lights(effects, context)
 
-
+#######################################################
 def add_particle_info(context, obj=None):
     if obj is None:
         objs = context.selected_objects
@@ -201,7 +202,7 @@ def add_particle_info(context, obj=None):
         if obj.type == 'EMPTY':
             obj["sdfx_psys"] = fx_psystems[0]  # Default particle system
             print(f"Added GTA Particle system info to {obj.name}")
-
+#######################################################
 def add_text_info(context, obj=None):
     if obj is None:
         objs = context.selected_objects
@@ -214,7 +215,7 @@ def add_text_info(context, obj=None):
             obj["sdfx_text3"] = ""
             obj["sdfx_text4"] = ""
             print(f"Added GTA 2D Text info to {obj.name}")
-
+#######################################################
 def export_info(context):
     global effectfile
     global textfile
@@ -236,7 +237,7 @@ def export_info(context):
                 export_particle_info(effect_stream, None, obj)
             elif obj.type == 'MESH' and "Plane" in obj.name:
                 export_text_info(effect_stream, None, obj)
-
+#######################################################
 def export_text(context):
     global textfile
     obj_to_exp = [obj for obj in context.selected_objects if any(key.startswith("sdfx_") for key in obj.keys()) or obj.type in ['LIGHT', 'EMPTY', 'MESH']]
@@ -259,7 +260,7 @@ def export_text(context):
                 export_particle_info(None, text_stream, obj)
             elif obj.type == 'MESH' and "Plane" in obj.name:
                 export_text_info(None, text_stream, obj)
-
+#######################################################
 def export_light_info(effect_stream, text_stream, obj):
     pos = obj.location
     color = obj.get("sdfx_color", (255, 255, 255, 255))
@@ -318,7 +319,7 @@ def export_light_info(effect_stream, text_stream, obj):
         text_stream.write(f"Flags1           {flags1}\n")
         text_stream.write(f"Flags2           {flags2}\n")
         text_stream.write(f"ViewVector       {view_vector[0]} {view_vector[1]} {view_vector[2]}\n")
-
+#######################################################
 def export_particle_info(effect_stream, text_stream, obj):
     pos = obj.location
     psys = obj.get("sdfx_psys", fx_psystems[0])
@@ -335,7 +336,7 @@ def export_particle_info(effect_stream, text_stream, obj):
         text_stream.write(f"2dfxType         PARTICLE\n")
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"ParticleSystem   {psys}\n")
-
+#######################################################
 def export_text_info(effect_stream, text_stream, obj):
     pos = obj.location
     text_data = (obj.get("sdfx_text1", "") +
@@ -355,7 +356,7 @@ def export_text_info(effect_stream, text_stream, obj):
         text_stream.write(f"2dfxType         TEXT\n")
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"TextData         {text_data}\n")
-
+#######################################################
 def create_lights_from_omni_frames():
     for obj in bpy.data.objects:
         if "Omni" in obj.name:
@@ -367,7 +368,7 @@ def create_lights_from_omni_frames():
             # Add the light info properties
             add_light_info(bpy.context, light)
             print(f"Created light for frame: {obj.name}, at location {obj.location}")
-
+#######################################################
 def import_2dfx(filepath):
     with open(filepath, 'r', encoding='latin-1') as file:
         obj = None
@@ -421,7 +422,6 @@ def import_2dfx(filepath):
 
 
 #######################################################
-
 class DEMONFF_PT_DFF2DFX(Panel):
     bl_label = "DemonFF - 2DFX"
     bl_idname = "DEMONFF_PT_DFF2DFX"
@@ -534,7 +534,7 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
     @classmethod
     def poll(cls, context):
         return context.object and context.object.type == 'LIGHT' and "sdfx_drawdis" in context.object
-    
+    #######################################################
     def draw(self, context):
         layout = self.layout
         obj = context.object
@@ -554,7 +554,7 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_shadcolormp"]', text="Shadow Color Multiplier")
         layout.prop(obj, '["sdfx_shadowzdist"]', text="Shadow Z Distance")
         layout.prop(obj, '["sdfx_viewvector"]', text="View Vector")
-
+    #######################################################
     def set_light_color(obj, color):
         """
         Safely set the color of a Blender light object.
@@ -574,7 +574,6 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
 
 
 #######################################################
-
 def register():
     bpy.utils.register_class(DFF2dfxPanel)
     bpy.utils.register_class(SAEFFECTS_OT_AddLightInfo)
@@ -598,7 +597,6 @@ def register():
     )
 
 #######################################################
-
 def unregister():
     bpy.utils.unregister_class(DFF2dfxPanel)
     bpy.utils.unregister_class(SAEFFECTS_OT_AddLightInfo)
@@ -614,6 +612,5 @@ def unregister():
     del bpy.types.Scene.saeffects_text_export_path
 
 #######################################################
-
 if __name__ == "__main__":
     register()

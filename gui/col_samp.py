@@ -17,11 +17,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from struct import unpack_from, calcsize, pack
-from struct import error as StructError
-from collections import namedtuple
 from .dff import strlen
+from collections import namedtuple
+from struct import error as StructError
+from struct import unpack_from, calcsize, pack
 
+
+#######################################################
 class ColModel:
     def __init__(self):
 

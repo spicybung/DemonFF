@@ -17,18 +17,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import struct
+
+from mathutils import Vector
+from enum import Enum, IntEnum
 from collections import namedtuple
 from struct import unpack_from, calcsize, pack
-from enum import Enum, IntEnum
-import struct
-from mathutils import Vector
 
 from .pyffi.utils import tristrip
 
-global entries  # Use global to store parsed entries
+global entries  # Use global to store parsed 2DFX entries
 entries = []
 
-
+#######################################################
 # Data types
 Chunk         = namedtuple("Chunk"         , "type size version")
 Clump         = namedtuple("Clump"         , "atomics lights cameras")

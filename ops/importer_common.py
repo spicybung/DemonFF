@@ -1,10 +1,33 @@
+# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# 2023 - 2025 SpicyBung
+
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 import bpy
+
 from collections import namedtuple
 
-game_version = namedtuple("game_version", "III VC SA LCS VCS IV")
+
+#######################################################
+game_version = namedtuple("game_version", "III VC SA MX LCS VCS IV")
 game_version.III = 'III'
 game_version.VC = 'VC'
 game_version.SA = 'SA'
+game_version.MX = 'MX'
 game_version.LCS = 'LCS'
 game_version.VCS = 'VCS'
 game_version.IV = 'IV'

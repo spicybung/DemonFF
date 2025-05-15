@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -25,6 +25,7 @@ from ..data import col_materials as mats
 from .importer_common import (
     link_object, create_collection, material_helper
 )
+
 
 #######################################################        
 class col_importer:

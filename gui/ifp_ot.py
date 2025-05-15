@@ -19,9 +19,11 @@
 
 import bpy
 import struct
+
+from os import SEEK_CUR
 from dataclasses import dataclass
 from mathutils import Matrix, Vector, Quaternion
-from os import SEEK_CUR
+
 
 #######################################################
 bl_info = {
@@ -31,21 +33,72 @@ bl_info = {
 }
 #######################################################
 POSEDATA_PREFIX = 'pose.bones["%s"].'
-
+#######################################################
 def invalid_active_object(self, context):
     self.layout.label(text='You need to select the armature to import animation')
-
+#######################################################
 def set_keyframe(curves, frame, values):
     for i, c in enumerate(curves):
         c.keyframe_points.add(1)
         c.keyframe_points[-1].co = frame, values[i]
         c.keyframe_points[-1].interpolation = 'LINEAR'
-
+#######################################################
 def find_bone_by_id(arm_obj, bone_id):
     for bone in arm_obj.data.bones:
         if bone.get('bone_id') == bone_id:
             return bone
         
+#######################################################
+# Helper functions for reading and writing data
+def read_int16(fd, num=1, en='<'):
+    res = struct.unpack('%s%dh' % (en, num), fd.read(2 * num))
+    return res if num > 1 else res[0]
+#######################################################
+def read_int32(fd, num=1, en='<'):
+    res = struct.unpack('%s%di' % (en, num), fd.read(4 * num))
+    return res if num > 1 else res[0]
+#######################################################
+def read_uint32(fd, num=1, en='<'):
+    res = struct.unpack('%s%dI' % (en, num), fd.read(4 * num))
+    return res if num > 1 else res[0]
+#######################################################
+def read_float32(fd, num=1, en='<'):
+    res = struct.unpack('%s%df' % (en, num), fd.read(4 * num))
+    return res if num > 1 else res[0]
+#######################################################
+def read_str(fd, max_len):
+    n, res = 0, ''
+    while n < max_len:
+        b = fd.read(1)
+        n += 1
+        if b == b'\x00':
+            break
+        res += b.decode()
+
+    fd.seek(max_len - n, SEEK_CUR)
+    return res
+#######################################################
+def write_val(fd, vals, t, en='<'):
+    data = vals if hasattr(vals, '__len__') else (vals, )
+    data = struct.pack('%s%d%s' % (en, len(data), t), *data)
+    fd.write(data)
+#######################################################
+def write_uint16(fd, vals, en='<'):
+    write_val(fd, vals, 'h', en)
+#######################################################
+def write_int32(fd, vals, en='<'):
+    write_val(fd, vals, 'i', en)
+#######################################################
+def write_uint32(fd, vals, en='<'):
+    write_val(fd, vals, 'I', en)
+#######################################################
+def write_float32(fd, vals, en='<'):
+    write_val(fd, vals, 'f', en)
+#######################################################
+def write_str(fd, val, max_len):
+    fd.write(val.encode())
+    fd.write(b'\x00' * (max_len - len(val)))
+#######################################################       
 class MESSAGE_OT_missing_bones(bpy.types.Operator):
     bl_idname = "message.missing_bones"
     bl_label = "Missing Bones"
@@ -59,11 +112,11 @@ class MESSAGE_OT_missing_bones(bpy.types.Operator):
         layout = self.layout
         for line in self.message.split('\n'):
             layout.label(text=line)
-
+    #######################################################
     def execute(self, context):
         return {'FINISHED'}
 
-
+#######################################################
 def create_action(arm_obj, anim, fps, global_matrix):
     act = bpy.data.actions.new(anim.name)
     missing_bones = set()
@@ -135,7 +188,7 @@ def create_action(arm_obj, anim, fps, global_matrix):
             set_keyframe(cr, time, rot)
 
     return act, missing_bones
-
+#######################################################
 def load_ifp(filepath):
     with open(filepath, 'rb') as fd:
         version = read_str(fd, 4)
@@ -146,7 +199,7 @@ def load_ifp(filepath):
 
         data = anim_cls.read(fd)
         return Ifp(version, data)
-
+#######################################################
 def apply_ifp_to_armature(context, ifp, fps, global_matrix):
     arm_obj = context.view_layer.objects.active
     if not arm_obj or type(arm_obj.data) != bpy.types.Armature:
@@ -183,7 +236,7 @@ class IMPORT_OT_ifp(bpy.types.Operator):
     )
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
     is_sa: bpy.props.BoolProperty(name="San Andreas", default=True)
-
+    #######################################################
     def execute(self, context):
         try:
             ifp = load_ifp(self.filepath)
@@ -192,14 +245,14 @@ class IMPORT_OT_ifp(bpy.types.Operator):
         except Exception as e:
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 def menu_func_import(self, context):
     self.layout.operator(IMPORT_OT_ifp.bl_idname, text="DemonFF IFP(.ifp)")
-
+#######################################################
 def register():
     bpy.utils.register_class(IMPORT_OT_ifp)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
@@ -363,12 +416,12 @@ class AnpkAnimation(Animation):
     @staticmethod
     def get_bone_class():
         return AnpkBone
-
+    #######################################################
     def get_size(self):
         name_len = len(self.name) + 1
         name_align_len = (4 - name_len % 4) % 4
         return 32 + name_len + name_align_len + sum(b.get_size() for b in self.bones)
-
+    #######################################################
     @classmethod
     def read(cls, fd):
         fd.seek(4, SEEK_CUR)  # NAME
@@ -399,7 +452,7 @@ class Anpk(IfpData):
 
         animations = [cls.get_animation_class().read(fd) for _ in range(animations_num)]
         return cls(name, animations)
-    
+#######################################################    
 class AnpkBone(Bone):
     @classmethod
     def read(cls, fd, frame_times_count):
@@ -459,12 +512,12 @@ class AnpkBone(Bone):
             sibling_y=0,
             keyframes=keyframes
         )
-
+#######################################################
 class AnctAnimation(Animation):
     @staticmethod
     def get_bone_class():
         return AnctBone
-
+    #######################################################v
     def get_size(self):
         name_len = len(self.name) + 1
         name_align_len = (4 - name_len % 4) % 4
@@ -474,7 +527,7 @@ class AnctAnimation(Animation):
             4 + 4 + 4 +                          # 'INFO' + unk size + bone count
             sum(b.get_size() for b in self.bones)
         )
-
+    #######################################################
     @classmethod
     def read(cls, fd):
         fd.seek(4, SEEK_CUR)  # Skip 'NAME'
@@ -491,7 +544,7 @@ class AnctAnimation(Animation):
 
         bones = [cls.get_bone_class().read(fd) for _ in range(bone_count)]
         return cls(name, bones)
-
+#######################################################
 class Anct(IfpData):
     @classmethod
     def read(cls, fd):
@@ -505,7 +558,7 @@ class Anct(IfpData):
             animations.append(block)
 
         return cls(name="ANCT_Container", animations=animations)
-    
+#######################################################    
 class AnctBlock:
     @classmethod
     def read(cls, fd):
@@ -518,7 +571,7 @@ class AnctBlock:
         anims = AnpkAnimPack.read(fd)
 
         return Animation(name=block_name, bones=anims)  # Using bones to store animations for reuse
-    
+#######################################################    
 class AnpkAnimPack:
     @classmethod
     def read(cls, fd):
@@ -573,57 +626,7 @@ class Ifp:
     def save(self, filepath):
         with open(filepath, 'wb') as fd:
             return self.write(fd)
-
-# Helper functions for reading and writing data
-def read_int16(fd, num=1, en='<'):
-    res = struct.unpack('%s%dh' % (en, num), fd.read(2 * num))
-    return res if num > 1 else res[0]
-
-def read_int32(fd, num=1, en='<'):
-    res = struct.unpack('%s%di' % (en, num), fd.read(4 * num))
-    return res if num > 1 else res[0]
-
-def read_uint32(fd, num=1, en='<'):
-    res = struct.unpack('%s%dI' % (en, num), fd.read(4 * num))
-    return res if num > 1 else res[0]
-
-def read_float32(fd, num=1, en='<'):
-    res = struct.unpack('%s%df' % (en, num), fd.read(4 * num))
-    return res if num > 1 else res[0]
-
-def read_str(fd, max_len):
-    n, res = 0, ''
-    while n < max_len:
-        b = fd.read(1)
-        n += 1
-        if b == b'\x00':
-            break
-        res += b.decode()
-
-    fd.seek(max_len - n, SEEK_CUR)
-    return res
-
-def write_val(fd, vals, t, en='<'):
-    data = vals if hasattr(vals, '__len__') else (vals, )
-    data = struct.pack('%s%d%s' % (en, len(data), t), *data)
-    fd.write(data)
-
-def write_uint16(fd, vals, en='<'):
-    write_val(fd, vals, 'h', en)
-
-def write_int32(fd, vals, en='<'):
-    write_val(fd, vals, 'i', en)
-
-def write_uint32(fd, vals, en='<'):
-    write_val(fd, vals, 'I', en)
-
-def write_float32(fd, vals, en='<'):
-    write_val(fd, vals, 'f', en)
-
-def write_str(fd, val, max_len):
-    fd.write(val.encode())
-    fd.write(b'\x00' * (max_len - len(val)))
-
+#######################################################
 def export_anp3(ifp_data, fd):
     # Header
     fd.write(b'ANP3')
@@ -677,7 +680,7 @@ def export_anp3(ifp_data, fd):
     eof_offset = fd.tell()
     fd.seek(offset_placeholder)
     fd.write(struct.pack('<I', eof_offset))
-
+#######################################################
 def collect_animation_data(context):
     arm_obj = context.object
     action = arm_obj.animation_data.action

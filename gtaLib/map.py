@@ -1,6 +1,9 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -17,14 +20,15 @@
 import os
 import struct
 from ..data import map_data
+from collections import namedtuple
 from bpy_extras.io_utils import ImportHelper
 from ..ops.importer_common import game_version
-from collections import namedtuple
 
 Vector = namedtuple("Vector", "x y z")
 
-# Base for all IPL / IDE section reader / writer classes
+
 #######################################################
+# Base for all IPL / IDE section reader / writer classes
 class GenericSectionUtility: 
 
     def __init__(self, sectionName, dataStructures):

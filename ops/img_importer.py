@@ -1,7 +1,8 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,23 +17,26 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import bpy
 import os
-import struct
 import re
-from bpy.props import StringProperty
-from bpy_extras.io_utils import ImportHelper
-from bpy.types import Operator, Panel
-from .dff_importer import import_dff
+import bpy
+import struct
 
+from .dff_importer import import_dff
+from bpy.props import StringProperty
+from bpy.types import Operator, Panel
+from bpy_extras.io_utils import ImportHelper
+
+
+#######################################################
 def sanitize_filename(filename):
     return re.sub(r'[^\w\-_\. ]', '_', filename)
-
+#######################################################
 class ImgImporter:
     def __init__(self, img_path):
         self.img_path = img_path
         self.entries = []
-
+    #######################################################
     def read_directory(self):
         with open(self.img_path, 'rb') as img_file:
             header = img_file.read(8)
@@ -47,7 +51,7 @@ class ImgImporter:
                     'streaming_size': streaming_size,
                     'name': name
                 })
-
+    #######################################################
     def extract_dff_files(self):
         with open(self.img_path, 'rb') as img_file:
             for entry in self.entries:
@@ -55,7 +59,7 @@ class ImgImporter:
                     img_file.seek(entry['offset'] * 2048)
                     file_data = img_file.read(entry['streaming_size'] * 2048)
                     self.import_dff(file_data, entry['name'])
-
+    #######################################################
     def import_dff(self, dff_data, dff_name):
         dff_name = sanitize_filename(dff_name)
         output_path = os.path.join(bpy.app.tempdir, dff_name)
@@ -93,12 +97,12 @@ class ImgImporter:
                     entry['name'].ljust(24, '\x00').encode('latin-1')
                 )
                 dir_file.write(packed_entry)
-
+    #######################################################
     def import_img(self):
         self.read_directory()
         self.extract_dff_files()
         self.create_dir_file()
-
+#######################################################
 class IMPORT_OT_img(Operator, ImportHelper):
     bl_idname = "import_scene.img"
     bl_label = "Import IMG File"
@@ -109,13 +113,13 @@ class IMPORT_OT_img(Operator, ImportHelper):
         options={'HIDDEN'},
         maxlen=255,
     )
-
+    #######################################################
     def execute(self, context):
         importer = ImgImporter(self.filepath)
         importer.import_img()
         self.report({'INFO'}, f"Successfully imported IMG and created DIR: {os.path.splitext(self.filepath)[0]}.dir")
         return {'FINISHED'}
-
+#######################################################
 class IMPORT_PT_img_panel(Panel):
     bl_idname = "IMPORT_PT_img_panel"
     bl_label = "DemonFF - IMG Importer"
@@ -123,15 +127,15 @@ class IMPORT_PT_img_panel(Panel):
     bl_region_type = 'WINDOW'
     bl_context = "scene"
     bl_category = 'DemonFF'
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         layout.operator("import_scene.img", text="Import IMG File")
 
-
+#######################################################
 def menu_func_import(self, context):
     self.layout.operator(IMPORT_OT_img.bl_idname, text="Import IMG File")
-
+#######################################################
 def register():
     bpy.utils.register_class(IMPORT_OT_img)
     bpy.utils.register_class(IMPORT_PT_img_panel)

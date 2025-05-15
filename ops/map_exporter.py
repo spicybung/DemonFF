@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -19,10 +19,13 @@
 
 import bpy
 import os
+
 from ..data import map_data
 from ..ops.importer_common import game_version
 from bpy.props import StringProperty, CollectionProperty
 
+
+#######################################################
 def quat_to_degrees(quat):
     euler = quat.to_euler('XYZ')
     return (euler.x * (180 / 3.141592653589793),
@@ -52,6 +55,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
             (game_version.III, 'GTA III', 'GTA III map segments'),
             (game_version.VC, 'GTA VC', 'GTA VC map segments'),
             (game_version.SA, 'GTA SA', 'GTA SA map segments'),
+            (game_version.MX, 'GTA SA', 'GTA SA map segments'),
             (game_version.LCS, 'GTA LCS', 'GTA LCS map segments'),
             (game_version.VCS, 'GTA VCS', 'GTA VCS map segments'),
             (game_version.IV, 'GTA IV', 'GTA IV map segments'),

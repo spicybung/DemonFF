@@ -17,16 +17,17 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import bpy
 import bmesh
-import mathutils
-import os
 import os.path
-from collections import defaultdict
+import mathutils
 
 from ..gtaLib import dff_samp
+from collections import defaultdict
 from .col_samp_exporter import export_col
 from ..ops.ext_2dfx_exporter import ext_2dfx_exporter
+
 
 #######################################################
 def clear_extension(string):

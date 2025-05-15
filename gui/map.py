@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -20,14 +20,15 @@
 import bpy
 import os
 import gpu
-from ..data import map_data
-import numpy as np
 import random
+import numpy as np
+
+from ..data import map_data
+from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper
 from gpu_extras.batch import batch_for_shader
 from ..ops.importer_common import game_version
 from bpy.props import StringProperty, CollectionProperty
-from bpy.types import Operator
 
 
 #######################################################
@@ -114,6 +115,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
             (game_version.III, 'GTA III', 'GTA III map segments'),
             (game_version.VC, 'GTA VC', 'GTA VC map segments'),
             (game_version.SA, 'GTA SA', 'GTA SA map segments'),
+            (game_version.MX, 'GTA MX', 'GTA Mixed map segments'),
             (game_version.LCS, 'GTA LCS', 'GTA LCS map segments'),
             (game_version.VCS, 'GTA VCS', 'GTA VCS map segments'),
             (game_version.IV, 'GTA IV', 'GTA IV map segments'),
@@ -250,7 +252,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         description = "Filter frames and atomics by active collection",
         default     = True
     )
-
+    #######################################################
     def draw_fg():
         if not bpy.context.scene.dff.draw_facegroups:
             return
@@ -421,7 +423,7 @@ def import_ide(filepaths, context):
                 print(f"No matching SAMP ID found for {obj.name}")
 
     print("SAMP IDE import completed for all files")
-
+#######################################################
 def mass_import_samp_ide(filepaths, context):
     for filepath in filepaths:
         if not filepath.endswith('.ide'):
@@ -521,8 +523,9 @@ class ExportToIPLOperator(bpy.types.Operator):
     filename_ext = ".ipl"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-
+    #######################################################
     def execute(self, context):
+        #######################################################
         def export_to_ipl(file_path, objects):
             with open(file_path, 'w') as f:
                 f.write("inst\n")
@@ -567,7 +570,7 @@ class ExportToIPLOperator(bpy.types.Operator):
 
         self.report({'INFO'}, f"Exported {len(selected_objects)} objects to {output_file}")
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
@@ -578,8 +581,9 @@ class ExportToIDEOperator(bpy.types.Operator):
     filename_ext = ".ide"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-
+    #######################################################
     def execute(self, context):
+        #######################################################
         def export_to_ide(file_path, objects):
             name_mapping = {}
             with open(file_path, 'w') as f:
@@ -613,7 +617,7 @@ class ExportToIDEOperator(bpy.types.Operator):
 
         self.report({'INFO'}, f"Exported {len(scene_objects)} objects to {output_file}")
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
@@ -654,7 +658,7 @@ class ExportToPawnOperator(bpy.types.Operator):
         default=0.0,
         description="Offset for the y coordinate of the objects"
     )
-
+    #######################################################
     def execute(self, context):
         def export_to_pawn(file_path, objects):
             artconfig_path = os.path.join(os.path.dirname(file_path), 'artconfig.txt')
@@ -732,11 +736,11 @@ class ExportToPawnOperator(bpy.types.Operator):
         self.report({'INFO'}, f"Exported {len(selected_objects)} objects to {output_file}")
         self.report({'INFO'}, f"Exported artconfig.txt to {os.path.dirname(output_file)}")
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "model_directory")
@@ -750,7 +754,7 @@ class RemoveBuildingForPlayerOperator(bpy.types.Operator):
     bl_idname = "object.remove_building_for_player"
     bl_label = "Remove Building For Player"
     bl_options = {'REGISTER', 'UNDO'}
-
+    #######################################################
     def execute(self, context):
         for obj in context.selected_objects:
             obj_id = obj.get("IDE_ID", -1)
@@ -768,7 +772,7 @@ class MapImportPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         settings = context.scene.dff
@@ -798,14 +802,13 @@ class MapImportPanel(bpy.types.Panel):
 
 
 #######################################################
-
 class DemonFFMapExportPanel(bpy.types.Panel):
     bl_label = "DemonFF - Map Export"
     bl_idname = "SCENE_PT_map_export"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         row = layout.row()
@@ -819,7 +822,7 @@ class DemonFFPawnPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         row = layout.row()

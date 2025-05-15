@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -20,9 +20,12 @@
 import bpy
 import os
 import random
-from ..gtaLib import map as map_utilites
-from ..ops import dff_importer
 
+from ..ops import dff_importer
+from ..gtaLib import map as map_utilites
+
+
+#######################################################
 class Map_Import_Operator(bpy.types.Operator):
     """Tooltip"""
     bl_idname = "scene.demonff_map_import_custom"
@@ -41,7 +44,7 @@ class Map_Import_Operator(bpy.types.Operator):
     _model_cache = {}
 
     settings = None
-
+    #######################################################
     def import_object(self, context):
         if self._inst_index > len(self._object_instances) - 1:
             self._calcs_done = True
@@ -103,7 +106,7 @@ class Map_Import_Operator(bpy.types.Operator):
 
             self._model_cache[inst.id] = importer.objects
             print(str(inst.id) + ' loaded new')
-
+    #######################################################
     # Generates a non-conflicting ID
     def generate_non_conflicting_id(self):
         existing_ids = {inst.id for inst in self._object_instances}
@@ -111,7 +114,7 @@ class Map_Import_Operator(bpy.types.Operator):
             new_id = random.randint(100000, 999999)  # Generate a random 6-digit ID
             if new_id not in existing_ids:
                 return new_id
-
+    #######################################################
     def modal(self, context, event):
         if event.type in {'ESC'}:
             self.cancel(context)
@@ -141,7 +144,7 @@ class Map_Import_Operator(bpy.types.Operator):
             return {'FINISHED'}
 
         return {'PASS_THROUGH'}
-
+    #######################################################
     def execute(self, context):
         self.settings = context.scene.dff
         self._model_cache = {}
@@ -174,12 +177,12 @@ class Map_Import_Operator(bpy.types.Operator):
         wm.modal_handler_add(self)
 
         return {'RUNNING_MODAL'}
-
+    #######################################################
     def cancel(self, context):
         wm = context.window_manager
         wm.progress_end()
         wm.event_timer_remove(self._timer)
-
+    #######################################################
     def apply_transformation_to_object(obj, inst):
         obj.location.x = float(inst.posX)
         obj.location.y = float(inst.posY)
@@ -220,7 +223,7 @@ class Map_Import_Operator(bpy.types.Operator):
     _model_cache = {}
 
     settings = None
-
+    #######################################################
     def import_object(self, context):
         if self._inst_index > len(self._object_instances) - 1:
             self._calcs_done = True
@@ -282,7 +285,7 @@ class Map_Import_Operator(bpy.types.Operator):
 
             self._model_cache[inst.id] = importer.objects
             print(str(inst.id) + ' loaded new')
-
+    #######################################################
     # Generates a non-conflicting ID
     def generate_non_conflicting_id(self):
         existing_ids = {inst.id for inst in self._object_instances}
@@ -290,7 +293,7 @@ class Map_Import_Operator(bpy.types.Operator):
             new_id = random.randint(100000, 999999)  # Generate a random 6-digit ID
             if new_id not in existing_ids:
                 return new_id
-
+    #######################################################
     def modal(self, context, event):
         if event.type in {'ESC'}:
             self.cancel(context)
@@ -320,7 +323,7 @@ class Map_Import_Operator(bpy.types.Operator):
             return {'FINISHED'}
 
         return {'PASS_THROUGH'}
-
+    #######################################################
     def execute(self, context):
         self.settings = context.scene.dff
         self._model_cache = {}
@@ -353,12 +356,12 @@ class Map_Import_Operator(bpy.types.Operator):
         wm.modal_handler_add(self)
 
         return {'RUNNING_MODAL'}
-
+    #######################################################
     def cancel(self, context):
         wm = context.window_manager
         wm.progress_end()
         wm.event_timer_remove(self._timer)
-
+    #######################################################
     def apply_transformation_to_object(obj, inst):
         obj.location.x = float(inst.posX)
         obj.location.y = float(inst.posY)
@@ -376,14 +379,14 @@ class Map_Import_Operator(bpy.types.Operator):
             obj.scale.y = float(inst.scaleY)
         if hasattr(inst, 'scaleZ'):
             obj.scale.z = float(inst.scaleZ)
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 def menu_func_import(self, context):
     self.layout.operator(Map_Import_Operator.bl_idname, text="Import GTA IPL")
-
+#######################################################
 def register():
     bpy.utils.register_class(Map_Import_Operator)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)

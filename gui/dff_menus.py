@@ -19,9 +19,10 @@
 
 import re
 import bpy
-import bmesh
 import gpu
+import bmesh
 import struct
+
 from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
     IMPORT_OT_txd, \
     OBJECT_OT_dff_generate_bone_props, \

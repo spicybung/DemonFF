@@ -1,6 +1,9 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -19,9 +22,10 @@ from math import ceil
 from struct import unpack_from
 from collections import namedtuple
 
+from .dff import strlen
 from .dff import Sections, NativePlatformType
 from .dff import types, Chunk, TexDict, PITexDict, Texture
-from .dff import strlen
+
 
 #######################################################
 class RasterFormat(IntEnum):

@@ -1,7 +1,8 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -19,10 +20,10 @@
 # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)
 
 import bpy
-import math 
+import math
+from ..gtaLib import dff
 from mathutils import Vector
 
-from ..gtaLib import dff
 
 #######################################################
 def create_arrow_mesh(name):

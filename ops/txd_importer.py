@@ -19,7 +19,9 @@
 
 import bpy
 import os
+
 from ..gtaLib import txd
+
 
 #######################################################
 class txd_importer:

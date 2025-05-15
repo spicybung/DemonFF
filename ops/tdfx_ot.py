@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
 # 2023 - 2025 SpicyBung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -35,6 +35,8 @@ effectfile = ""
 textfile = "" 
 entries = []
 
+
+#######################################################
 def import_light(entry, collection):
     light_data = bpy.data.lights.new(name="Omni_Light", type='POINT')
     light_object = bpy.data.objects.new(name=f"Omni_Light", object_data=light_data)
@@ -126,7 +128,7 @@ class SAEEFFECTS_OT_CreateLightsFromEntries(Operator):
 
 
 
-
+#######################################################
 def add_light_info(dff):
     # Determine the collection to which objects will be linked
     if isinstance(frames, bpy.types.Context):
@@ -179,18 +181,18 @@ def add_light_info(dff):
             obj["sdfx_viewvector"] = getattr(entry, 'look_direction', (0, 156, 0))
 
             print(f"Added 2DFX light info to {obj.name} in frame {frame.name}")
-
+#######################################################
 def process_2dfx_lights(self, effects, context):
     for i, entry in enumerate(effects.entries):
         if entry.effect_id == 0:  # Only process light entries (effect_id = 0)
             print(f"Processing Light Entry {i + 1}/{len(effects.entries)}...")
             add_light_info(context, entry)
-
+#######################################################
 def import_2dfx(self, effects, context):
     print("Importing 2DFX effects...")
     self.process_2dfx_lights(effects, context)
 
-
+#######################################################
 def add_particle_info(context, obj=None):
     if obj is None:
         objs = context.selected_objects
@@ -317,7 +319,7 @@ def export_light_info(effect_stream, text_stream, obj):
         text_stream.write(f"Flags1           {flags1}\n")
         text_stream.write(f"Flags2           {flags2}\n")
         text_stream.write(f"ViewVector       {view_vector[0]} {view_vector[1]} {view_vector[2]}\n")
-
+#######################################################
 def export_particle_info(effect_stream, text_stream, obj):
     pos = obj.location
     psys = obj.get("sdfx_psys", fx_psystems[0])
@@ -334,7 +336,7 @@ def export_particle_info(effect_stream, text_stream, obj):
         text_stream.write(f"2dfxType         PARTICLE\n")
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"ParticleSystem   {psys}\n")
-
+#######################################################
 def export_text_info(effect_stream, text_stream, obj):
     pos = obj.location
     text_data = (obj.get("sdfx_text1", "") +
@@ -354,7 +356,7 @@ def export_text_info(effect_stream, text_stream, obj):
         text_stream.write(f"2dfxType         TEXT\n")
         text_stream.write(f"Position         {pos.x} {pos.y} {pos.z}\n")
         text_stream.write(f"TextData         {text_data}\n")
-
+#######################################################
 def create_lights_from_omni_frames():
     for obj in bpy.data.objects:
         if "Omni" in obj.name:
@@ -366,7 +368,7 @@ def create_lights_from_omni_frames():
             # Add the light info properties
             add_light_info(bpy.context, light)
             print(f"Created light for frame: {obj.name}, at location {obj.location}")
-
+#######################################################
 def import_2dfx(filepath):
     with open(filepath, 'r', encoding='latin-1') as file:
         obj = None
@@ -451,7 +453,6 @@ class DEMONFF_PT_DFF2DFX(Panel):
         row.operator("saeffects.view_light_info", text="View Light Info")
 
 #######################################################
-
 class SAEFFECTS_OT_AddLightInfo(Operator):
     bl_idname = "saeffects.add_light_info"
     bl_label = "Add Light Info"
@@ -463,7 +464,7 @@ class SAEFFECTS_OT_AddLightInfo(Operator):
         frames = context.scene.collection.children 
         add_light_info(dff)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_AddParticleInfo(Operator):
     bl_idname = "saeffects.add_particle_info"
     bl_label = "Add Particle Info"
@@ -471,7 +472,7 @@ class SAEFFECTS_OT_AddParticleInfo(Operator):
     def execute(self, context):
         add_particle_info(context)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_AddTextInfo(Operator):
     bl_idname = "saeffects.add_text_info"
     bl_label = "Add 2D Text Info"
@@ -479,7 +480,7 @@ class SAEFFECTS_OT_AddTextInfo(Operator):
     def execute(self, context):
         add_text_info(context)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_ExportInfo(Operator):
     bl_idname = "saeffects.export_info"
     bl_label = "Export Binary Info"
@@ -489,53 +490,53 @@ class SAEFFECTS_OT_ExportInfo(Operator):
         effectfile = bpy.path.abspath(context.scene.saeffects_export_path)
         export_info(context)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_ExportTextInfo(Operator):
     bl_idname = "saeffects.export_text_info"
     bl_label = "Export Text Info"
     
     filepath: StringProperty(subtype="FILE_PATH")
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+    #######################################################
     def execute(self, context):
         global textfile
         textfile = self.filepath
         export_text(context)
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_CreateLightsFromOmni(Operator):
     bl_idname = "saeffects.create_lights_from_omni"
     bl_label = "Create Lights from Omni Frames"
-    
+    #######################################################
     def execute(self, context):
         create_lights_from_omni_frames()
         return {'FINISHED'}
-
+#######################################################
 class SAEFFECTS_OT_ViewLightInfo(Operator):
     bl_idname = "saeffects.view_light_info"
     bl_label = "View Light Info"
-
+    #######################################################
     def execute(self, context):
         for obj in context.selected_objects:
             if obj.type == 'LIGHT':
                 context.view_layer.objects.active = obj
                 bpy.ops.wm.properties_add(data_path='object')
         return {'FINISHED'}
-
+#######################################################
 class OBJECT_PT_SDFXLightInfoPanel(Panel):
     bl_label = "SDFX Light Info"
     bl_idname = "OBJECT_PT_sdfx_light_info"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "object"
-    
+    #######################################################
     @classmethod
     def poll(cls, context):
         return context.object and context.object.type == 'LIGHT' and "sdfx_drawdis" in context.object
-    
+    #######################################################
     def draw(self, context):
         layout = self.layout
         obj = context.object
@@ -555,7 +556,7 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
         layout.prop(obj, '["sdfx_shadcolormp"]', text="Shadow Color Multiplier")
         layout.prop(obj, '["sdfx_shadowzdist"]', text="Shadow Z Distance")
         layout.prop(obj, '["sdfx_viewvector"]', text="View Vector")
-
+    #######################################################
     def set_light_color(obj, color):
         """
         Safely set the color of a Blender light object.
@@ -572,12 +573,8 @@ class OBJECT_PT_SDFXLightInfoPanel(Panel):
                 color[2] / 255,  # Normalize B
             )
             obj.data.color = normalized_color
-
-
 #######################################################
-
 def register():
-    bpy.utils.register_class(DFF2dfxPanel)
     bpy.utils.register_class(SAEFFECTS_OT_AddLightInfo)
     bpy.utils.register_class(SAEFFECTS_OT_AddParticleInfo)
     bpy.utils.register_class(SAEFFECTS_OT_AddTextInfo)
@@ -602,7 +599,6 @@ def register():
 #######################################################
 
 def unregister():
-    bpy.utils.unregister_class(DFF2dfxPanel)
     bpy.utils.unregister_class(SAEFFECTS_OT_AddLightInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_AddParticleInfo)
     bpy.utils.unregister_class(SAEFFECTS_OT_AddTextInfo)
