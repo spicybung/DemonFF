@@ -303,8 +303,28 @@ SA_IDE = (
     'DATA\\MAPS\\beach\\beach.ide'
 )
 
-# GTA Mixed
-MIXED_IDE = (
+# GTA Stars & Stripes - mod for GTA SA
+SS_IDE = (
+    'DATA\\MAPS\\maps\\cm\\game_cm.ide',
+    'DATA\\MAPS\\maps\\cm\\game_cmlvl.ide',
+    'DATA\\MAPS\\maps\\cm\\game_cms.ide',
+    'DATA\\MAPS\\maps\\fw\\game_fw.ide',
+    'DATA\\MAPS\\maps\\rob\\windmills.ide',
+    'DATA\\MAPS\\maps\\pt\\pt_build.ide',
+    'DATA\\MAPS\\maps\\rc\\rc.ide',
+    'DATA\\MAPS\\maps\\rc\\rc_dam.ide',
+    'DATA\\MAPS\\maps\\rob\\rob_fort.ide',
+    'DATA\\MAPS\\maps\\sa\\sa_core.ide',
+    'DATA\\MAPS\\maps\\spl\\spl_zone.ide',
+    'DATA\\MAPS\\maps\\ul\\ul_base.ide',
+    'DATA\\MAPS\\maps\\vc\\vc_01.ide',
+    'DATA\\MAPS\\maps\\wichs\\wichs.ide',
+    'DATA\\MAPS\\maps\\mw\\mw_bridge.ide',
+    'DATA\\MAPS\\maps\\pra\\pra_metro.ide'
+)
+
+# GTA Mixed - mod for GTA SA
+MX_IDE = (
     'DATA\\MAPS\\countrye.IDE',
     'DATA\\MAPS\\mixed.IDE',
     'DATA\\MAPS\\LC\\suburbhills.IDE',
@@ -563,10 +583,66 @@ SA_IPL = (
     ('DATA\\MAPS\\audiozon.ipl',           'audiozon', '')
 )
 
-# GTA MIXED - uses GTA mixed for SA
-MIXED_IPL = (
-    ('DATA\\MAPS\\countrye.IPL',           'countrye', ''),
-    ('DATA\\MAPS\\mixed.IPL',              'mixed', ''),
+# GTA Stars & Stripes - mod for GTA SA
+SS_IPL = (
+    ('DATA\\MAPS\\maps\\anne\\annegrass.ipl', 'annegrass', ''),
+    ('DATA\\MAPS\\maps\\anne\\anneland.ipl', 'anneland', ''),
+    ('DATA\\MAPS\\maps\\anne\\anneland2.ipl', 'anneland2', ''),
+    ('DATA\\MAPS\\maps\\anne\\annetree.ipl', 'annetree', ''),
+    ('DATA\\MAPS\\maps\\anne\\ch.ipl', 'ch', ''),
+    ('DATA\\MAPS\\maps\\anne\\ch02.ipl', 'ch02', ''),
+    ('DATA\\MAPS\\maps\\anne\\chgrp.ipl', 'chgrp', ''),
+    ('DATA\\MAPS\\maps\\anne\\cut.ipl', 'cut', ''),
+    ('DATA\\MAPS\\maps\\anne\\cut2.ipl', 'cut2', ''),
+    ('DATA\\MAPS\\maps\\anne\\mansion.ipl', 'mansion', ''),
+    ('DATA\\MAPS\\maps\\anne\\mansion2.ipl', 'mansion2', ''),
+    ('DATA\\MAPS\\maps\\cm\\cm_huts.ipl', 'cm_huts', ''),
+    ('DATA\\MAPS\\maps\\cm\\game_cm.ipl', 'game_cm', ''),
+    ('DATA\\MAPS\\maps\\cm\\game_cmlvl.ipl', 'game_cmlvl', ''),
+    ('DATA\\MAPS\\maps\\cm\\game_cms.ipl', 'game_cms', ''),
+    ('DATA\\MAPS\\maps\\fw\\game_fw.ipl', 'game_fw', ''),
+    ('DATA\\MAPS\\maps\\pt\\pt_build.ipl', 'pt_build', ''),
+    ('DATA\\MAPS\\maps\\rc\\rc.ipl', 'rc', ''),
+    ('DATA\\MAPS\\maps\\rc\\rc_dam.ipl', 'rc_dam', ''),
+    ('DATA\\MAPS\\maps\\rob\\rob_fort.ipl', 'rob_fort', ''),
+    ('DATA\\MAPS\\maps\\rob\\windmills.ipl', 'windmills', ''),
+    ('DATA\\MAPS\\maps\\sa\\sa_core.ipl', 'sa_core', ''),
+    ('DATA\\MAPS\\maps\\spl\\spl_zone.ipl', 'spl_zone', ''),
+    ('DATA\\MAPS\\LA\\LAe.ipl', 'LAe', ''),
+    ('DATA\\MAPS\\LA\\LAe2.ipl', 'LAe2', ''),
+    ('DATA\\MAPS\\LA\\LAhills.ipl', 'LAhills', ''),
+    ('DATA\\MAPS\\LA\\LAn.ipl', 'LAn', ''),
+    ('DATA\\MAPS\\LA\\LAn2.ipl', 'LAn2', ''),
+    ('DATA\\MAPS\\LA\\LAs.ipl', 'LAs', ''),
+    ('DATA\\MAPS\\LA\\LAs2.ipl', 'LAs2', ''),
+    ('DATA\\MAPS\\LA\\LAw.ipl', 'LAw', ''),
+    ('DATA\\MAPS\\LA\\LAw2.ipl', 'LAw2', ''),
+    ('DATA\\MAPS\\LA\\LaWn.ipl', 'LaWn', ''),
+    ('DATA\\MAPS\\LV\\vegasE.ipl', 'vegasE', ''),
+    ('DATA\\MAPS\\LV\\vegasN.ipl', 'vegasN', ''),
+    ('DATA\\MAPS\\LV\\vegasS.ipl', 'vegasS', ''),
+    ('DATA\\MAPS\\LV\\vegasW.ipl', 'vegasW', ''),
+    ('DATA\\MAPS\\LV\\vegaxref.ipl', 'vegaxref', ''),
+    ('DATA\\MAPS\\SF\\SFSe.ipl', 'SFSe', ''),
+    ('DATA\\MAPS\\SF\\SFe.ipl', 'SFe', ''),
+    ('DATA\\MAPS\\SF\\SFn.ipl', 'SFn', ''),
+    ('DATA\\MAPS\\SF\\SFs.ipl', 'SFs', ''),
+    ('DATA\\MAPS\\SF\\SFw.ipl', 'SFw', ''),
+    ('DATA\\MAPS\\country\\countn2.ipl', 'countn2', ''),
+    ('DATA\\MAPS\\country\\countryN.ipl', 'countryN', ''),
+    ('DATA\\MAPS\\country\\counxref.ipl', 'counxref', ''),
+    ('DATA\\MAPS\\interior\\gen_int5.ipl', 'gen_int5', ''),
+    ('DATA\\MAPS\\interior\\int_sf.ipl', 'int_sf', ''),
+    ('DATA\\MAPS\\interior\\propext.ipl', 'propext', ''),
+    ('DATA\\MAPS\\maps\\vc\\vc_01.ipl', 'vc_01', ''),
+    ('DATA\\MAPS\\maps\\ul\\ul_base.ipl', 'ul_base', ''),
+    ('DATA\\MAPS\\maps\\wichs\\wichs.ipl', 'wichs', ''),
+    ('DATA\\MAPS\\maps\\mw\\mw_bridge.ipl', 'mw_bridge', ''),
+    ('DATA\\MAPS\\maps\\pra\\pra_metro.ipl', 'pra_metro', '')
+)
+
+# GTA MIXED - mod for GTA SA
+MX_IPL = (
     ('DATA\\MAPS\\LC\\suburbhills.IPL',    'suburbhills', ''),
     ('DATA\\MAPS\\LC\\suburb.IPL',         'suburb', ''),
     ('DATA\\MAPS\\LC\\props.IPL',          'props', ''),
@@ -601,7 +677,9 @@ MIXED_IPL = (
     ('DATA\\MAPS\\VC\\cisland.IPL',        'cisland', ''),
     ('DATA\\MAPS\\VC\\bridge.IPL',         'bridge', ''),
     ('DATA\\MAPS\\VC\\bank.IPL',           'bank', ''),
-    ('DATA\\MAPS\\VC\\airport.IPL',        'airport', '')
+    ('DATA\\MAPS\\VC\\airport.IPL',        'airport', ''),
+    ('DATA\\MAPS\\countrye.IPL',           'countrye', ''),     # Modified countrye
+    ('DATA\\MAPS\\mixed.IPL',              'mixed', '')
 )
 
 # GTA LCS - uses LCS PC Edition
@@ -706,10 +784,15 @@ data = {
         'IDE_paths': SA_IDE,
         'IPL_paths': SA_IPL,
     },
+    game_version.SS : {
+        'structures': SA_structures,
+        'IDE_paths': SS_IDE,
+        'IPL_paths': SS_IPL,
+    },
     game_version.MX : {
         'structures': SA_structures,
-        'IDE_paths': SA_IDE,
-        'IPL_paths': SA_IPL,
+        'IDE_paths': MX_IDE,
+        'IPL_paths': MX_IPL,
     },
     game_version.LCS : {
         'structures': VC_structures,

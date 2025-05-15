@@ -23,10 +23,11 @@ from collections import namedtuple
 
 
 #######################################################
-game_version = namedtuple("game_version", "III VC SA MX LCS VCS IV")
+game_version = namedtuple("game_version", "III VC SA SS MX LCS VCS IV")
 game_version.III = 'III'
 game_version.VC = 'VC'
 game_version.SA = 'SA'
+game_version.SS = 'SS'
 game_version.MX = 'MX'
 game_version.LCS = 'LCS'
 game_version.VCS = 'VCS'

@@ -1205,7 +1205,6 @@ class PedAttractor2dfx:
         PED_STEP_ATTRACTOR = 9
         
     #######################################################
-    #######################################################
     def __init__(self, loc):
         self.effect_id = 3
         self.loc = loc

@@ -39,6 +39,7 @@ fx_psystems = ["prt_blood", "prt_boatsplash"]
 effectfile = ""
 textfile = ""
 
+
 #######################################################
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
     bl_label = "DemonFF - Miscellaneous"

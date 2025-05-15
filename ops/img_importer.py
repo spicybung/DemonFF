@@ -69,7 +69,7 @@ class ImgImporter:
 
         options = {
             'file_name': output_path,
-            'image_ext': 'png',  # Adjust if necessary
+            'image_ext': 'png', 
             'connect_bones': False,
             'use_mat_split': False,
             'remove_doubles': False,
@@ -85,9 +85,9 @@ class ImgImporter:
         bpy.context.collection.objects.link(dff_obj)
         bpy.context.view_layer.objects.active = dff_obj
         dff_obj.select_set(True)
-
+    #######################################################
     def create_dir_file(self):
-        dir_filepath = os.path.splitext(self.img_path)[0] + ".dir"
+        dir_filepath = os.path.splitext(self.img_path)[0] + ".dir"  # Creates .dir for backwards compat mapping
         with open(dir_filepath, 'wb') as dir_file:
             for entry in self.entries:
                 packed_entry = struct.pack(

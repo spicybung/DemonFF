@@ -55,6 +55,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
             (game_version.III, 'GTA III', 'GTA III map segments'),
             (game_version.VC, 'GTA VC', 'GTA VC map segments'),
             (game_version.SA, 'GTA SA', 'GTA SA map segments'),
+            (game_version.SS, 'GTA S&S', 'GTA S&S map segments'),
             (game_version.MX, 'GTA SA', 'GTA SA map segments'),
             (game_version.LCS, 'GTA LCS', 'GTA LCS map segments'),
             (game_version.VCS, 'GTA VCS', 'GTA VCS map segments'),
@@ -118,7 +119,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     @classmethod
     def unregister(cls):
         del bpy.types.Scene.dff
-
+#######################################################
 def import_ide(filepaths, context):
     for filepath in filepaths:
         if not os.path.isfile(filepath):
@@ -168,7 +169,7 @@ def import_ide(filepaths, context):
                 print(f"No matching SAMP ID found for {obj.name}")
 
     print("SAMP IDE import completed for all files")
-
+#######################################################
 def mass_import_samp_ide(filepaths, context):
     for filepath in filepaths:
         if not filepath.endswith('.ide'):
@@ -224,7 +225,7 @@ def mass_import_samp_ide(filepaths, context):
                 print(f"No matching SAMP ID found for {obj.name}")
 
     print("Mass SAMP IDE import completed")
-
+#######################################################
 class SAMP_IDE_Import_Operator(bpy.types.Operator):
     """Import SAMP .IDE File"""
     bl_idname = "object.samp_ide_import"
@@ -233,15 +234,15 @@ class SAMP_IDE_Import_Operator(bpy.types.Operator):
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="", options={'HIDDEN'}, maxlen=1024)
     filter_glob: bpy.props.StringProperty(default="*.ide", options={'HIDDEN'})
-
+    #######################################################
     def execute(self, context):
         import_ide([self.filepath], context)
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class Mass_IDE_Import_Operator(bpy.types.Operator):
     """Import .IDE Files"""
     bl_idname = "object.samp_mass_ide_import"
@@ -252,24 +253,25 @@ class Mass_IDE_Import_Operator(bpy.types.Operator):
     directory: StringProperty(subtype="DIR_PATH")
 
     filter_glob: StringProperty(default="*.ide", options={'HIDDEN'})
-
+    #######################################################
     def execute(self, context):
         filepaths = [os.path.join(self.directory, f.name) for f in self.files]
         import_ide(filepaths, context)
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class ExportToIPLOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ipl"
     bl_label = "Export Selected Objects to IPL"
     filename_ext = ".ipl"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-
+    #######################################################
     def execute(self, context):
+        #######################################################
         def export_to_ipl(file_path, objects):
             with open(file_path, 'w') as f:
                 f.write("inst\n")
@@ -314,19 +316,20 @@ class ExportToIPLOperator(bpy.types.Operator):
 
         self.report({'INFO'}, f"Exported {len(selected_objects)} objects to {output_file}")
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class ExportToIDEOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ide"
     bl_label = "Export Scene Objects to IDE"
     filename_ext = ".ide"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-
+    #######################################################
     def execute(self, context):
+        #######################################################
         def export_to_ide(file_path, objects):
             name_mapping = {}
             with open(file_path, 'w') as f:
@@ -360,11 +363,11 @@ class ExportToIDEOperator(bpy.types.Operator):
 
         self.report({'INFO'}, f"Exported {len(scene_objects)} objects to {output_file}")
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+#######################################################
 class ExportToPawnOperator(bpy.types.Operator):
     bl_idname = "object.export_to_pawn"
     bl_label = "Export Selected Objects to Pawn Script"
@@ -401,8 +404,9 @@ class ExportToPawnOperator(bpy.types.Operator):
         default=0.0,
         description="Offset for the y coordinate of the objects"
     )
-
+    #######################################################
     def execute(self, context):
+        #######################################################
         def export_to_pawn(file_path, objects):
             artconfig_path = os.path.join(os.path.dirname(file_path), 'artconfig.txt')
             baseid = 19379
@@ -479,11 +483,11 @@ class ExportToPawnOperator(bpy.types.Operator):
         self.report({'INFO'}, f"Exported {len(selected_objects)} objects to {output_file}")
         self.report({'INFO'}, f"Exported artconfig.txt to {os.path.dirname(output_file)}")
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         layout.prop(self, "model_directory")
@@ -492,12 +496,12 @@ class ExportToPawnOperator(bpy.types.Operator):
         layout.prop(self, "draw_distance")
         layout.prop(self, "x_offset")
         layout.prop(self, "y_offset")
-
+#######################################################
 class RemoveBuildingForPlayerOperator(bpy.types.Operator):
     bl_idname = "object.remove_building_for_player"
     bl_label = "Remove Building For Player"
     bl_options = {'REGISTER', 'UNDO'}
-
+    #######################################################
     def execute(self, context):
         for obj in context.selected_objects:
             obj_id = obj.get("IDE_ID", -1)
@@ -506,7 +510,7 @@ class RemoveBuildingForPlayerOperator(bpy.types.Operator):
             line = f"RemoveBuildingForPlayer(playerid, {obj_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, {radius:.2f});"
             print(line)
         return {'FINISHED'}
-    
+#######################################################
 class MapImportPanel(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
     bl_label = "DemonFF - Map Import"
@@ -514,7 +518,7 @@ class MapImportPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         settings = context.scene.dff
@@ -536,34 +540,33 @@ class MapImportPanel(bpy.types.Panel):
         row.operator("scene.demonff_map_import")
 
 #######################################################
-
 class DemonFFMapExportPanel(bpy.types.Panel):
     bl_label = "DemonFF - Map Export"
     bl_idname = "SCENE_PT_map_export"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.operator("object.export_to_ipl", text="Export IPL")
         row.operator("object.export_to_ide", text="Export IDE")
         row.operator("object.samp_mass_ide_import", text="Import IDE")
-
+#######################################################
 class DemonFFPawnPanel(bpy.types.Panel):
     bl_label = "DemonFF - Pawn"
     bl_idname = "SCENE_PT_demonff_pawn"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-
+    #######################################################
     def draw(self, context):
         layout = self.layout
         row = layout.row()
         row.operator("object.export_to_pawn", text="Export .pwn")
         row.operator("object.remove_building_for_player", text="Remove Building For Player")
-
+#######################################################
 def register():
     bpy.utils.register_class(DFFFrameProps)
     bpy.utils.register_class(DFFAtomicProps)

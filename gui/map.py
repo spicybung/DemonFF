@@ -115,6 +115,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
             (game_version.III, 'GTA III', 'GTA III map segments'),
             (game_version.VC, 'GTA VC', 'GTA VC map segments'),
             (game_version.SA, 'GTA SA', 'GTA SA map segments'),
+            (game_version.SS, 'GTA S&S', 'GTA S&S map segments'),
             (game_version.MX, 'GTA MX', 'GTA Mixed map segments'),
             (game_version.LCS, 'GTA LCS', 'GTA LCS map segments'),
             (game_version.VCS, 'GTA VCS', 'GTA VCS map segments'),
