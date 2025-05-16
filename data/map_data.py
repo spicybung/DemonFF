@@ -655,6 +655,7 @@ MX_IPL = (
     ('DATA\\MAPS\\LC\\bistro.IPL',         'bistro', ''),
     ('DATA\\MAPS\\VC\\washints.IPL',       'washints', ''),
     ('DATA\\MAPS\\VC\\washintn.IPL',       'washintn', ''),
+    ('DATA\\MAPS\\VC\\starisl.IPL',        'starisl', ''),
     ('DATA\\MAPS\\VC\\stripclb.IPL',       'stripclb', ''),
     ('DATA\\MAPS\\VC\\stadint.IPL',        'stadint', ''),
     ('DATA\\MAPS\\VC\\oceandrv.IPL',       'oceandrv', ''),

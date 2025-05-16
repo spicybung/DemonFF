@@ -766,7 +766,8 @@ class dff_importer:
             # Create and link the object to the scene
             if obj is None:
                 if len(meshes) != 1:
-                    obj = bpy.data.objects.new(frame.name, None)
+                    frame_name = frame.name if frame.name else "Unnamed_Frame"
+                    obj = bpy.data.objects.new(frame_name, None)
                     link_object(obj, dff_importer.current_collection)
 
                     # Set empty display properties to something decent
