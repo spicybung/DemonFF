@@ -162,7 +162,12 @@ class MapDataUtility:
                 for i in range(num_entries):
                     entry_data = img_file.read(entry_size)
                     offset, streaming_size, _, name = struct.unpack('IHH24s', entry_data)
-                    name = name.split(b'\x00', 1)[0].decode('utf-8')
+                    
+                    try:
+                        name = name.split(b'\x00', 1)[0].decode('utf-8')
+                    except UnicodeDecodeError:
+                        name = name.split(b'\x00', 1)[0].decode('latin-1', errors='ignore')
+
                     entries.append((offset, streaming_size, name))
 
                 # Look for ipl file in gta3.img
