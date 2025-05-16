@@ -325,8 +325,8 @@ SS_IDE = (
 
 # GTA Mixed - mod for GTA SA
 MX_IDE = (
-    'DATA\\MAPS\\countrye.IDE',
-    'DATA\\MAPS\\mixed.IDE',
+    'DATA\\countrye.IDE',
+    'DATA\\mixed.IDE',
     'DATA\\MAPS\\LC\\suburbhills.IDE',
     'DATA\\MAPS\\LC\\subroads.IDE',
     'DATA\\MAPS\\LC\\making.IDE',
@@ -678,8 +678,8 @@ MX_IPL = (
     ('DATA\\MAPS\\VC\\bridge.IPL',         'bridge', ''),
     ('DATA\\MAPS\\VC\\bank.IPL',           'bank', ''),
     ('DATA\\MAPS\\VC\\airport.IPL',        'airport', ''),
-    ('DATA\\MAPS\\countrye.IPL',           'countrye', ''),     # Modified countrye
-    ('DATA\\MAPS\\mixed.IPL',              'mixed', '')
+    ('DATA\\countrye.IPL',                 'countrye', ''),     # Modified countrye
+    ('DATA\\mixed.IPL',                    'mixed', '')
 )
 
 # GTA LCS - uses LCS PC Edition

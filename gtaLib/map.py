@@ -291,7 +291,7 @@ class MapDataUtility:
         if 'objs' in ide:
             for entry in ide['objs']:
                 if entry.id in object_data:
-                    print('OJBS ERROR!! a duplicate ID!!')
+                    print('OBJS ERROR!! a duplicate ID!!')
                 object_data[entry.id] = entry
 
         if 'tobj' in ide:
