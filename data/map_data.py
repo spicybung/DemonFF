@@ -506,7 +506,7 @@ VC_IPL = (
     ('DATA\\MAPS\\bridge\\bridge.IPL',     'bridge', ''),
     ('DATA\\MAPS\\starisl\\starisl.IPL',   'starisl', ''),
     ('DATA\\MAPS\\nbeachbt\\nbeachbt.IPL', 'nbeachbt', ''),
-    ('DATA\\MAPS\\nbeach\\nbeach',         'nbeach', ''),
+    ('DATA\\MAPS\\nbeach\\nbeach.IPL',         'nbeach', ''),
     ('DATA\\MAPS\\nbeachw\\nbeachw.IPL',   'nbeachw', ''),
     ('DATA\\MAPS\\cisland\\cisland.IPL',   'cisland', ''),
     ('DATA\\MAPS\\airport\\airport.IPL',   'airport', ''),
