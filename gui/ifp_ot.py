@@ -58,6 +58,10 @@ def read_int32(fd, num=1, en='<'):
     res = struct.unpack('%s%di' % (en, num), fd.read(4 * num))
     return res if num > 1 else res[0]
 #######################################################
+def read_uint16(fd, num=1, en='<'):
+    res = struct.unpack('%s%dH' % (en, num), fd.read(2 * num))
+    return res if num > 1 else res[0]
+#######################################################
 def read_uint32(fd, num=1, en='<'):
     res = struct.unpack('%s%dI' % (en, num), fd.read(4 * num))
     return res if num > 1 else res[0]
@@ -513,11 +517,37 @@ class AnpkBone(Bone):
             keyframes=keyframes
         )
 #######################################################
+class AnctBone(Bone):
+    @classmethod
+    def read(cls, fd):
+        # Stubbed method – update with real parsing logic if known
+        bone_id = read_uint16(fd)
+        frame_type = struct.unpack('B', fd.read(1))[0]
+        frame_count = read_uint16(fd)
+        start_time = read_uint16(fd)
+
+        keyframes = []
+        for i in range(frame_count):
+            time = i / 30.0
+            rot = Quaternion((1, 0, 0, 0))
+            pos = Vector((0, 0, 0))
+            keyframes.append(Keyframe(time, pos, rot, Vector((1, 1, 1))))
+
+        return cls(
+            name=f"Bone_{bone_id}",
+            keyframe_type=f"KRT{frame_type}",
+            use_bone_id=True,
+            bone_id=bone_id,
+            sibling_x=0,
+            sibling_y=0,
+            keyframes=keyframes
+        )
+#######################################################
 class AnctAnimation(Animation):
     @staticmethod
     def get_bone_class():
         return AnctBone
-    #######################################################v
+    #######################################################
     def get_size(self):
         name_len = len(self.name) + 1
         name_align_len = (4 - name_len % 4) % 4
@@ -570,7 +600,7 @@ class AnctBlock:
 
         anims = AnpkAnimPack.read(fd)
 
-        return Animation(name=block_name, bones=anims)  # Using bones to store animations for reuse
+        return Animation(name=block_name, bones=anims) 
 #######################################################    
 class AnpkAnimPack:
     @classmethod
