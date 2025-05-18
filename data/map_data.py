@@ -45,6 +45,23 @@ III_structures['inst'] = namedtuple("IPL_INST_3",  "id modelName posX posY posZ 
 VC_structures['inst'] =  namedtuple("IPL_INST_VC", "id modelName interior posX posY posZ scaleX scaleY scaleZ rotX rotY rotZ rotW")
 SA_structures['inst'] =  namedtuple("IPL_INST_SA", "id modelName interior posX posY posZ rotX rotY rotZ rotW lod")
 
+# BINARY IPL
+# Places objects defined in inst, or cars into the world
+III_structures['inst_binary'] = namedtuple(
+    "IPL_INST_III_BINARY",
+    "id modelName posX posY posZ rotX rotY rotZ rotW type"
+)
+
+VC_structures['inst_binary'] = namedtuple(
+    "IPL_INST_VC_BINARY",
+    "id modelName interior posX posY posZ rotX rotY rotZ rotW type"
+)
+
+SA_structures['inst_binary'] = namedtuple(
+    "IPL_INST_SA_BINARY",
+    "id modelName interior posX posY posZ rotX rotY rotZ rotW type"
+)
+
 # CULL
 # Creates zones with special attributes
 III_structures['cull'] = namedtuple("IPL_CULL_3",      "centerX centerY centerZ lowerLeftX lowerLeftY lowerLeftZ upperRightX upperRightY upperRightZ flags wantedLevelDrop")

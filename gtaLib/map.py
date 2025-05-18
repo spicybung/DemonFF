@@ -75,8 +75,24 @@ class GenericSectionUtility:
 
     #######################################################
     def getDataStructure(self, lineParams):
-        return self.dataStructures[self.sectionName]
+        struct_map = self.dataStructures
 
+        if self.sectionName == "inst":
+            field_count = len(lineParams)
+
+            if field_count == 11:
+                return struct_map.get("inst_binary")   # Binary 
+            elif field_count == 13:
+                return struct_map.get("inst")   # GTA III
+            elif field_count == 14:
+                return struct_map.get("inst")   # Vice City
+            elif field_count == 12:
+                return struct_map.get("inst")   # SA 
+            else:
+                print("INST error: Unknown number of line parameters")
+                return None
+
+        return struct_map.get(self.sectionName)
     #######################################################
     def write(self):
         pass
