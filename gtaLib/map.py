@@ -325,6 +325,56 @@ class MapDataUtility:
             'object_instances': object_instances,
             'object_data': object_data
             }
+    #######################################################
+    def getBinaryMapData(gameID, binaryIPLPath, idePaths):
+
+        data = map_data.data[gameID].copy()
+
+        # Load binary IPL
+        with open(binaryIPLPath, "rb") as f:
+            raw = f.read()
+
+        instances = []
+        for i in range(0x4C, len(raw), 80):
+            chunk = raw[i:i + 80]
+            if len(chunk) < 80:
+                break
+            pos = struct.unpack("<3f", chunk[0x00:0x0C])
+            rot = struct.unpack("<4f", chunk[0x0C:0x1C])
+            model_id = struct.unpack("<I", chunk[0x1C:0x20])[0]
+            obj_type = struct.unpack("<B", chunk[0x20:0x21])[0]
+
+            instance = data['structures']['inst_binary'](
+                model_id, "dummy", 0, pos[0], pos[1], pos[2],
+                rot[0], rot[1], rot[2], rot[3], obj_type
+            )
+            instances.append(instance)
+
+        # Load IDE files to match model_id → model_name
+        object_data = {}
+        for path in idePaths:
+            sections = MapDataUtility.readFile(
+                os.path.dirname(binaryIPLPath) + os.sep, os.path.basename(path),
+                data['structures']
+            )
+            if 'objs' in sections:
+                for entry in sections['objs']:
+                    object_data[entry.id] = entry
+            if 'tobj' in sections:
+                for entry in sections['tobj']:
+                    object_data[entry.id] = entry
+
+        # Patch modelName
+        for i, inst in enumerate(instances):
+            model = object_data.get(inst.id)
+            if model:
+                patched = inst._replace(modelName=model.modelName)
+                instances[i] = patched
+
+        return {
+            'object_instances': instances,
+            'object_data': object_data
+        }
 
     #######################################################
     def merge_dols(dol1, dol2):
