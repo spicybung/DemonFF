@@ -42,6 +42,7 @@ class SCENE_OT_demonff_map_filebrowser(bpy.types.Operator, ImportHelper):
 
     def execute(self, context):
         settings = context.scene.dff
+        settings.binary_ipl_path = self.filepath
         settings.custom_ipl_path = self.filepath
         settings.use_custom_map_section = True
 
@@ -55,12 +56,22 @@ def quat_to_degrees(quat):
             euler.z * (180 / 3.141592653589793))
 
 IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
+#######################################################
+class IDEPathItem(bpy.types.PropertyGroup):
+    name: bpy.props.StringProperty(name="IDE Path")
+#######################################################
+class DEMONFF_UL_ide_paths(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            layout.label(text=item.name)
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.label(text=item.name)
 
 #######################################################
 class DFFFrameProps(bpy.types.PropertyGroup):
     obj  : bpy.props.PointerProperty(type=bpy.types.Object)
     icon : bpy.props.StringProperty()
-
 #######################################################
 class DFFAtomicProps(bpy.types.PropertyGroup):
     obj       : bpy.props.PointerProperty(type=bpy.types.Object)
@@ -71,7 +82,6 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     #######################################################
     def update_map_sections(self, context):
         return map_data.data[self.game_version_dropdown]['IPL_paths']
-
     #######################################################
     def frames_active_changed(self, context):
         scene_dff = context.scene.dff
@@ -126,6 +136,29 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         name = 'Map segment',
         items = update_map_sections
     )
+
+    use_binary_ipl: bpy.props.BoolProperty(
+        name="Use Binary IPL",
+        description="Use binary IPL",
+        default=False
+    )
+
+    ide_paths: bpy.props.CollectionProperty(
+        type=IDEPathItem 
+    )
+
+    ide_index: bpy.props.IntProperty(
+        name="IDE Index",
+        default=0
+    )
+
+    binary_ipl_path: bpy.props.StringProperty(
+        name="Binary IPL",
+        description="Path to IPL file",
+        default="",
+        subtype='FILE_PATH'
+    )
+
 
     custom_ipl_path: bpy.props.StringProperty(
         name="Custom IPL",
@@ -310,6 +343,40 @@ class DFFSceneProps(bpy.types.PropertyGroup):
     #######################################################
     def register():
         bpy.types.Scene.dff = bpy.props.PointerProperty(type=DFFSceneProps)
+#######################################################
+class SCENE_OT_select_binary_ipl_and_import(bpy.types.Operator, ImportHelper):
+    """Select Binary IPL file and immediately import"""
+    bl_idname = "scene.select_binary_ipl_and_import"
+    bl_label = "Select and Import Binary IPL"
+
+    filename_ext = ".ipl"
+    filter_glob: StringProperty(default="*.ipl", options={'HIDDEN'})
+    #######################################################
+    def execute(self, context):
+        scene = context.scene
+        dff = scene.dff
+
+        if os.path.splitext(self.filepath)[-1].lower() == ".ipl":
+            filepath = os.path.normpath(self.filepath)
+            sep_pos = filepath.upper().find(f"DATA{os.sep}MAPS")
+            if sep_pos != -1:
+                game_root = filepath[:sep_pos]
+                dff.game_root = game_root
+                dff.binary_ipl_path = os.path.normpath(self.filepath)
+            else:
+                dff.binary_ipl_path = filepath
+
+            dff.use_binary_ipl = True
+
+
+            bpy.ops.scene.binary_import_ipl('INVOKE_DEFAULT')
+            return {'FINISHED'}
+        else:
+            self.report({'ERROR'}, "Not a valid .ipl file")
+            return {'CANCELLED'}
+    #######################################################
+    def invoke(self, context, event):
+        return context.window_manager.fileselect_add(self)
 
 #######################################################
 class SCENE_OT_select_ipl_and_import(bpy.types.Operator, ImportHelper):
@@ -319,7 +386,7 @@ class SCENE_OT_select_ipl_and_import(bpy.types.Operator, ImportHelper):
 
     filename_ext = ".ipl"
     filter_glob: StringProperty(default="*.ipl", options={'HIDDEN'})
-
+    #######################################################
     def execute(self, context):
         scene = context.scene
         dff = scene.dff
@@ -341,7 +408,7 @@ class SCENE_OT_select_ipl_and_import(bpy.types.Operator, ImportHelper):
         else:
             self.report({'ERROR'}, "Not a valid .ipl file")
             return {'CANCELLED'}
-
+    #######################################################
     def invoke(self, context, event):
         return context.window_manager.fileselect_add(self)
 
@@ -356,7 +423,7 @@ class SCENE_OT_ipl_select(bpy.types.Operator, ImportHelper):
     filter_glob : bpy.props.StringProperty(
         default="*.ipl",
         options={'HIDDEN'})
- 
+    #######################################################
     def invoke(self, context, event):
         if not context.scene.dff.game_root:
             self.report({'WARNING'}, "Specify game root folder first")
@@ -365,7 +432,7 @@ class SCENE_OT_ipl_select(bpy.types.Operator, ImportHelper):
         self.filepath = context.scene.dff.game_root + "/DATA/MAPS/"
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
- 
+    #######################################################
     def execute(self, context):
         if os.path.splitext(self.filepath)[-1] == self.filename_ext:
              filepath = os.path.normpath(self.filepath)
@@ -763,7 +830,28 @@ class RemoveBuildingForPlayerOperator(bpy.types.Operator):
             line = f"RemoveBuildingForPlayer(playerid, {obj_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, {radius:.2f});"
             print(line)
         return {'FINISHED'}
-    
+#######################################################
+class DEMONFF_UL_ide_paths(bpy.types.UIList):
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        layout.prop(item, "name", text="", emboss=True)
+#######################################################
+class AddIDEPathOperator(bpy.types.Operator):
+    bl_idname = "scene.add_ide_path"
+    bl_label = "Add IDE Path"
+    def execute(self, context):
+        context.scene.dff.ide_paths.add()
+        return {'FINISHED'}
+#######################################################
+class RemoveIDEPathOperator(bpy.types.Operator):
+    bl_idname = "scene.remove_ide_path"
+    bl_label = "Remove IDE Path"
+    def execute(self, context):
+        paths = context.scene.dff.ide_paths
+        idx = context.scene.dff.ide_index
+        if idx < len(paths):
+            paths.remove(idx)
+            context.scene.dff.ide_index = max(0, idx - 1)
+        return {'FINISHED'}
 #######################################################
 class MapImportPanel(bpy.types.Panel):
     """Creates a Panel in the scene context of the properties editor"""
@@ -772,38 +860,49 @@ class MapImportPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-    #######################################################
+    ####################################################### R*
     def draw(self, context):
         layout = self.layout
         settings = context.scene.dff
 
         flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
-
         col = flow.column()
+
         col.prop(settings, "game_version_dropdown", text="Game")
-        if settings.use_custom_map_section:
+        col.prop(settings, "use_binary_ipl", text="Use binary IPL")
+        col.prop(settings, "use_custom_map_section", text="Use custom map IPL")
+
+        col.separator()
+
+        if settings.use_binary_ipl:
+            col.label(text="Select Binary IPL and IDE(s):")
+            col.prop(settings, "binary_ipl_path", text="Binary IPL")
+            layout.template_list("DEMONFF_UL_ide_paths", "", settings, "ide_paths", settings, "ide_index")
+
+            row = layout.row(align=True)
+            row.operator("scene.add_ide_path", text="Add IDE")
+            row.operator("scene.remove_ide_path", text="Remove IDE")
+
+        elif settings.use_custom_map_section:
             col.prop(settings, "custom_ipl_path", text="Custom IPL")
+
         else:
             col.prop(settings, "map_sections", text="Map segment")
-        col.prop(settings, "use_custom_map_section", text="Use custom map segment")
 
-        col.separator()
-        col.prop("demonff.binary_import_ipl", text="Import Binary IPL")
-
-        col.separator()
         col.prop(settings, "skip_lod", text="Skip LOD objects")
 
         layout.separator()
-
         layout.prop(settings, 'game_root')
         layout.prop(settings, 'dff_folder')
 
-        if settings.use_custom_map_section:
-            layout.operator("scene.demonff_map_import", text="Import custom IPL", icon='FILE_FOLDER')
+        layout.separator()
+
+        if settings.use_binary_ipl:
+            layout.operator("scene.binary_import_ipl", text="Import Binary IPL", icon='FILE_FOLDER')
+        elif settings.use_custom_map_section:
+            layout.operator("scene.demonff_map_import", text="Import Custom IPL", icon='FILE_FOLDER')
         else:
-            layout.operator("scene.demonff_map_import", text="Import map section")
-
-
+            layout.operator("scene.demonff_map_import", text="Import IPL/IDE", icon='FILE_FOLDER')
 
 #######################################################
 class DemonFFMapExportPanel(bpy.types.Panel):
@@ -843,10 +942,12 @@ def register():
     bpy.utils.register_class(ExportToIDEOperator)
     bpy.utils.register_class(ExportToPawnOperator)
     bpy.utils.register_class(RemoveBuildingForPlayerOperator)
-    bpy.utils.unregister_class(MapImportPanel)
+    bpy.utils.register_class(MapImportPanel)
     bpy.utils.register_class(DemonFFMapExportPanel)
     bpy.utils.register_class(DemonFFPawnPanel)
-    DFFSceneProps.register()
+    bpy.utils.register_class(DEMONFF_UL_ide_paths)
+    bpy.utils.register_class(AddIDEPathOperator)
+    bpy.utils.register_class(RemoveIDEPathOperator)
 
 def unregister():
     bpy.utils.unregister_class(DFFFrameProps)
@@ -861,7 +962,11 @@ def unregister():
     bpy.utils.unregister_class(MapImportPanel)
     bpy.utils.unregister_class(DemonFFMapExportPanel)
     bpy.utils.unregister_class(DemonFFPawnPanel)
-    DFFSceneProps.unregister()
+    del bpy.types.Scene.dff.ide_paths
+    del bpy.types.Scene.dff.ide_index
+    bpy.utils.unregister_class(DEMONFF_UL_ide_paths)
+    bpy.utils.unregister_class(AddIDEPathOperator)
+    bpy.utils.unregister_class(RemoveIDEPathOperator)
 
 if __name__ == "__main__":
     register()

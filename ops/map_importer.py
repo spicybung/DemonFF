@@ -301,13 +301,25 @@ class Map_Import_Operator(bpy.types.Operator):
         self._model_cache = {}
 
         # Get all the necessary IDE and IPL data
-        map_data = map_utilites.MapDataUtility.getMapData(
-            self.settings.game_version_dropdown,
-            self.settings.game_root,
-            self.settings.map_sections,
-            self.settings.use_custom_map_section)
+        if self.settings.use_binary_ipl:
+            ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
+            if not ide_paths:
+                self.report({'ERROR'}, "No IDEs specified for Binary IPL import.")
+                return {'CANCELLED'}
 
-        
+            map_data = map_utilites.MapDataUtility.getBinaryMapData(
+                self.settings.game_version_dropdown,
+                self.filepath,
+                ide_paths
+            )
+        else:
+            map_data = map_utilites.MapDataUtility.getMapData(
+                self.settings.game_version_dropdown,
+                self.settings.game_root,
+                self.settings.map_sections,
+                self.settings.use_custom_map_section
+            )
+
         self._object_instances = map_data['object_instances']
         self._object_data = map_data['object_data']
 
@@ -406,8 +418,9 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
         # Ask user for IDE paths
         ide_paths = []
         for path in self.settings.ide_paths:
-            if path.strip():
-                ide_paths.append(path.strip())
+            if path.name.strip():
+                ide_paths.append(path.name)
+
 
         if not ide_paths:
             self.report({'ERROR'}, "No IDE paths provided in settings.ide_paths")

@@ -65,8 +65,12 @@ _classes = [
     gui.TXDImportPanel,
     gui.DFFFrameProps,
     gui.DFFAtomicProps,
+    gui.IDEPathItem,
+    gui.DEMONFF_UL_ide_paths,
     gui.DFFSceneProps,
     gui.MapImportPanel,
+    gui.AddIDEPathOperator,
+    gui.RemoveIDEPathOperator,
     gui.DFF_MT_ImportChoice,
     gui.DFF_MT_ExportChoice,
     gui.DFF_MT_EditArmature,
@@ -82,6 +86,7 @@ _classes = [
     gui.SCENE_OT_ipl_select,
     gui.SCENE_OT_duplicate_all_as_collision,
     map_importer.Map_Import_Operator,
+    map_importer.Binary_Map_Import_Operator,
     map_exporter.SAMP_IDE_Import_Operator,
     map_exporter.Mass_IDE_Import_Operator,
     map_exporter.RemoveBuildingForPlayerOperator,
@@ -105,6 +110,7 @@ _classes = [
     gui.SAEEFFECTS_PT_Panel,
     gui.IMPORT_OT_ifp,
     gui.EXPORT_OT_ifp,
+    gui.MESSAGE_OT_missing_bones,
     gui.DFF_MT_ToolWheel
 ]
 
@@ -113,6 +119,8 @@ _classes = [
 def register():
     for cls in _classes:
         register_class(cls)
+
+    bpy.types.Scene.dff = bpy.props.PointerProperty(type=gui.DFFSceneProps)
 
     bpy.types.Scene.saeffects_export_path = bpy.props.StringProperty(
         name="Binary",
