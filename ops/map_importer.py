@@ -17,9 +17,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import bpy
 import os
+import bpy
 import random
+import struct
 
 from ..ops import dff_importer, col_importer
 from ..gtaLib import map as map_utilites
@@ -372,17 +373,135 @@ class Map_Import_Operator(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+    
+bpy.types.Scene.binary_ipl_path = bpy.props.StringProperty(name="Binary IPL Path")
+#######################################################
+class Binary_Map_Import_Operator(bpy.types.Operator, ImportHelper):
+    bl_idname = "scene.binary_import_ipl"
+    bl_label = "Import Binary IPL"
+    filename_ext = ".ipl"
+    filter_glob: bpy.props.StringProperty(default="*.ipl", options={'HIDDEN'})
+    #######################################################
+    def execute(self, context):
+        context.scene.binary_ipl_path = self.filepath
+        bpy.ops.scene.select_ide_for_binary_ipl("INVOKE_DEFAULT")
+        return {'FINISHED'}
+
+#######################################################
+class Select_IDE_For_Binary_IPL(bpy.types.Operator, ImportHelper):
+    bl_idname = "scene.select_ide_for_binary_ipl"
+    bl_label = "Select IDE(s) for Binary IPL"
+    filename_ext = ".ide"
+    filter_glob: bpy.props.StringProperty(default="*.ide", options={'HIDDEN'})
+    files: bpy.props.CollectionProperty(type=bpy.types.PropertyGroup)
+    directory: bpy.props.StringProperty(subtype='DIR_PATH')
+
+    def execute(self, context):
+        ipl_path = context.scene.binary_ipl_path
+        ide_paths = [os.path.join(self.directory, f.name) for f in self.files]
+
+        self.records = import_binary_ipl(ipl_path, ide_paths)
+        self._object_instances = self.records
+        self._current_index = 0
+        self.total = len(self.records)
+
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def modal(self, context, event):
+        if event.type in {'ESC'}:
+            self.report({'WARNING'}, "Cancelled")
+            return {'CANCELLED'}
+
+        if self._current_index >= self.total:
+            return {'FINISHED'}
+
+        inst = self._object_instances[self._current_index]
+        self.import_object(context, inst)
+        self._current_index += 1
+        return {'PASS_THROUGH'}
+
+    def import_object(self, context, inst):
+        name = f"{inst['model_name']}_{inst['model_id']}"
+        obj = bpy.data.objects.new(name, None)
+        obj.location = inst['pos']
+        obj.rotation_mode = 'QUATERNION'
+        obj.rotation_quaternion = inst['rot']
+        context.collection.objects.link(obj)
+
+
+def import_binary_ipl(ipl_path, ide_paths):
+    with open(ipl_path, "rb") as f:
+        data = f.read()
+
+    records = []
+    for i in range(0x4C, len(data), 80):
+        chunk = data[i:i + 80]
+        if len(chunk) < 80:
+            break
+        pos = struct.unpack("<3f", chunk[0x00:0x0C])
+        rot = struct.unpack("<4f", chunk[0x0C:0x1C])
+        model_id = struct.unpack("<I", chunk[0x1C:0x20])[0]
+        obj_type = struct.unpack("<B", chunk[0x20:0x21])[0]
+        records.append({
+            "model_id": model_id,
+            "pos": pos,
+            "rot": rot,
+            "type": obj_type,
+            "model_name": "dummy"
+        })
+
+    def parse_ide(path):
+        result = {}
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+        in_objs = False
+        for line in lines:
+            line = line.strip()
+            if line.lower().startswith("objs"):
+                in_objs = True
+                continue
+            if line.lower().startswith("end"):
+                in_objs = False
+                continue
+            if in_objs and "," in line:
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2:
+                    try:
+                        result[int(parts[0])] = parts[1]
+                    except:
+                        continue
+        return result
+
+    model_map = {}
+    for ide in ide_paths:
+        model_map.update(parse_ide(ide))
+
+    for record in records:
+        mid = record["model_id"]
+        record["model_name"] = model_map.get(mid, "dummy")
+
+    return records
 #######################################################
 def menu_func_import(self, context):
     self.layout.operator(Map_Import_Operator.bl_idname, text="Import GTA IPL")
 #######################################################
+def menu_func_import_binary(self, context):
+    self.layout.operator(Map_Import_Operator.bl_idname, text="Import Binary IPL")
+#######################################################
 def register():
     bpy.utils.register_class(Map_Import_Operator)
+    bpy.utils.register_class(Binary_Map_Import_Operator)
+    bpy.utils.register_class(Select_IDE_For_Binary_IPL)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.append(menu_func_import_binary)
 
 def unregister():
     bpy.utils.unregister_class(Map_Import_Operator)
+    bpy.utils.unregister_class(Binary_Map_Import_Operator)
+    bpy.utils.unregister_class(Select_IDE_For_Binary_IPL)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
+    bpy.types.TOPBAR_MT_file_import.remove(menu_func_import_binary)
 
 if __name__ == "__main__":
     register()

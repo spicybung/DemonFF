@@ -45,7 +45,6 @@ class SCENE_OT_demonff_map_filebrowser(bpy.types.Operator, ImportHelper):
         settings.custom_ipl_path = self.filepath
         settings.use_custom_map_section = True
 
-        # Call the actual import operator after setting path
         bpy.ops.scene.demonff_map_import('INVOKE_DEFAULT')
         return {'FINISHED'}
 #######################################################
@@ -787,6 +786,10 @@ class MapImportPanel(bpy.types.Panel):
         else:
             col.prop(settings, "map_sections", text="Map segment")
         col.prop(settings, "use_custom_map_section", text="Use custom map segment")
+
+        col.separator()
+        col.prop("demonff.binary_import_ipl", text="Import Binary IPL")
+
         col.separator()
         col.prop(settings, "skip_lod", text="Skip LOD objects")
 
