@@ -15,11 +15,11 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
   - [X] Import
   - [x] Export
 - [X] Collision files (including the ones packed in a .dff)
-  - [X] Import
-  - [X] Export
+  - [X] Import (including SA-MP)
+  - [X] Export (including SA-MP)
 - [x] Map files (.ipl, .ide)
   - [X] Import
-  - [X] Export
+  - [X] Export (including .pwn)
 - [X] Animation files ( .ifp)
   - [X] Import
   - [ ] Export
