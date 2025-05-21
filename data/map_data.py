@@ -132,7 +132,7 @@ VC_structures['objs_2'] =  namedtuple("IDE_OBJS_VC_2",  "id modelName txdName me
 VC_structures['objs_3'] =  namedtuple("IDE_OBJS_VC_3",  "id modelName txdName meshCount drawDistance1 drawDistance2 flags")
 VC_structures['objs_4'] =  namedtuple("IDE_OBJS_VC_4",  "id modelName txdName meshCount drawDistance1 drawDistance2 drawDistance3 flags")
 
-SA_structures['objs_1'] =  namedtuple("IDE_OBJS_SA_1",  "id modelName txdName drawDistance flags")
+SA_structures['objs_1'] = namedtuple("IDE_OBJS_SA_1", "id modelName txdName lodId drawDistance")
 SA_structures['objs_2'] =  namedtuple("IDE_OBJS_SA_2",  "id modelName txdName meshCount drawDistance flags")
 SA_structures['objs_3'] =  namedtuple("IDE_OBJS_SA_3",  "id modelName txdName meshCount drawDistance1 drawDistance2 flags")
 SA_structures['objs_4'] =  namedtuple("IDE_OBJS_SA_4",  "id modelName txdName meshCount drawDistance1 drawDistance2 drawDistance3 flags")
@@ -697,7 +697,8 @@ MX_IPL = (
     ('DATA\\MAPS\\VC\\bank.IPL',           'bank', ''),
     ('DATA\\MAPS\\VC\\airport.IPL',        'airport', ''),
     ('DATA\\countrye.IPL',                 'countrye', ''),     # Modified countrye
-    ('DATA\\mixed.IPL',                    'mixed', '')
+    ('DATA\\mixed.IPL',                    'mixed', ''),
+    ('DATA\\downtown_stream1.IPL',         'downtown_stream', '')
 )
 
 # GTA LCS - uses LCS PC Edition

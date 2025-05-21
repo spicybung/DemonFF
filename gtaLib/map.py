@@ -66,7 +66,11 @@ class GenericSectionUtility:
                 print("    Line parameters: " + str(lineParams))
             else:
                 # Add entry
-                entries.append(dataStructure(*lineParams))
+                entry = dataStructure(*lineParams)
+                if hasattr(entry, "id"):
+                    entry = entry._replace(id=int(entry.id.strip().lstrip('#')))
+                entries.append(entry)
+
 
             # Read next line
             line = fileStream.readline().strip()
@@ -100,6 +104,15 @@ class GenericSectionUtility:
 #######################################################
 class OBJSSectionUtility(GenericSectionUtility):
     def getDataStructure(self, lineParams):
+        global entry
+
+
+        print(f"[DEBUG] OBJS line ({len(lineParams)} fields): {lineParams}")
+        if len(lineParams) == 5:
+            return self.dataStructures["objs_1"]
+        else:
+            print("[ERROR] Unrecognized OBJS line:", lineParams)
+  
 
         if(len(lineParams) == 5):
             dataStructure = self.dataStructures["objs_1"]
@@ -112,8 +125,18 @@ class OBJSSectionUtility(GenericSectionUtility):
         else:
             print(type(self).__name__ + " error: Unknown number of line parameters")
             dataStructure = None
+
+        if len(lineParams) == 5:
+            dataStructure = self.dataStructures["objs_1"]
+            entry = dataStructure(*lineParams)
+            entry = entry._replace(id=int(entry.id.strip().lstrip('#')))
+
+            return type(entry)
+        else:
+            return dataStructure
+
+    
         
-        return dataStructure
 
 #######################################################
 class TOBJSectionUtility(GenericSectionUtility):
@@ -326,55 +349,76 @@ class MapDataUtility:
             'object_data': object_data
             }
     #######################################################
+    @staticmethod
     def getBinaryMapData(gameID, binaryIPLPath, idePaths):
-
         data = map_data.data[gameID].copy()
 
-        # Load binary IPL
+        object_instances = []
         with open(binaryIPLPath, "rb") as f:
             raw = f.read()
 
-        instances = []
-        for i in range(0x4C, len(raw), 80):
-            chunk = raw[i:i + 80]
-            if len(chunk) < 80:
+        for i in range(0x4C, len(raw), 64):
+            chunk = raw[i:i + 64]
+            if len(chunk) < 64:
                 break
-            pos = struct.unpack("<3f", chunk[0x00:0x0C])
-            rot = struct.unpack("<4f", chunk[0x0C:0x1C])
-            model_id = struct.unpack("<I", chunk[0x1C:0x20])[0]
-            obj_type = struct.unpack("<B", chunk[0x20:0x21])[0]
 
-            instance = data['structures']['inst_binary'](
-                model_id, "dummy", 0, pos[0], pos[1], pos[2],
-                rot[0], rot[1], rot[2], rot[3], obj_type
+            model_id = struct.unpack('<H', chunk[28:30])[0]
+            print(model_id)
+            # model_name is just a placeholder string, normally parsed from IDE
+            model_name = chunk[0x04:0x1C].split(b'\x00', 1)[0].decode(errors="ignore")
+            interior_id = struct.unpack("<i", chunk[0x1C:0x20])[0]
+            pos = struct.unpack("<3f", chunk[0x20:0x2C])
+            rot = struct.unpack("<4f", chunk[0x2C:0x3C])
+            obj_type = struct.unpack("<B", chunk[0x3C:0x3D])[0]
+
+            inst = data['structures']['inst_binary'](
+                model_id, model_name, interior_id,
+                pos[0], pos[1], pos[2],
+                rot[0], rot[1], rot[2], rot[3],
+                obj_type
             )
-            instances.append(instance)
+            object_instances.append(inst)
 
-        # Load IDE files to match model_id → model_name
+        # --- Load IDE files ---
         object_data = {}
         for path in idePaths:
             sections = MapDataUtility.readFile(
                 os.path.dirname(binaryIPLPath) + os.sep, os.path.basename(path),
                 data['structures']
             )
+
+
+
             if 'objs' in sections:
                 for entry in sections['objs']:
-                    object_data[entry.id] = entry
-            if 'tobj' in sections:
-                for entry in sections['tobj']:
+                    if entry.id in object_data:
+                        print(f'OBJS ERROR!! Duplicate ID: {entry.id}')
                     object_data[entry.id] = entry
 
-        # Patch modelName
-        for i, inst in enumerate(instances):
+            if 'tobj' in sections:
+                for entry in sections['tobj']:
+                    if entry.id in object_data:
+                        print(f'TOBJ ERROR!! Duplicate ID: {entry.id}')
+                    object_data[entry.id] = entry
+
+            print(f"➡ Loaded {len(object_instances)} instances from binary IPL")
+            print(f"➡ Loaded {len(object_data)} objects from IDEs")
+            for inst in object_instances:
+                if inst.id not in object_data:
+                    print(f"⚠ No object data found for inst.id = {inst.id}")
+
+        # --- Patch modelName on each inst (if possible) ---
+        for i, inst in enumerate(object_instances):
             model = object_data.get(inst.id)
             if model:
                 patched = inst._replace(modelName=model.modelName)
-                instances[i] = patched
+                object_instances[i] = patched
 
         return {
-            'object_instances': instances,
+            'object_instances': object_instances,
             'object_data': object_data
         }
+
 
     #######################################################
     def merge_dols(dol1, dol2):

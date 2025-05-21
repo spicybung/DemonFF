@@ -433,8 +433,13 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
             ide_paths
         )
 
+        print("DEBUG: object_data keys →", map_data['object_data'].keys())  
+        
+
         self._object_instances = map_data['object_instances']
         self._object_data = map_data['object_data']
+
+
 
         # Setup Blender collections
         meshcollname = '%s Meshes' % self.settings.game_version_dropdown
@@ -529,16 +534,21 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
 
     #######################################################
     def import_object(self, context):
-        if self._inst_index >= len(self._object_instances):
+
+        # Are there any IPL entries left to import?
+        if self._inst_index > len(self._object_instances) - 1:
             self._calcs_done = True
             return
 
+        # Fetch next inst
         inst = self._object_instances[self._inst_index]
         self._inst_index += 1
 
+        # Skip LODs if user selects this
         if hasattr(inst, 'lod') and int(inst.lod) == -1 and self.settings.skip_lod:
             return
 
+        # Deleted objects that Rockstar forgot to remove?
         if inst.id not in self._object_data:
             return
 
@@ -546,37 +556,132 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
         txd = self._object_data[inst.id].txdName
 
         if inst.id in self._model_cache:
-            # Copy logic from Map_Import_Operator for caching...
-            return  # You can fill this part same as Map_Import_Operator
+
+            # Get model from memory
+            new_objects = {}
+            model_cache = self._model_cache[inst.id]
+
+            cached_objects = [obj for obj in model_cache if obj.dff.type == "OBJ"]
+            for obj in cached_objects:
+                new_obj = bpy.data.objects.new(model, obj.data)
+                new_obj.location = obj.location
+                new_obj.rotation_quaternion = obj.rotation_quaternion
+                new_obj.scale = obj.scale
+
+                modifier = new_obj.modifiers.new("EdgeSplit", 'EDGE_SPLIT')
+                # When added to some objects (empties?), returned modifier is None
+                if modifier is not None:
+                    modifier.use_edge_angle = False
+
+                if '{}.dff'.format(model) in bpy.data.collections:
+                    bpy.data.collections['{}.dff'.format(model)].objects.link(
+                        new_obj
+                    )
+                else:
+                    context.collection.objects.link(new_obj)
+                new_objects[obj] = new_obj
+
+            # Parenting
+            for obj in cached_objects:
+                if obj.parent in cached_objects:
+                    new_objects[obj].parent = new_objects[obj.parent]
+
+            # Position root object
+            for obj in new_objects.values():
+                if not obj.parent:
+                    Map_Import_Operator.apply_transformation_to_object(
+                        obj, inst
+                    )
+
+            cached_2dfx = [obj for obj in model_cache if obj.dff.type == "2DFX"]
+            for obj in cached_2dfx:
+                new_obj = bpy.data.objects.new(obj.name, obj.data)
+                new_obj.location = obj.location
+                new_obj.rotation_mode = obj.rotation_mode
+                new_obj.lock_rotation = obj.lock_rotation
+                new_obj.rotation_quaternion = obj.rotation_quaternion
+                new_obj.rotation_euler = obj.rotation_euler
+                new_obj.scale = obj.scale
+
+                if obj.parent:
+                    new_obj.parent = new_objects[obj.parent]
+
+                for prop in obj.dff.keys():
+                    new_obj.dff[prop] = obj.dff[prop]
+
+                if '{}.dff'.format(model) in bpy.data.collections:
+                    bpy.data.collections['{}.dff'.format(model)].objects.link(
+                        new_obj
+                    )
+                else:
+                    context.collection.objects.link(new_obj)
+                new_objects[obj] = new_obj
+
+            print(str(inst.id) + ' loaded from cache')
         else:
-            dff_path = os.path.join(self.settings.dff_folder, f"{model}.dff")
-            if not os.path.isfile(dff_path):
+
+            # Import dff from a file if file exists
+            if not os.path.isfile("%s/%s.dff" % (self.settings.dff_folder, model)):
                 return
+            importer = dff_importer.import_dff(
+                {
+                    'file_name'      : "%s/%s.dff" % (
+                        self.settings.dff_folder, model
+                    ),
+                    'load_txd'         : self.settings.load_txd,
+                    'txd_filename'     : "%s.txd" % txd,
+                    'skip_mipmaps'     : True,
+                    'txd_pack'         : False,
+                    'image_ext'        : 'PNG',
+                    'connect_bones'    : False,
+                    'use_mat_split'    : self.settings.read_mat_split,
+                    'remove_doubles'   : True,
+                    'group_materials'  : True,
+                    'import_normals'   : True,
+                    "materials_naming" : "DEF",
+                }
+            )
 
-            importer = dff_importer.import_dff({
-                'file_name': dff_path,
-                'load_txd': self.settings.load_txd,
-                'txd_filename': f"{txd}.txd",
-                'skip_mipmaps': True,
-                'txd_pack': False,
-                'image_ext': 'PNG',
-                'connect_bones': False,
-                'use_mat_split': self.settings.read_mat_split,
-                'remove_doubles': True,
-                'group_materials': True,
-                'import_normals': True,
-                "materials_naming": "DEF",
-            })
+            collection_objects = list(importer.current_collection.objects)
+            root_objects = [obj for obj in collection_objects if obj.dff.type == "OBJ" and not obj.parent]
 
-            objs = list(importer.current_collection.objects)
-            roots = [o for o in objs if o.dff.type == "OBJ" and not o.parent]
+            for obj in root_objects:
+                Map_Import_Operator.apply_transformation_to_object(
+                    obj, inst
+                )
 
-            for obj in roots:
-                self.apply_transformation_to_object(obj, inst)
+            # Set root object as 2DFX parent
+            if root_objects:
+                for obj in collection_objects:
+                    # Skip Road Signs
+                    if obj.dff.type == "2DFX" and obj.dff.ext_2dfx.effect != '7':
+                        obj.parent = root_objects[0]
 
+            # Move dff collection to a top collection named for the file it came from
             context.scene.collection.children.unlink(importer.current_collection)
             self._ipl_collection.children.link(importer.current_collection)
-            self._model_cache[inst.id] = objs
+
+            # Save into buffer
+            self._model_cache[inst.id] = collection_objects
+            print(str(inst.id) + ' loaded new')
+    
+        # Look for collision mesh
+        name = self._model_cache[inst.id][0].name
+        for obj in bpy.data.objects:
+            if obj.dff.type == 'COL' and obj.name.endswith("%s.ColMesh" % name):
+                new_obj = bpy.data.objects.new(obj.name, obj.data)
+                new_obj.dff.type = 'COL'
+                new_obj.location = obj.location
+                new_obj.rotation_quaternion = obj.rotation_quaternion
+                new_obj.scale = obj.scale
+                Map_Import_Operator.apply_transformation_to_object(
+                    new_obj, inst
+                )
+                if '{}.dff'.format(name) in bpy.data.collections:
+                    bpy.data.collections['{}.dff'.format(name)].objects.link(
+                        new_obj
+                    )
+                hide_object(new_obj)
 
     #######################################################
     def apply_transformation_to_object(self, obj, inst):
