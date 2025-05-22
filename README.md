@@ -38,7 +38,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
   - [X] UV Animation
 - [X] Rockstar Specular and Reflection Extensions
 - [X] 2D Effects *(Including escalators)*
-- [X] SAMP compatible models
+- [X] SAMP compatible models (SAMP Collision)
 
 ## Features Further Explained
 
@@ -52,7 +52,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 - **Rockstar Section IDs**: DemonFF supports Rockstar's Renderware section IDs, allowing you to work with R* Renderware files seamlessly.
 
-- **SAMP/open.mp Compatibility**: DemonFF is designed for compatibility with San Andreas Multiplayer (SA-MP) as well as open.mp, and comes with Pawn(.pwn) features.
+- **SAMP/open.mp Compatibility**: DemonFF is compatible with San Andreas Multiplayer (SA-MP) as well as open.mp, and comes with Pawn(.pwn) features.
   
 - **MTA Compatibility**: DemonFF is planned to support .LUA scripts for Multi Theft Auto, allowing ease during map creation(SOON...).
 
@@ -90,10 +90,10 @@ This project is licensed under the GPL 3.0 License - see the [LICENSE](LICENSE) 
 ## Acknowledgments
 
 - Special thanks to the Blender community and contributors.
-- The GTA modding community.
+- The GTA modding community as a whole.
 - The GTA Mods Wiki for being a huge considerate help in figuring things, such as data structures, out.
 - Kam, The_Hero, Goldfish, and more for their contributions to Grand Theft Auto & Renderware modding.
-- Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible.
+- Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible at the start.
 - Beckzy, as well as others from the SAMP/open.mp community for their testing & patience.
 - The SkR community, for their insipiration. 
 - Many other special people.
