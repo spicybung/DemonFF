@@ -362,22 +362,23 @@ class MapDataUtility:
             if len(chunk) < 64:
                 break
 
-            model_id = struct.unpack('<H', chunk[28:30])[0]
-            print(model_id)
-            # model_name is just a placeholder string, normally parsed from IDE
-            model_name = chunk[0x04:0x1C].split(b'\x00', 1)[0].decode(errors="ignore")
-            interior_id = struct.unpack("<i", chunk[0x1C:0x20])[0]
-            pos = struct.unpack("<3f", chunk[0x20:0x2C])
-            rot = struct.unpack("<4f", chunk[0x2C:0x3C])
-            obj_type = struct.unpack("<B", chunk[0x3C:0x3D])[0]
+            pos = struct.unpack("<3f", chunk[0x00:0x0C])
+            rot = struct.unpack("<4f", chunk[0x0C:0x1C])
+            model_id = struct.unpack("<H", chunk[0x1C:0x1E])[0]
+            interior_id = struct.unpack("<h", chunk[0x1E:0x20])[0]
+            lod_model_id = struct.unpack("<I", chunk[0x24:0x28])[0]
+
+            model_name = "dummy"    # not stored in binary - used later via IDE match
 
             inst = data['structures']['inst_binary'](
                 model_id, model_name, interior_id,
                 pos[0], pos[1], pos[2],
                 rot[0], rot[1], rot[2], rot[3],
-                obj_type
+                lod_model_id
             )
+
             object_instances.append(inst)
+
 
         # --- Load IDE files ---
         object_data = {}

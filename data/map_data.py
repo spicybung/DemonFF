@@ -40,13 +40,13 @@ SA_structures = {}
 # MULT
 
 # INST
-# Creates objects defined in objs, tobj, anim or tanm in the Blender scene
+# Places objects defined in objs, tobj, anim or tanm in the Blender scene
 III_structures['inst'] = namedtuple("IPL_INST_3",  "id modelName posX posY posZ scaleX scaleY scaleZ rotX rotY rotZ rotW")
 VC_structures['inst'] =  namedtuple("IPL_INST_VC", "id modelName interior posX posY posZ scaleX scaleY scaleZ rotX rotY rotZ rotW")
 SA_structures['inst'] =  namedtuple("IPL_INST_SA", "id modelName interior posX posY posZ rotX rotY rotZ rotW lod")
 
-# BINARY IPL
-# Creates objects defined in inst - or cars - in the Blender scene
+# BINARY INST
+# Places objects - or cars - defined in inst in the Blender scene
 III_structures['inst_binary'] = namedtuple(
     "IPL_INST_III_BINARY",
     "id modelName posX posY posZ rotX rotY rotZ rotW type"
@@ -206,7 +206,7 @@ SA_structures['weap'] = namedtuple("IDE_WEAP_SA", "id modelName txdName animatio
 
 # Paths to IDE files for each game
 # All IDEs should  be always loaded when importing maps
-# ANY IDEs must be re-imported via "Import IDE" function for export
+# *WARNING*: ANY IDEs must be re-imported via "Import IDE" function for export
 
 # GTA III
 III_IDE = (
