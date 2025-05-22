@@ -357,9 +357,9 @@ class MapDataUtility:
         with open(binaryIPLPath, "rb") as f:
             raw = f.read()
 
-        for i in range(0x4C, len(raw), 64):
-            chunk = raw[i:i + 64]
-            if len(chunk) < 64:
+        for i in range(0x4C, len(raw), 40):
+            chunk = raw[i:i + 40]
+            if len(chunk) < 40:
                 break
 
             pos = struct.unpack("<3f", chunk[0x00:0x0C])
