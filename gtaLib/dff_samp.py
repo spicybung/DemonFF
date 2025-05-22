@@ -1,4 +1,4 @@
-# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
 # 2023 - 2025 SpicyBung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# Keeping seperate track for SA-MP DFF files,
+# as some structures don't matter, and aren't calculated/needed.
 import struct
 
 from mathutils import Vector
@@ -302,7 +304,7 @@ class Sections:
         
      ########################################################
     def get_rw_version(library_id=None):
-        #see https://gtamods.com/wiki/RenderWare
+        # See: https://gtamods.com/wiki/RenderWare
 
         if library_id is None:
             library_id = Sections.library_id
@@ -315,7 +317,7 @@ class Sections:
 
     #######################################################
     def get_library_id(version, build):
-        #see https://gtamods.com/wiki/RenderWare
+        # See: https://gtamods.com/wiki/RenderWare
         
         if version <= 0x31000:
             return version >> 8
@@ -1209,24 +1211,24 @@ class PedAttractor2dfx:
         self.effect_id = 3
         self.loc = loc
 
-        self.attractor_type = 0               # INT32 - Attractor behavior/type (0 = PED_ATM_ATTRACTOR, etc.)
+        self.attractor_type = 0                # INT32 - Attractor behavior/type (0 = PED_ATM_ATTRACTOR, etc.)
         self.queue_dir = (0.0, 0.0, 0.0)       # float[3] - Queue direction vector
         self.use_dir = (0.0, 0.0, 0.0)         # float[3] - Use direction vector
         self.forward_dir = (0.0, 1.0, 0.0)     # float[3] - Forward direction vector
-        self.external_script = "none"         # CHAR[8] - External script name
+        self.external_script = "none"          # CHAR[8] - External script name
 
-        self.unknown1 = 0                     # BYTE - Unknown
-        self.unknown2 = 0                     # BYTE - Unused
-        self.unknown3 = 0                     # BYTE - Unknown
-        self.unknown4 = 0                     # BYTE - Unused
+        self.unknown1 = 0                      # BYTE - Unknown
+        self.unknown2 = 0                      # BYTE - Unused
+        self.unknown3 = 0                      # BYTE - Unknown
+        self.unknown4 = 0                      # BYTE - Unused
 
 
     #######################################################
     def __init__(self, loc):
-        self.effect_id = 3                      # INT32 - Effect ID for Ped Attractor
-        self.chunk_size = 50                    # INT32 - Chunk size (typically 56 bytes)
-        self.loc = loc                          # Vector3 - Position of the effect
-        self.Types = 0                        # INT32 - Type (PED_ATM_ATTRACTOR, etc.)
+        self.effect_id = 3                     # INT32 - Effect ID for Ped Attractor
+        self.chunk_size = 50                   # INT32 - Chunk size (typically 56 bytes)
+        self.loc = loc                         # Vector3 - Position of the effect
+        self.Types = 0                         # INT32 - Type (PED_ATM_ATTRACTOR, etc.)
         self.Right = loc.x
         self.up = loc.y
         self.forward = loc.z
@@ -1237,7 +1239,7 @@ class PedAttractor2dfx:
         self.forward_dir = (0.0, 1.0, 0.0)      # float[3] - Forward direction
         self.external_script = "none"           # CHAR[8] - Script name (like 'TICKET', 'none', etc.)
 
-        self.ped_existing_probability = 0     # INT32 - Chance ped will appear (0–100)
+        self.ped_existing_probability = 0       # INT32 - Chance ped will appear (0–100)
 
         self.unknown1 = 0                       # BYTE - Unknown
         self.unknown2 = 0                       # BYTE - Not used

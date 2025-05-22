@@ -1,4 +1,4 @@
-# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
 # 2023 - 2025 SpicyBung
 
 # This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
@@ -17,6 +17,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+# Keeping seperate track for SA-MP COL files,
+# as some structures don't matter, and aren't calculated/needed.
 from .dff import strlen
 from collections import namedtuple
 from struct import error as StructError

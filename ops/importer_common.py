@@ -1,4 +1,4 @@
-# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
 # 2023 - 2025 SpicyBung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!

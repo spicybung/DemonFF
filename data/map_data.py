@@ -1,4 +1,4 @@
-# DemonFF - Blender scripts to edit basic GTA formats to work in conjunction with SAMP/open.mp
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
 # 2023 - 2025 SpicyBung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
@@ -40,13 +40,13 @@ SA_structures = {}
 # MULT
 
 # INST
-# Places objects defined in objs, tobj, anim or tanm into the world
+# Creates objects defined in objs, tobj, anim or tanm in the Blender scene
 III_structures['inst'] = namedtuple("IPL_INST_3",  "id modelName posX posY posZ scaleX scaleY scaleZ rotX rotY rotZ rotW")
 VC_structures['inst'] =  namedtuple("IPL_INST_VC", "id modelName interior posX posY posZ scaleX scaleY scaleZ rotX rotY rotZ rotW")
 SA_structures['inst'] =  namedtuple("IPL_INST_SA", "id modelName interior posX posY posZ rotX rotY rotZ rotW lod")
 
 # BINARY IPL
-# Places objects defined in inst, or cars into the world
+# Creates objects defined in inst - or cars - in the Blender scene
 III_structures['inst_binary'] = namedtuple(
     "IPL_INST_III_BINARY",
     "id modelName posX posY posZ rotX rotY rotZ rotW type"
