@@ -870,39 +870,31 @@ class MapImportPanel(bpy.types.Panel):
 
         col.prop(settings, "game_version_dropdown", text="Game")
         col.prop(settings, "use_binary_ipl", text="Use binary IPL")
-        col.prop(settings, "use_custom_map_section", text="Use map IPL")
+        col.prop(settings, "use_custom_map_section", text="Use text IPL")
 
-        col.separator()
+        if settings.use_custom_map_section:
+            col.prop(settings, "custom_ipl_path", text="Custom IPL")
 
-        if settings.use_binary_ipl:
-            col.label(text="Select Binary IPL and IDE(s):")
-            col.prop(settings, "binary_ipl_path", text="Binary IPL")
+        col.prop(settings, "skip_lod", text="Skip LOD objects")
+
+        if settings.use_binary_ipl or settings.use_custom_map_section:
+            col.label(text="Select IDE(s) and IPL:")
             layout.template_list("DEMONFF_UL_ide_paths", "", settings, "ide_paths", settings, "ide_index")
 
             row = layout.row(align=True)
             row.operator("scene.add_ide_path", text="Add IDE")
             row.operator("scene.remove_ide_path", text="Remove IDE")
 
-        elif settings.use_custom_map_section:
-            col.prop(settings, "custom_ipl_path", text="Custom IPL")
+        layout.prop(settings, "game_root")
+        layout.prop(settings, "dff_folder")
 
-        else:
-            col.prop(settings, "map_sections", text="Map segment")
-
-        col.prop(settings, "skip_lod", text="Skip LOD objects")
-
-        layout.separator()
-        layout.prop(settings, 'game_root')
-        layout.prop(settings, 'dff_folder')
-
-        layout.separator()
-
+        # IDE paths if using binary or custom ipl is true
         if settings.use_binary_ipl:
             layout.operator("scene.binary_import_ipl", text="Import Binary IPL", icon='FILE_FOLDER')
         elif settings.use_custom_map_section:
-            layout.operator("scene.demonff_map_import", text="Import Custom IPL", icon='FILE_FOLDER')
+            layout.operator("scene.demonff_map_import", text="Import Text IPL", icon='FILE_FOLDER')
         else:
-            layout.operator("scene.demonff_map_import", text="Import IPL/IDE", icon='FILE_FOLDER')
+            layout.operator("scene.demonff_map_import", text="Import Segment IPL", icon='FILE_FOLDER')   # Can also import IDEs now too
 
 #######################################################
 class DemonFFMapExportPanel(bpy.types.Panel):

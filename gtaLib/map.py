@@ -174,6 +174,13 @@ specialSections = {
 #######################################################
 class MapDataUtility:
 
+    forced_ide_paths = None
+
+    #######################################################
+    def override_ide_paths(paths):
+        MapDataUtility.forced_ide_paths = paths
+    #######################################################
+
     # Returns a dictionary of sections found in the given file
     #######################################################
     def readFile(filepath, filename, dataStructures):
@@ -287,6 +294,11 @@ class MapDataUtility:
                         full_path = os.path.join(root_path, file)
                         ide_paths.append(os.path.relpath(full_path, gameRoot))
             data['IDE_paths'] = ide_paths
+
+        elif MapDataUtility.forced_ide_paths:
+            data['IDE_paths'] = MapDataUtility.forced_ide_paths
+            MapDataUtility.forced_ide_paths = None
+
 
         else:
             # Prune IDEs unrelated to current IPL section (SA only). First, make IDE_paths a mutable list, then iterate
@@ -404,11 +416,8 @@ class MapDataUtility:
 
             print(f"➡ Loaded {len(object_instances)} instances from binary IPL")
             print(f"➡ Loaded {len(object_data)} objects from IDEs")
-            for inst in object_instances:
-                if inst.id not in object_data:
-                    print(f"⚠ No object data found for inst.id = {inst.id}")
 
-        # --- Patch modelName on each inst (if possible) ---
+        # Patch modelName on each inst (if possible) ---
         for i, inst in enumerate(object_instances):
             model = object_data.get(inst.id)
             if model:

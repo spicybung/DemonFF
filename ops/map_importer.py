@@ -312,13 +312,19 @@ class Map_Import_Operator(bpy.types.Operator):
                 self.filepath,
                 ide_paths
             )
-        else:
+        elif self.settings.use_custom_map_section:
+            custom_ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
+            if custom_ide_paths:
+                map_utilites.MapDataUtility.override_ide_paths(custom_ide_paths)
+
             map_data = map_utilites.MapDataUtility.getMapData(
                 self.settings.game_version_dropdown,
                 self.settings.game_root,
                 self.settings.map_sections,
                 self.settings.use_custom_map_section
             )
+
+        map_utilites.MapDataUtility.forced_ide_paths = None
 
         self._object_instances = map_data['object_instances']
         self._object_data = map_data['object_data']
