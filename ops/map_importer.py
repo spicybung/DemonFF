@@ -300,6 +300,11 @@ class Map_Import_Operator(bpy.types.Operator):
         self.settings = context.scene.dff
         self._model_cache = {}
 
+        if self.settings.use_custom_map_section:
+            map_section = self.settings.custom_ipl_path
+        else:
+            map_section = self.settings.map_sections
+
         # Get all the necessary IDE and IPL data
         if self.settings.use_binary_ipl:
             ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
@@ -320,7 +325,7 @@ class Map_Import_Operator(bpy.types.Operator):
             map_data = map_utilites.MapDataUtility.getMapData(
                 self.settings.game_version_dropdown,
                 self.settings.game_root,
-                self.settings.map_sections,
+                map_section,
                 self.settings.use_custom_map_section
             )
 
@@ -346,7 +351,8 @@ class Map_Import_Operator(bpy.types.Operator):
         context.view_layer.active_layer_collection.hide_viewport = True
 
         # Create a new collection in Mesh to hold all the subsequent dffs loaded from this map section
-        self._ipl_collection = bpy.data.collections.new(self.settings.map_sections)
+        collection_name = os.path.basename(map_section)
+        self._ipl_collection = bpy.data.collections.new(collection_name)
         self._mesh_collection.children.link(self._ipl_collection)
 
         # Get a list of the .col files available

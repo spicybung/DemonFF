@@ -185,7 +185,10 @@ class MapDataUtility:
     #######################################################
     def readFile(filepath, filename, dataStructures):
 
-        fullpath = "%s%s" % (filepath, filename)
+        if os.path.isabs(filename):
+            fullpath = os.path.normpath(filename)
+        else:
+            fullpath = os.path.normpath(os.path.join(filepath, filename))
         print('\nMapDataUtility reading: ' + fullpath)
 
         sections = {}
@@ -285,8 +288,11 @@ class MapDataUtility:
 
         data = map_data.data[gameID].copy()
 
-        if isCustomIPL:
-            # Find paths to all IDEs
+        if MapDataUtility.forced_ide_paths:
+            data['IDE_paths'] = MapDataUtility.forced_ide_paths
+            MapDataUtility.forced_ide_paths = None
+        elif isCustomIPL:
+            # fallback scan if no override
             ide_paths = []
             for root_path, _, files in os.walk(os.path.join(gameRoot, "DATA/MAPS")):
                 for file in files:
@@ -294,6 +300,7 @@ class MapDataUtility:
                         full_path = os.path.join(root_path, file)
                         ide_paths.append(os.path.relpath(full_path, gameRoot))
             data['IDE_paths'] = ide_paths
+
 
         elif MapDataUtility.forced_ide_paths:
             data['IDE_paths'] = MapDataUtility.forced_ide_paths
