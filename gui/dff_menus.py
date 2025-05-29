@@ -25,6 +25,7 @@ import struct
 
 from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
     IMPORT_OT_txd, \
+    IMPORT_OT_txd_samp, \
     OBJECT_OT_dff_generate_bone_props, \
     OBJECT_OT_dff_set_parent_bone, OBJECT_OT_dff_clear_parent_bone
 from .dff_ot import SCENE_OT_dff_frame_move, SCENE_OT_dff_atomic_move, SCENE_OT_dff_update
@@ -503,14 +504,15 @@ class OBJECT_OT_set_collision_objects(bpy.types.Operator):
     bl_label = "Set All As Collision Objects"
     bl_description = "Set all selected objects to collision objects"
     bl_options = {'REGISTER', 'UNDO'}
-
+    ####################################################### 
+    @staticmethod
     def set_collision_objects(context):
         for obj in context.selected_objects:
             obj.dff.type = 'COL'
             print(f"Set {obj.name} as a collision object")
-
+    ####################################################### 
     def execute(self, context):
-        set_collision_objects(context)
+        self.set_collision_objects(context)
         return {'FINISHED'}
 #######################################################   
 class OBJECT_OT_remove_frames(bpy.types.Operator):
@@ -1669,6 +1671,7 @@ class TXDImportPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         layout.operator(IMPORT_OT_txd.bl_idname)
+        layout.operator(IMPORT_OT_txd_samp.bl_idname)
 
 #######################################################
 class DFF_UL_FrameItems(bpy.types.UIList):
@@ -1821,7 +1824,6 @@ def register():
     bpy.utils.register_class(SAEEFFECTS_PT_Panel)
     bpy.utils.register_class(OBJECT_OT_force_doubleside_mesh)
     bpy.utils.register_class(OBJECT_PT_dff_misc_panel)
-    bpy.utils.register_class
     bpy.utils.register_class(OBJECT_OT_recalculate_normals_outward)
     bpy.utils.register_class(OBJECT_OT_optimize_mesh)
     bpy.utils.register_class(COLLECTION_OT_nuke_matched)

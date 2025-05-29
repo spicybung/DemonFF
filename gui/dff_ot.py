@@ -324,8 +324,8 @@ class IMPORT_OT_txd(bpy.types.Operator, ImportHelper):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 #######################################################
-class IMPORT_OT_txd_samp_split(bpy.types.Operator, ImportHelper):
-    bl_idname = "import_scene.txd_samp_split"
+class IMPORT_OT_txd_samp(bpy.types.Operator, ImportHelper):
+    bl_idname = "import_scene.txd_samp"
     bl_description = 'Import TXD and save overflow textures (over 1000) into a new TXD'
     bl_label = "Import TXD (SAMP)"
     filename_ext = ".txd"

@@ -31,11 +31,10 @@ class DFF_MT_ToolWheel(bpy.types.Menu):
     #######################################################
     def draw(self, context):
         pie = self.layout.menu_pie()
-        pie.operator("wm.call_menu", text="Import DFF").name = "DFF_MT_ImportChoice"
         pie.operator("import_scene.txd", text="Import TXD")
+        pie.operator("import_scene.txd_samp", text="Import TXD(SAMP)")
         pie.operator("import_scene.img", text="Import IMG")
         pie.operator("object.export_to_ipl", text="Export IPL")
-        pie.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
 
 #######################################################
 def register_keymaps():
