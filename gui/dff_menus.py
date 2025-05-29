@@ -55,6 +55,8 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
         layout.operator("scene.duplicate_all_as_objects", text="Duplicate All as Objects")
         layout.operator("object.optimize_mesh", text="Optimize Mesh(SLOW)")
+        layout.operator("object.truncate_material_names", text='Truncate Material Names')
+
 
         layout.label(text="Normals Operations:")
         layout.operator("object.force_doubleside_mesh", text="Force Doubleside Mesh")
@@ -520,7 +522,7 @@ class OBJECT_OT_remove_frames(bpy.types.Operator):
     bl_label = "Remove Frames"
     bl_description = "Remove all frame-type empties from the current scene"
     bl_options = {'REGISTER', 'UNDO'}
-
+    #######################################################
     def execute(self, context):
         removed_count = 0
         for obj in list(context.scene.objects):
@@ -536,7 +538,7 @@ class OBJECT_OT_truncate_frame_names(bpy.types.Operator):
     bl_label = "Truncate Frame Names"
     bl_description = "Truncate frame names to 22 bytes, excluding specific names (2dfx, Omni, Root)"
     bl_options = {'REGISTER', 'UNDO'}
-
+    #######################################################
     def execute(self, context):
         truncated_count = 0
 
@@ -552,7 +554,40 @@ class OBJECT_OT_truncate_frame_names(bpy.types.Operator):
         self.report({'INFO'}, f"Truncated names of {truncated_count} frames.")
         return {'FINISHED'}
 #######################################################
+class OBJECT_OT_truncate_material_names(bpy.types.Operator):
+    bl_idname = "object.truncate_material_names"
+    bl_label = "Truncate Material Names"
+    bl_description = "Truncate material names on selected objects to 20 bytes"
+    bl_options = {'REGISTER', 'UNDO'}
+    #######################################################
+    def execute(self, context):
+        seen = set()
+        count = 0
 
+        for obj in context.selected_objects:
+            if not obj.type == 'MESH':
+                continue
+            for slot in obj.material_slots:
+                mat = slot.material
+                if mat and mat.name not in seen:
+                    seen.add(mat.name)
+                    original_name = mat.name
+                    name_bytes = mat.name.encode('utf-8')
+                    if len(name_bytes) > 20:
+                        # Truncate to 20 bytes safely
+                        truncated = name_bytes[:20]
+                        while True:
+                            try:
+                                mat.name = truncated.decode('utf-8')
+                                break
+                            except UnicodeDecodeError:
+                                truncated = truncated[:-1]
+                        count += 1
+                        print(f"Truncated: {original_name} → {mat.name}")
+
+        self.report({'INFO'}, f"Truncated {count} material name(s)")
+        return {'FINISHED'}
+#######################################################
 def add_light_info(context):
     for obj in context.selected_objects:
         if obj.type == 'LIGHT':

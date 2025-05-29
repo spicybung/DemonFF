@@ -122,7 +122,7 @@ class IMPORT_OT_img(Operator, ImportHelper):
 #######################################################
 class IMPORT_PT_img_panel(Panel):
     bl_idname = "IMPORT_PT_img_panel"
-    bl_label = "DemonFF - IMG Importer"
+    bl_label = "DemonFF - IMG Import"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"

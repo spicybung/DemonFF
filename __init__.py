@@ -66,6 +66,7 @@ _classes = [
     gui.COLLECTION_OT_remove_empty_collections,
     gui.COLLECTION_PT_custom_cleanup_panel,
     gui.OBJECT_OT_remove_frames,
+    gui.OBJECT_OT_truncate_material_names,
     gui.OBJECT_OT_truncate_frame_names,
     gui.EXT2DFXObjectProps,
     gui.Light2DFXObjectProps,
