@@ -22,8 +22,9 @@ import bpy
 import time
 
 from ..ops.state import State
+from ..gtaLib import txd as txd_lib
 from bpy_extras.io_utils import ImportHelper, ExportHelper
-from ..ops import dff_exporter, dff_importer, col_importer, samp_exporter
+from ..ops import dff_exporter, dff_importer, col_importer, samp_exporter, txd_importer
 
 
 #######################################################
@@ -322,6 +323,45 @@ class IMPORT_OT_txd(bpy.types.Operator, ImportHelper):
 
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+#######################################################
+class IMPORT_OT_txd_samp_split(bpy.types.Operator, ImportHelper):
+    bl_idname = "import_scene.txd_samp_split"
+    bl_description = 'Import TXD and save overflow textures (over 1000) into a new TXD'
+    bl_label = "Import TXD (SAMP)"
+    filename_ext = ".txd"
+
+    filter_glob: bpy.props.StringProperty(default="*.txd", options={'HIDDEN'})
+    filepath: bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
+
+    def execute(self, context):
+
+        full_path = self.filepath
+        base_dir = os.path.dirname(full_path)
+        base_name = os.path.splitext(os.path.basename(full_path))[0]
+
+        original_txd = txd_lib.txd()
+        original_txd.load_file(full_path)
+
+        tex_count = len(original_txd.native_textures)
+
+        if tex_count <= 1000:
+            self.report({'INFO'}, f"TXD has {tex_count} textures, no overflow.")
+            return {'FINISHED'}
+
+        # Split the TXD into main (first 1000) and overflow
+        main_textures = original_txd.native_textures[:1000]
+        overflow_textures = original_txd.native_textures[1000:]
+
+        overflow_txd = txd_lib.txd()
+        overflow_txd.native_textures = overflow_textures
+        overflow_path = os.path.join(base_dir, f"{base_name}_2.txd")
+        overflow_txd.save_file(overflow_path)
+
+        original_txd.native_textures = main_textures
+        original_txd.save_file(full_path)
+
+        self.report({'INFO'}, f"Saved {len(main_textures)} in original, {len(overflow_textures)} to {os.path.basename(overflow_path)}")
+        return {'FINISHED'}
 
 #######################################################
 class SCENE_OT_dff_frame_move(bpy.types.Operator):

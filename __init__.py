@@ -38,6 +38,7 @@ _classes = [
     gui.IMPORT_OT_dff_custom,
     gui.EXPORT_OT_dff_custom,
     gui.IMPORT_OT_txd,
+    gui.IMPORT_OT_txd_samp,
     gui.EXPORT_OT_col,
     gui.OBJECT_OT_set_collision_objects,
     gui.MATERIAL_PT_dffMaterials,
