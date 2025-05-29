@@ -21,11 +21,40 @@ import os
 import bpy
 import random
 import struct
+import tempfile
 
 from ..ops import dff_importer, col_importer
 from ..gtaLib import map as map_utilites
 from .importer_common import (hide_object)
 
+ # Converts text IPL to binary IPL for processing
+def convert_ipl_to_binary(text_ipl_path):
+    with open(text_ipl_path, "r", encoding='latin-1') as f:
+        lines = f.readlines()
+
+    entries = []
+    reading_inst = False
+    for line in lines:
+        line = line.strip()
+        if line.startswith("inst"):
+            reading_inst = True
+            continue
+        if reading_inst:
+            if line.startswith("end"):
+                break
+            parts = line.split(",")
+            if len(parts) >= 11:
+                model_id = int(parts[0])
+                interior_id = int(parts[2])
+                pos = tuple(map(float, parts[3:6]))
+                rot = tuple(map(float, parts[6:10]))
+                lod_type = int(parts[10])
+                entries.append((pos, rot, model_id, interior_id, lod_type))
+
+    # Create a temporary binary file to pass to binary reader
+    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".iplbin")
+    with open(tmp_file.name, "wb") as f:
+        header = b'bnry' + (b'\x00' * 28)
 
 #######################################################
 class Map_Import_Operator(bpy.types.Operator):
@@ -52,6 +81,10 @@ class Map_Import_Operator(bpy.types.Operator):
     _ipl_collection = None
 
     settings = None
+    #######################################################
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "import_as_binary")
     #######################################################
     def import_object(self, context):
 
@@ -211,6 +244,7 @@ class Map_Import_Operator(bpy.types.Operator):
             new_id = random.randint(100000, 999999)  # Generate a random 6-digit ID
             if new_id not in existing_ids:
                 return new_id
+            
     #######################################################
     def modal(self, context, event):
 
@@ -304,6 +338,11 @@ class Map_Import_Operator(bpy.types.Operator):
             map_section = self.settings.custom_ipl_path
         else:
             map_section = self.settings.map_sections
+
+        ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
+        if not ide_paths:
+            self.report({'ERROR'}, "No IDEs specified for import.")
+            return
 
         # Get all the necessary IDE and IPL data
         if self.settings.use_binary_ipl:

@@ -39,7 +39,11 @@ class SCENE_OT_demonff_map_filebrowser(bpy.types.Operator, ImportHelper):
 
     filename_ext = ".ipl"
     filter_glob: StringProperty(default="*.ipl", options={'HIDDEN'})
-
+    #######################################################
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "import_as_binary")
+    #######################################################
     def execute(self, context):
         settings = context.scene.dff
         settings.binary_ipl_path = self.filepath
@@ -157,6 +161,12 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         description="Path to IPL file",
         default="",
         subtype='FILE_PATH'
+    )
+
+    import_as_binary: bpy.props.BoolProperty(
+        name="Import as Binary",
+        description="Convert selected text IPL into binary before reading",
+        default=False
     )
 
 
@@ -869,13 +879,14 @@ class MapImportPanel(bpy.types.Panel):
         col = flow.column()
 
         col.prop(settings, "game_version_dropdown", text="Game")
+
+        col.prop(settings, "skip_lod", text="Skip LOD objects")
+
         col.prop(settings, "use_binary_ipl", text="Use binary IPL")
         col.prop(settings, "use_custom_map_section", text="Use text IPL")
 
         if settings.use_custom_map_section:
             col.prop(settings, "custom_ipl_path", text="Custom IPL")
-
-        col.prop(settings, "skip_lod", text="Skip LOD objects")
 
         if settings.use_binary_ipl or settings.use_custom_map_section:
             col.label(text="Select IDE(s) and IPL:")
