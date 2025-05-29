@@ -577,7 +577,7 @@ class SAMP_IDE_Import_Operator(bpy.types.Operator):
 class Mass_IDE_Import_Operator(bpy.types.Operator):
     """Import .IDE Files"""
     bl_idname = "object.samp_mass_ide_import"
-    bl_label = "Import .IDE Files"
+    bl_label = "Import IDE(s)"
     bl_options = {'REGISTER', 'UNDO'}
 
     files: CollectionProperty(type=bpy.types.PropertyGroup)
@@ -596,7 +596,7 @@ class Mass_IDE_Import_Operator(bpy.types.Operator):
 #######################################################
 class ExportToIPLOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ipl"
-    bl_label = "Export Selected Objects to IPL"
+    bl_label = "Export to IPL"
     filename_ext = ".ipl"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -654,7 +654,7 @@ class ExportToIPLOperator(bpy.types.Operator):
 #######################################################
 class ExportToIDEOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ide"
-    bl_label = "Export Scene Objects to IDE"
+    bl_label = "Export to IDE"
     filename_ext = ".ide"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -701,7 +701,7 @@ class ExportToIDEOperator(bpy.types.Operator):
 #######################################################
 class ExportToPawnOperator(bpy.types.Operator):
     bl_idname = "object.export_to_pawn"
-    bl_label = "Export Selected Objects to Pawn Script"
+    bl_label = "Export to Pawn Script"
     filename_ext = ".pwn"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -932,7 +932,7 @@ class DemonFFPawnPanel(bpy.types.Panel):
     def draw(self, context):
         layout = self.layout
         row = layout.row()
-        row.operator("object.export_to_pawn", text="Export .pwn")
+        row.operator("object.export_to_pawn", text="Export PWN")
         row.operator("object.remove_building_for_player", text="Remove Building For Player")
 #######################################################
 def register():

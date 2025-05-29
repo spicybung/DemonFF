@@ -60,7 +60,7 @@ def convert_ipl_to_binary(text_ipl_path):
 class Map_Import_Operator(bpy.types.Operator):
     """Tooltip"""
     bl_idname = "scene.demonff_map_import"
-    bl_label = "Import map section"
+    bl_label = "Import IPL/IDE"
     
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
     
