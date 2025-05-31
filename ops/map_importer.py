@@ -347,10 +347,13 @@ class Map_Import_Operator(bpy.types.Operator):
             map_section,
             self.settings.use_custom_map_section)
 
-        ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
-        if not ide_paths:
-            self.report({'ERROR'}, "No IDEs specified for import.")
-            return
+        if self.settings.use_binary_ipl or self.settings.use_custom_map_section:
+            ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
+            if not ide_paths:
+                self.report({'ERROR'}, "No IDEs specified for import.")
+                return {'CANCELLED'}
+        else:
+            ide_paths = [] 
 
         # Get all the necessary IDE and IPL data
         if self.settings.use_binary_ipl:
