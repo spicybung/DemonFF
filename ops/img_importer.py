@@ -105,7 +105,7 @@ class ImgImporter:
 #######################################################
 class IMPORT_OT_img(Operator, ImportHelper):
     bl_idname = "import_scene.img"
-    bl_label = "Import IMG File"
+    bl_label = "Import IMG(.img)"
     filename_ext = ".img"
 
     filter_glob: StringProperty(
@@ -130,11 +130,11 @@ class IMPORT_PT_img_panel(Panel):
     #######################################################
     def draw(self, context):
         layout = self.layout
-        layout.operator("import_scene.img", text="Import IMG File")
+        layout.operator("import_scene.img", text="Import IMG(.img)")
 
 #######################################################
 def menu_func_import(self, context):
-    self.layout.operator(IMPORT_OT_img.bl_idname, text="Import IMG File")
+    self.layout.operator(IMPORT_OT_img.bl_idname, text="Import IMG(.img)")
 #######################################################
 def register():
     bpy.utils.register_class(IMPORT_OT_img)

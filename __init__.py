@@ -26,7 +26,7 @@ from bpy.utils import register_class, unregister_class
 bl_info = {
     "name": "GTA DemonFF",
     "author": "SpicyBung",
-    "version": (0, 0, 4),
+    "version": (0, 0, 5),
     "blender": (2, 80, 0),      # Tested and working on 3.x & 4.x
     "category": "Import-Export",
     "location": "File > Import/Export",

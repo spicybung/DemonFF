@@ -879,14 +879,18 @@ class MapImportPanel(bpy.types.Panel):
         col = flow.column()
 
         col.prop(settings, "game_version_dropdown", text="Game")
+        
 
         col.prop(settings, "skip_lod", text="Skip LOD objects")
 
         col.prop(settings, "use_binary_ipl", text="Use binary IPL")
         col.prop(settings, "use_custom_map_section", text="Use text IPL")
 
-        if settings.use_custom_map_section:
+        if not settings.use_binary_ipl and not settings.use_custom_map_section:
+            col.prop(settings, "map_sections", text="Map segment")
+        elif settings.use_custom_map_section:
             col.prop(settings, "custom_ipl_path", text="Custom IPL")
+
 
         if settings.use_binary_ipl or settings.use_custom_map_section:
             col.label(text="Select IDE(s) and IPL:")

@@ -331,6 +331,7 @@ class Map_Import_Operator(bpy.types.Operator):
     #######################################################
     def execute(self, context):
 
+
         self.settings = context.scene.dff
         self._model_cache = {}
 
@@ -338,6 +339,13 @@ class Map_Import_Operator(bpy.types.Operator):
             map_section = self.settings.custom_ipl_path
         else:
             map_section = self.settings.map_sections
+
+        # Get all the necessary IDE and IPL data
+        map_data = map_utilites.MapDataUtility.getMapData(
+            self.settings.game_version_dropdown,
+            self.settings.game_root,
+            map_section,
+            self.settings.use_custom_map_section)
 
         ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
         if not ide_paths:
