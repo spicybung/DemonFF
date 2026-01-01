@@ -1,5 +1,5 @@
-# BLeeds - Scripts for working with R* Leeds (GTA Stories, Manhunt 2, etc) formats in Blender
-# Author: SpicyBung
+# BLeeds - Scripts for working with R* Leeds (GTA Stories, Chinatown Wars, Manhunt 2, etc) formats in Blender
+# Author: spicybung
 # Years: 2025 - 
 
 # This program is free software: you can redistribute it and/or modify
@@ -16,41 +16,47 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import os
-import bpy
 import math
 import struct
 import traceback
 
-from mathutils import Matrix, Vector
+import bpy
 from bpy.types import Operator
 from bpy.props import EnumProperty
 from bpy.props import StringProperty
 from bpy_extras.io_utils import ImportHelper
+from mathutils import Matrix, Vector
 
 #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #
-#   This script is for .MDLs, the format for pedestrians/props(& some buildings)
+#   This script is for Stories .MDLs, the file format for actors & props            #
 #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #   #
 # - Script resources:
-# • https://gtamods.com/wiki/Relocatable_chunk (pre-processed before becoming Rsl DFF)
+# • https://gtamods.com/wiki/Relocatable_chunk (pre-process)
 # • https://gtamods.com/wiki/Leeds_Engine (TODO: update stub)
 # • https://gtamods.com/wiki/MDL (TODO: update stub with more documentation in own words)
-# • https://github.com/aap/librwgta (re'd RW/Leeds Engine source by The_Hero)
-# • https://github.com/aap/librwgta/blob/master/tools/storiesconv/rsl.h
-# • https://github.com/aap/librwgta/blob/master/tools/storiesconv/rslconv.cpp
-# • https://web.archive.org/web/20180712151513/http://gtamodding.ru/wiki/MDL (Russian)
-# • https://web.archive.org/web/20180712151513/http://gtamodding.ru/wiki/MDL_importer (ditto - by Alex/AK73 & good resource to start)
+# • https://github.com/aap/librwgta (*re'd RW/Leeds Engine source by The_Hero*)
+# • https://github.com/aap/librwgta/blob/master/tools/storiesconv/rsl.h (ditto)
+# • https://github.com/aap/librwgta/blob/master/tools/storiesconv/rslconv.cpp (ditto)
+# • https://web.archive.org/web/20180712151513/http://gtamodding.ru/wiki/MDL (*Russian*)
+# • https://web.archive.org/web/20180712151513/http://gtamodding.ru/wiki/MDL_importer (*ditto - by Alex/AK73 & good resource to start*)
 # • https://web.archive.org/web/20180714005051/https://www.gtamodding.ru/wiki/GTA_Stories_RAW_Editor (ditto)
-# • https://web-archive-org.translate.goog/web/20180712151513/http://gtamodding.ru/wiki/MDL?_x_tr_sl=ru&_x_tr_tl=en&_x_tr_hl=en (English)
-# • https://web-archive-org.translate.goog/web/20180725082416/http://gtamodding.ru/wiki/MDL_importer?_x_tr_sl=ru&_x_tr_tl=en&_x_tr_hl=en (by Alex/AK73 - good resource to start)
+# • https://web-archive-org.translate.goog/web/20180712151513/http://gtamodding.ru/wiki/MDL?_x_tr_sl=ru&_x_tr_tl=en&_x_tr_hl=en (*English*)
+# • https://web-archive-org.translate.goog/web/20180725082416/http://gtamodding.ru/wiki/MDL_importer?_x_tr_sl=ru&_x_tr_tl=en&_x_tr_hl=en (by Alex/AK73 - good resource to start w/out any other documentation)
 # - Mod resources/cool stuff:
+# • https://libertycity.net/files/gta-liberty-city-stories/48612-yet-another-img-editor.html (GTA3xx .img: .mdls, textures, animations)
 # • https://gtaforums.com/topic/838537-lcsvcs-dir-files/
-# • https://gtaforums.com/topic/285544-gtavcslcs-modding/page/11/
+# • https://gtaforums.com/topic/285544-gtavcslcs-modding/
 # • https://thegtaplace.com/forums/topic/12002-gtavcslcs-modding/
+# • http://aap.papnet.eu/gta/RE/lcs_pipes.txt (a brief binary rundown of how bitflags work for PS2/PSP/Mobile Stories games)
 # • https://libertycity.net/articles/gta-vice-city-stories/6773-how-one-of-the-best-grand-theft-auto.html
-# • https://umdatabase.net/view.php?id=CB00495D
+# • https://umdatabase.net/view.php?id=CB00495D (database collection of Grand Theft Auto prototypes)
 # • https://www.ign.com/articles/2005/09/10/gta-liberty-city-stories-2 ( ...it's IGN, but old IGN at least)
+# • https://lcsteam.net/community/forum/index.php/topic,337.msg9335.html#msg9335 (RW 3.7/4.0, .MDL's, .WRLD's, .BSP's... )
+# • https://www.gamedeveloper.com/programming/opinion-why-on-earth-would-we-write-our-own-game-engine- (Renderwares fate)
+
 
 #######################################################
+# These are interesting... it seems AK73 was working on Stories animation rigging, indirectly at the least.
 # === LCS Bone Arrays ===
 commonBoneOrder = (
     "Root", "Pelvis", "Spine", "Spine1", "Neck", "Head",
@@ -98,7 +104,7 @@ commonBoneParentsLCS = {
     "R Calf": "R Thigh",
     "R Foot": "R Calf",
     "R Toe0": "R Foot"
-} # o_O
+} # o_O...
 # === VCS Bone Arrays ===
 commonBoneOrderVCS = (
     "root", "pelvis", "spine", "spine1", "neck", "head",
@@ -166,7 +172,7 @@ commonBoneParentsVCS = {
     "r_calf": "r_thigh",
     "r_foot": "r_calf",
     "r_toe0": "r_foot"
-} # o_O
+} # o_O...
 
 # === Global variables ===
 section_type = 0
@@ -213,10 +219,12 @@ frame_data_list = []
 cur_frame_data = None
 import_type = 0 
 root_dummy = None
-root_names = {"pivots"}
+root_names = {"dummy"}
 debug_log = []
 found_6C018000 = False
 actor_mdl = False 
+local_matrix_index = 0
+global_matrix_index = 0
 # TODO: sort these out
 
 # === Model Rendering Flags ===
@@ -244,7 +252,6 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
         default='PS2'
     )
 
-
     mdl_type: EnumProperty(
         name="MDL Type",
         description="Choose type for import (affects internal file pointer logic)",
@@ -255,33 +262,34 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
         default='PED'
     )
 
-
-
-
     #######################################################
     def execute(self, context):
-        return self.read_mdl(self.filepath)
+        return self.parse_mdl(self.filepath)
     #######################################################
-    def read_mdl(self, filepath):
+    def parse_mdl(self, filepath):
         try:
             with open(filepath, "rb") as f:
                 
                 import_type = 0
                 section_type = 0
+                frame_mats = {}
+                frame_mats_local = {}   # local 4x4 per frame
+                frame_mats_world = {}   # global/world 4x4 per frame
+                blender_mats = []
+                
 
                 #######################################################
                 def add_modifiers_to_mesh(mesh_obj, armature_obj=None):
-                    # Remove existing armature and edge split modifiers to avoid duplicates
+                    # Remove duplicates
                     for mod in mesh_obj.modifiers:
                         if mod.type in {'ARMATURE', 'EDGE_SPLIT'}:
                             mesh_obj.modifiers.remove(mod)
-                    # Add Edge Split modifier first (order matters for shading)
+
                     edge_split = mesh_obj.modifiers.new(name="EdgeSplit", type='EDGE_SPLIT')
-                    edge_split.split_angle = 1.0  # You may want to adjust this for Leeds models
+                    edge_split.split_angle = 1.0 # seems ok
                     edge_split.use_edge_angle = True
                     edge_split.use_edge_sharp = True
 
-                    # Then add Armature modifier if an armature is present(actors/props only)
                     if armature_obj:
                         arm_mod = mesh_obj.modifiers.new(name="Armature", type='ARMATURE')
                         arm_mod.object = armature_obj
@@ -292,7 +300,6 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     print(msg)
                 #######################################################
                 def assign_skinning(obj, armature_obj, skin_indices, skin_weights, index_to_bonename):
-
                     # Create vertex groups
                     for bone_name in index_to_bonename.values() if isinstance(index_to_bonename, dict) else index_to_bonename:
                         if bone_name and not obj.vertex_groups.get(bone_name):
@@ -327,11 +334,203 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     if not names:
                         names.append("No known render flags set")
                     return names
-                
                 #######################################################
-                def process_frame_recursive(f, frame_ptr, parent_dummy=None, dummies_list=None, log=None):
+                def _fmt4(a, b, c, d):
+                    return f"[{a: .6f}  {b: .6f}  {c: .6f}  {d: .6f}]"
+                #######################################################
+                def _print_matrix4(label, M: Matrix):
+                    # prints in a readable 4-line block
+                    print(f"{label}:")
+                    print(_fmt4(M[0][0], M[0][1], M[0][2], M[0][3]))
+                    print(_fmt4(M[1][0], M[1][1], M[1][2], M[1][3]))
+                    print(_fmt4(M[2][0], M[2][1], M[2][2], M[2][3]))
+                    print(_fmt4(M[3][0], M[3][1], M[3][2], M[3][3]))
+                #######################################################
+                def _is_near_identity(mat, eps=1e-4):
+                    I = Matrix.Identity(4)
+                    for r in range(4):
+                        for c in range(4):
+                            if abs(mat[r][c] - I[r][c]) > eps:
+                                return False
+                    return True
+                #######################################################
+                def read_global_matrix(f, offset, *, verbose=False, name="global@0x50", eps=1e-4) -> Matrix:
+
+                    cur = f.tell()
+                    f.seek(offset)
+
+                    row1 = read_point3(f)  # rot
+                    f.read(4)
+
+                    row2 = read_point3(f) # rot
+                    f.read(4)
+
+                    row3 = read_point3(f) # rot
+                    f.read(4)
+
+                    row4 = read_point3(f) # position
+                    f.read(4)
+
+                    # Now go back to pointer
+                    f.seek(cur)
+
+                    scale_factor = 1.0
+          
+                    # Multiply 4x4 translation by the scale factor
+                    x = row4.x * scale_factor
+                    y = row4.y * scale_factor
+                    z = row4.z * scale_factor 
+
+                    row4_scaled = Vector((x, y, z))
+
+                    print(f"row4 original: {row4}, row4 scaled (before translation): {row4_scaled}")
+                    print(f"row4 scaled (after translation): {row4_scaled}")
+
+                    M = Matrix((
+                        (row1.x, row2.x, row3.x, row4_scaled.x),
+                        (row1.y, row2.y, row3.y, row4_scaled.y),
+                        (row1.z, row2.z, row3.z, row4_scaled.z),
+                        (0.0,    0.0,    0.0,    1.0)
+                    )) 
+
+                    return M
+                #######################################################
+                def canon_frame_name(name: str) -> str:
+                    return name.lower().replace("~", "_").replace(" ", "_")
+                #######################################################
+                def demote_nonpalette_frames(
+                    arm_obj,
+                    *,
+                    delete_bones=True,
+                    parent_to_armature=True,
+                    make_axes="Y",
+                    empty_size=0.05,
+                    report=print
+                ):
+                    if not arm_obj or arm_obj.type != 'ARMATURE':
+                        return
+
+                    # Build allowed set from palettes
+                    allow = set(canon_frame_name(n) for n in (list(kamFrameName) + list(kamFrameNameVCS)))
+
+                    view_layer = bpy.context.view_layer
+                    for _o in view_layer.objects:
+                        _o.select_set(False)
+                    arm_obj.select_set(True)
+                    view_layer.objects.active = arm_obj
+
+                    _win = bpy.context.window
+                    _scr = _win.screen if _win else None
+                    _area = None
+                    _region = None
+                    if _scr:
+                        for _a in _scr.areas:
+                            if _a.type == 'VIEW_3D':
+                                _area = _a
+                                break
+                        if _area:
+                            for _r in _area.regions:
+                                if _r.type == 'WINDOW':
+                                    _region = _r
+                                    break
+
+                    if _area and _region:
+                        with bpy.context.temp_override(window=_win, area=_area, region=_region,
+                                                    scene=bpy.context.scene,
+                                                    view_layer=bpy.context.view_layer,
+                                                    object=arm_obj, active_object=arm_obj):
+                            bpy.ops.object.mode_set(mode='OBJECT')
+                    else:
+                        bpy.ops.object.mode_set(mode='OBJECT')
+
+                    to_demote = []
+                    for bone in arm_obj.data.bones:
+                        if canon_frame_name(bone.name) not in allow:
+                            # Object space rest matrix for this bone, then to world
+                            M_obj = bone.matrix_local.to_4x4()
+                            M_world = arm_obj.matrix_world @ M_obj
+
+                            head_w = arm_obj.matrix_world @ bone.head_local
+                            tail_w = arm_obj.matrix_world @ bone.tail_local
+
+                            y_axis = (tail_w - head_w)
+                            if y_axis.length < 1e-8:
+                                R = Matrix.Identity(3)
+                            else:
+                                y_axis.normalize()
+                                seed_x = Vector((1.0, 0.0, 0.0))
+                                if abs(seed_x.dot(y_axis)) > 0.99:
+                                    seed_x = Vector((0.0, 1.0, 0.0))
+                                x_axis = (seed_x - y_axis * seed_x.dot(y_axis)).normalized()
+                                z_axis = x_axis.cross(y_axis).normalized()
+                                R = Matrix((x_axis, y_axis, z_axis)).transposed()
+
+                            M_rot = R.to_4x4()
+                            M_rot.translation = head_w
+
+                            to_demote.append({
+                                "name": bone.name,
+                                "parent_name": bone.parent.name if bone.parent else None,
+                                "M_world": M_rot,         # orientation from head->tail
+                                "fallback_world": M_world # (unused but kept for reference)
+                            })
+
+                    if not to_demote:
+                        report("No non-palette bones to demote.")
+                        return
+
+                    created = {}
+                    for item in to_demote:
+                        bpy.ops.object.empty_add(type='PLAIN_AXES')
+                        emp = bpy.context.active_object
+                        emp.name = f"{item['name']}"
+                        emp.empty_display_size = empty_size
+                        emp.matrix_world = item["M_world"]
+                        if parent_to_armature:
+                            emp.parent = arm_obj
+                        created[item["name"]] = emp
+
+                    for item in to_demote:
+                        p = item["parent_name"]
+                        if p and p in created:
+                            created[item["name"]].parent = created[p]
+
+                    if delete_bones:
+                        if _area and _region:
+                            with bpy.context.temp_override(window=_win, area=_area, region=_region,
+                                                        scene=bpy.context.scene,
+                                                        view_layer=bpy.context.view_layer,
+                                                        object=arm_obj, active_object=arm_obj):
+                                bpy.ops.object.mode_set(mode='EDIT')
+                        else:
+                            bpy.ops.object.mode_set(mode='EDIT')
+                        ebones = arm_obj.data.edit_bones
+
+                        for item in to_demote:
+                            b = ebones.get(item["name"])
+                            if b:
+                                parent = b.parent
+                                for child in b.children:
+                                    child.parent = parent
+                                ebones.remove(b)
+                        if _area and _region:
+                            with bpy.context.temp_override(window=_win, area=_area, region=_region,
+                                                        scene=bpy.context.scene,
+                                                        view_layer=bpy.context.view_layer,
+                                                        object=arm_obj, active_object=arm_obj):
+                                bpy.ops.object.mode_set(mode='OBJECT')
+                        else:
+                            bpy.ops.object.mode_set(mode='OBJECT')
+
+                    report(f"Demoted {len(to_demote)} non-palette bones to empties.")
+                #######################################################
+                def process_frame(f, frame_ptr, parent_world=None, parent_dummy=None, dummies_list=None, log=None):
+                    global local_matrix_index, global_matrix_index
                     if frame_ptr == 0:
                         return
+                    
+                    if parent_world is None:
+                        parent_world = Matrix.Identity(4)
 
                     # === Read the bone name ===
                     if self.platform == 'PS2':
@@ -342,7 +541,6 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     if import_type == 2:
                         f.seek(4, 1)
                     bone_name_ptr = struct.unpack('<I', f.read(4))[0]
-                    log(f" padAAAA: {padAAAA:X}")
                     if bone_name_ptr != 0:
                         cur = f.tell()
                         f.seek(bone_name_ptr)
@@ -357,52 +555,63 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     else:
                         bone_name = "Bone"
 
-                    # === Filter out helpers ===
-                    # NOTE: These names are considered "helper" or root dummies and are NOT real bones.
-                    # In most Leeds MDL models, any bone/frame named like "male_base", "female_base", or similar (i.e., ending with "_base")
-                    # is the internal root frame for the model. It acts as a parent or world transform for the rest of the skeleton and mesh.
-                    # Typically, these are empties (non-rendered transforms) in modelling programs such as Max or Blender, and are used as the
-                    # organizational anchor for the armature or model. You may also see names like "pivots" or "dummy" used for similar purposes.
-                    # In exporting or proper mesh association, sub-parts of the model should reference this base frame in their names,
-                    skip_names = {"scene_root", "male_base", "female_base", "pivots", "bfyri", "dummy"}
+                    # === Filter out helpers === 
+                    skip_names = {"dummy"}
                     if bone_name.lower() in skip_names:
                         if log:
                             log(f"🗑️ Skipping dummy '{bone_name}' (not imported)")
+       
                     else:
                         # === Read the 3x4 matrix for this bone ===
-                        f.seek(frame_ptr + 0x10)  # usually matrix starts here
-                        mat, matrix_offset, (row1, row2, row3, row4) = read_matrix3x4_with_offset(f)
+                        f.seek(frame_ptr + 0x10)  # local matrix starts here
+                        mat, _, _, = read_local_matrix(f)
+
+                        local_matrix_index += 1
+                        log(f"Local 4x4 Matrix {local_matrix_index}: {mat}")
+
+                        M_world = parent_world @ mat
                         
-                        f.seek(16, 1)
+                        frame_mats[frame_ptr] = mat 
+                        frame_mats_world[frame_ptr] = M_world
+
+                        R = Matrix.Rotation(-3.14159265 / 2, 4, 'X')
+                        
+                        # There's a global matrix here that acts as an identity in LCS(not the case for VCS it seems)
+                        mat_global = read_global_matrix(f, frame_ptr + 0x50, verbose=True, name=f"Root or special: 0x{frame_ptr:X} '{bone_name}'")
+                        
+                        global_matrix_index += 1
+                        log(f"Global 4x4 Matrix {global_matrix_index}: {mat_global}")
 
                         bone_name_lc = bone_name.lower()
                         if bone_name_lc in root_names:
                             # Create the root dummy as an Empty
-                            bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0, 0, 0))
+                            bpy.ops.object.empty_add(type='PLAIN_AXES')
                             cur_dummy = bpy.context.active_object
                             cur_dummy.empty_display_size = 0.05
                             cur_dummy.name = bone_name
-                            cur_dummy.matrix_world = mat
-                            if parent_dummy:
-                                cur_dummy.parent = parent_dummy
+                            cur_dummy.matrix_world = R @ M_world 
                             # Save reference
                             root_dummy = cur_dummy
                             if log:
                                 log(f"✔ Created root dummy '{bone_name}' at 0x{frame_ptr:X}")
                             # Test: Do NOT add root_dummy to dummies_list (so it's not converted to a bone)
                         else:
-                            bpy.ops.object.empty_add(type='PLAIN_AXES', location=(0, 0, 0))
+                            bpy.ops.object.empty_add(type='PLAIN_AXES')
                             cur_dummy = bpy.context.active_object
                             cur_dummy.empty_display_size = 0.05
                             cur_dummy.name = bone_name
-                            cur_dummy.matrix_world = mat
+
+                            M = frame_mats.get(current_frame_ptr)
+
+                            if M is not None:
+                                cur_dummy.matrix_world = mat
                             if parent_dummy:
                                 cur_dummy.parent = parent_dummy
                             if dummies_list is not None:
                                 dummies_list.append(cur_dummy)
                             if log:
                                 log(f"✔ Created dummy '{bone_name}' at 0x{frame_ptr:X}, parent='{parent_dummy.name if parent_dummy else 'None'}'")
-
+                        
                     # === Recursively process children and siblings ===
                     # Find the first child pointer (at offset 0x90)
                     f.seek(frame_ptr + 0x90)
@@ -416,17 +625,31 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
 
                     # Recursively process first child (if any)
                     if child_ptr != 0:
-                        process_frame_recursive(f, child_ptr, real_parent, dummies_list, log)
+                        process_frame(
+                            f,
+                            child_ptr,
+                            parent_world=M_world,
+                            parent_dummy=cur_dummy if bone_name.lower() not in {"dummy"} else parent_dummy,
+                            dummies_list=dummies_list,
+                            log=log,
+                        )
 
                     # Recursively process next sibling (if any)
                     if sibling_ptr != 0:
-                        process_frame_recursive(f, sibling_ptr, parent_dummy, dummies_list, log)
+                        process_frame(
+                            f,
+                            sibling_ptr,
+                            parent_world=parent_world,
+                            parent_dummy=parent_dummy,
+                            dummies_list=dummies_list,
+                            log=log,
+                        )
 
                 #######################################################   
-                def convert_dummies_to_armature(dummies, armature_name="MDL_Armature", bone_size=0.05, delete_dummies=True):
+                def dummies_to_armature(dummies, armature_name="Armature", bone_size=0.05, delete_dummies=True):
 
                     if not dummies:
-                        print("No dummies provided to convert_dummies_to_armature")
+                        print("No dummies provided to dummies_to_armature")
                         return None
 
                     # Record parent relationships by object name
@@ -474,13 +697,12 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                 #######################################################
                 def read_point3(f):
                     """Reads 3 float32s from the file and returns a Vector."""
-                    return Vector(struct.unpack('<3f', f.read(12))) # Reads a Vector3
+                    return Vector(struct.unpack('<3f', f.read(12))) 
                 #######################################################
-                def read_matrix3x4_with_offset(f, scale_factor=1.0, xScale=1.0, yScale=0.25, zScale=1.0, TranslationFactor=None):
+                def read_local_matrix(f):
                     """Reads a 3x4 matrix and logs the starting offset before reading."""
                     matrix_offset = f.tell()  
                     
-                    # 3x4 Matrix has 4 rows
                     row1 = read_point3(f)  # rot
                     f.read(4)
 
@@ -493,17 +715,12 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     row4 = read_point3(f) # position
                     f.read(4)
 
-                    scaleFactor = 100 # always >100, never lower!
-                    # NOTE: A Leeds MDL will use a scale + translation factor from the file multipied by 32768.0 or 128.0(rare?),
-                    # but for custom scaling options in modelling programms such as 3DSMax - or perhaps Maya -
-                    # you have to multiply scale by a ridiculous number. However, we don't rly need it in Blender.
-                    # You could just do XYZ * scale_XYZ + posXYZ -- for now we're using globalScale anyways.
-                    # Don't ask me how or why for now. It works!
-                    globalScale = scaleFactor * 0.00000030518203134641490805874367518203
-                    # Apply x, y, z as well as any model scales + translations if we really wanted to do that
+                    scale_factor = 1.0
+                    # scaleFactor = 100 # always >100, never lower!
+                    # multiply matrix translation row by scale factor
                     x = row4.x * scale_factor
                     y = row4.y * scale_factor
-                    z = row4.z * scale_factor
+                    z = row4.z * scale_factor 
 
                     row4_scaled = Vector((x, y, z))
 
@@ -517,7 +734,212 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                         (0.0,    0.0,    0.0,    1.0)
                     )) 
                     return mat, matrix_offset, (row1, row2, row3, row4_scaled) # Read 3x4 Matrix transposed as 4x4
-                
+                #######################################################
+                def assign_strip_weights(
+                    big_obj, arm_obj,
+                    strip_skin_idx, strip_skin_wts,
+                    index_to_bonename, vbase,
+                    normalize=True, per_vertex_replace=True, eps=1e-8
+                ):
+                    assert big_obj.type == 'MESH'
+                    assert arm_obj and arm_obj.type == 'ARMATURE'
+                    assert len(strip_skin_idx) == len(strip_skin_wts)
+
+                    arm_mod = next((m for m in big_obj.modifiers if m.type == 'ARMATURE'), None)
+                    if arm_mod is None:
+                        arm_mod = big_obj.modifiers.new("Armature", 'ARMATURE')
+                    arm_mod.object = arm_obj
+                    #######################################################
+                    def ensure_group(name: str):
+                        vg = big_obj.vertex_groups.get(name)
+                        return vg if vg else big_obj.vertex_groups.new(name=name)
+
+                    for local_v, (inds, wts) in enumerate(zip(strip_skin_idx, strip_skin_wts)):
+                        vidx = vbase + local_v
+                        if vidx >= len(big_obj.data.vertices):
+                            raise RuntimeError(f"Strip write OOB: vidx={vidx}, total={len(big_obj.data.vertices)}")
+
+                        if per_vertex_replace:
+                            for vg in big_obj.vertex_groups:
+                                try: vg.remove([vidx])
+                                except RuntimeError: pass
+
+                        if normalize:
+                            s = sum(max(0.0, float(w)) for w in wts)
+                            wts = [(float(w)/s if s > 0.0 else 0.0) for w in wts]
+                        else:
+                            wts = [float(w) if (w is not None and w > 0.0) else 0.0 for w in wts]
+
+                        for bi, w in zip(inds, wts):
+                            if w <= eps:
+                                continue
+                            bone_name = index_to_bonename.get(int(bi))
+                            if not bone_name:
+                                continue
+                            vg = ensure_group(bone_name)
+                            vg.add([vidx], w, 'REPLACE')
+                #######################################################
+                def build_index_to_bonename(armature_obj, log=print):
+                    lcs_palette = list(commonBoneOrder) if 'commonBoneOrder' in globals() else []
+                    vcs_palette = list(commonBoneNamesVCS) if 'commonBoneNamesVCS' in globals() else []
+
+                    def canon(s):
+                        return s.lower().replace("~", "_").replace(" ", "_")
+
+                    arma_names = [b.name for b in armature_obj.data.bones]
+                    arma_set = {canon(n) for n in arma_names}
+
+                    def score(palette):
+                        return sum(1 for n in palette if canon(n) in arma_set)
+
+                    candidates = []
+                    if lcs_palette: candidates.append(("LCS", lcs_palette, score(lcs_palette)))
+                    if vcs_palette: candidates.append(("VCS", vcs_palette, score(vcs_palette)))
+                    candidates.sort(key=lambda x: x[2], reverse=True)
+
+                    chosen = None
+                    if candidates and candidates[0][2] > 0:
+                        chosen = candidates[0][1]
+                        log(f"✔ Bone palette: {candidates[0][0]} (matched {candidates[0][2]} names)")
+                    else:
+                        chosen = sorted(arma_names, key=lambda s: canon(s))
+                        log("⚠ No canonical palette matched; using name-sorted armature order as palette")
+
+                    index_to_bonename = {}
+                    canon_to_real = {canon(n): n for n in arma_names}
+                    for i, palette_name in enumerate(chosen):
+                        c = canon(palette_name)
+                        real = canon_to_real.get(c)
+                        if real:
+                            index_to_bonename[i] = real
+                        else:
+                            index_to_bonename[i] = None
+
+                    return index_to_bonename
+                #######################################################
+                def _ensure_color_layer(mesh, name="Col", *, prefer_byte=True):
+                    # Use BYTE_COLOR for 0–255 RGBA, FLOAT_COLOR for 0.0–1.0
+                    ca = mesh.color_attributes.get(name)
+                    if ca is None:
+                        ca_type = 'BYTE_COLOR' if prefer_byte else 'FLOAT_COLOR'
+                        ca = mesh.color_attributes.new(name=name, type=ca_type, domain='CORNER')
+                    else:
+                        if ca.domain != 'CORNER' or ca.data_type not in {'BYTE_COLOR', 'FLOAT_COLOR'}:
+                            mesh.color_attributes.remove(ca)
+                            ca = mesh.color_attributes.new(name=name, type='BYTE_COLOR' if prefer_byte else 'FLOAT_COLOR', domain='CORNER')
+                    return ca
+                #######################################################
+                def _blit_vertex_colors(mesh, faces, colors_any, *, assume_255=True):
+                    prefer_byte = assume_255
+                    ca = _ensure_color_layer(mesh, "Col", prefer_byte=prefer_byte)
+                    loop_data = ca.data
+                    verts = mesh.vertices
+                    loops = mesh.loops
+
+                    def _norm(c):
+                        # Normalize to 0..1 float for assignment; Blender accepts both,
+                        # but we convert consistently here.
+                        if not c:
+                            return (1.0, 1.0, 1.0, 1.0)
+                        if len(c) == 3:
+                            r, g, b = c
+                            a = 255 if assume_255 and isinstance(r, int) else 1.0
+                        else:
+                            r, g, b, a = c[:4]
+                        if isinstance(r, int) or isinstance(g, int) or isinstance(b, int) or isinstance(a, int):
+                            # Treat numbers as 0–255
+                            return (r/255.0, g/255.0, b/255.0, (a/255.0 if a is not None else 1.0))
+                        return (float(r), float(g), float(b), float(a if a is not None else 1.0))
+
+                    per_vertex = (len(colors_any) == len(verts))
+                    per_corner = (len(colors_any) == len(loops))
+
+                    if per_corner:
+                        for li in range(len(loops)):
+                            loop_data[li].color = _norm(colors_any[li])
+                        return
+
+                    if per_vertex:
+                        # Map each loop's vertex_index to a color
+                        for li, loop in enumerate(loops):
+                            vi = loop.vertex_index
+                            loop_data[li].color = _norm(colors_any[vi])
+                        return
+
+                    total_loops = sum(len(p) for p in faces)
+                    if len(colors_any) == total_loops:
+                        cursor = 0
+                        for poly in mesh.polygons:
+                            for li in range(poly.loop_start, poly.loop_start + poly.loop_total):
+                                loop_data[li].color = _norm(colors_any[cursor])
+                                cursor += 1
+                        return
+
+                    # If we got here, shape doesn't match so fill white so that the layer exists.
+                    for li in range(len(loops)):
+                        loop_data[li].color = (1.0, 1.0, 1.0, 1.0)
+
+                #######################################################
+                def create_material(desc, *, index=0, report=print):
+                    tex_name = desc.get("texture") or f"mat_{index:02d}"
+                    rgba_u32 = desc.get("rgba")
+                    spec = desc.get("specular")
+
+                    mat_name = f"{tex_name}"
+                    material = bpy.data.materials.get(mat_name)
+                    if material is None:
+                        material = bpy.data.materials.new(mat_name)
+                    material.use_nodes = True
+
+                    nt = material.node_tree
+                    nodes = nt.nodes
+                    links = nt.links
+
+                    out = nodes.get("Material Output")
+                    if out is None:
+                        out = nodes.new("ShaderNodeOutputMaterial")
+                    for n in [n for n in nodes if n != out]:
+                        nodes.remove(n)
+
+                    principled = nodes.new("ShaderNodeBsdfPrincipled")
+                    principled.location = (-200, 0)
+                    out.location = (200, 0)
+                    links.new(principled.outputs["BSDF"], out.inputs["Surface"])
+
+                    # Color from RGBA (AARRGGBB)
+                    if isinstance(rgba_u32, int):
+                        a = ((rgba_u32 >> 24) & 0xFF) / 255.0
+                        r = ((rgba_u32 >> 16) & 0xFF) / 255.0
+                        g = ((rgba_u32 >>  8) & 0xFF) / 255.0
+                        b = ((rgba_u32 >>  0) & 0xFF) / 255.0
+                        principled.inputs["Base Color"].default_value = (r, g, b, 1.0)
+                        principled.inputs["Alpha"].default_value = a
+                        if a < 0.999:
+                            material.blend_method = 'BLEND'
+                            material.shadow_method = 'HASHED'
+                    else:
+                        principled.inputs["Base Color"].default_value = (0.8, 0.8, 0.8, 1.0)
+
+                    if spec is not None:
+                        principled.inputs["Specular"].default_value = max(0.0, min(1.0, float(spec)))
+
+                    report(f"✔ Built Blender material: {mat_name}")
+                    return material
+                #######################################################
+                def _ensure_material_slots(obj, mats, *, report=print):
+                    me = obj.data
+                    me.materials.clear()
+                    for m in mats:
+                        me.materials.append(m)
+                    id_to_slot = {i: i for i in range(len(mats))}
+                    report(f"✔ Assigned {len(mats)} material slots to object '{obj.name}'")
+                    return id_to_slot
+                #######################################################
+                def _ensure_single_material(obj, mat, *, report=print):
+                    me = obj.data
+                    me.materials.clear()
+                    me.materials.append(mat)
+                    report(f"✔ Set single material '{mat.name}' on object '{obj.name}'")
                 #######################################################
                 def read_i8():
                     return struct.unpack('<b', f.read(1))[0]    # Reads a signed 8-bit integer
@@ -562,10 +984,10 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                 if f.read(4) != b'ldm\x00':  # ModelInfo identifier for file(i.e PedModel) - where we begin to read the file(TODO: WRLD)
                     self.report({'ERROR'}, "Invalid Stories MDL header") # Not a Stories MDL?
                     return {'CANCELLED'}     # eject process if invalid
-                shrink = read_u32()          # 1 if GTAG resource image, else always 0(file not shrank). Also used for Master/Slave WRLD's?
+                shrink = read_u32()          # 1 if GTAG resource image, else always 0(file not shrank). Bytes also used in Global/Master/Slave WRLDs
                 file_len = read_u32()        # physical fiile size
                 local_numTable = read_u32()  # local reallocation table (NOTE: if local_numTable = global_numTable, than file = global/one table only)
-                global_numTable = read_u32() # global reallocation table
+                global_numTable = read_u32() # global pointer reallocation table
                 
                 # --- If PSP, skip 4 bytes after global_numTable ---
                 is_psp = (self.platform == 'PSP') # import_type = 3
@@ -644,6 +1066,7 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     if self.mdl_type == 'PROP':
                         f.seek(-4, 1)
                     top_level_ptr = read_u32()
+
                 else:
                     log("Pointer after allocMem type could not be determined; treating as unknown/flags.")
                     renderflags_offset = possible_ptr
@@ -661,18 +1084,19 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                 top_magic = read_u32()
 
                 # Markers(vTables?) for R* Leeds section extensions since Leeds Engine doesn't use RW plug-ins
-                LCSCLUMPPS2 = 0x00000002     # ditto for LCS/VCS PSP
+                LCSCLUMPPS2 = 0x00000002     # shared in LCS across all platforms, as well as VCS PSP 
                 VCSCLUMPPS2 = 0x0000AA02
-                CLUMPPSP   = 0x00000002      
-                LCSATOMIC1 = 0x01050001      # renders first
-                LCSATOMIC2 = 0x01000001      # renders last
-                VCSATOMIC1 = 0x0004AA01      # renders first
-                VCSATOMIC2 = 0x0004AA01      # renders last
-                VCSATOMICPSP1 = 0x01F40400
-                VCSATOMICPSP2 = 0x01F40400   # this structure appears similar to VCSATOMIC1&2
-                VCSPS2FRAME1  = 0x0180AA00    # (?) or something else, like VCSSKIN
-                VCSPS2FRAME2  = 0x0003AA01
-                VCSFRAMEPSP1  = 0X0380B100    # this is similar to gtaDrawables in RAGE; are these vtables?
+                CLUMPPSP   = 0x00000002
+                LCSATOMIC1 = 0x01050001      # renders first?
+                LCSATOMIC2 = 0x01000001      # renders last?
+                VCSATOMIC1 = 0x0004AA01      # renders first?
+                VCSATOMIC2 = 0x00AA0003      # renders last? props only?
+                VCSATOMICPSP1 = 0x01F40400   # this structure appears similar to VCSATOMIC1&2
+                VCSATOMICPSP2 = 0x01F40400   # (?)
+                # VCSPS2FRAME1  = 0x0003AA01  # the root frame for PS2 models
+                # VCSPS2FRAME2  = 0x0180AA00  # subsequent frames
+                # VCSFRAMEPSP1  = 0X0380B100  # the root frame for PSP models
+                # VCSFRAMEPSP2  = 0x0180B200  # subsequent frames
 
                 if top_magic in (LCSCLUMPPS2, VCSCLUMPPS2):
                     section_type = 7
@@ -695,7 +1119,7 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                 if section_type == 7:
                     log("✔ Detected Section Type: 7 (Clump)")
                     #RslElementGroup
-                    clump_id = read_u32()   # vTable?
+                    clump_id = read_u32()       # vTable??
                     first_frame = read_u32()    # our entry into frames
                     first_atomic = read_u32()   # our entry into atomics
                     atomic_seek = first_atomic - 0x1C   # we'll start by seeking & reading atomics to see if we can get frames
@@ -727,10 +1151,12 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     atomic_id = read_u32()  # vTable?
                     
                     frame_ptr = read_u32()  # our entry into the frame(s)
+
+                    current_frame_ptr = frame_ptr
                     
-                    prev_link = read_u32() # prev atomic ptr somehow?
+                    prev_link = read_u32() # prev atomic ptr
                     
-                    prev_link2 = read_u32() # prev atomic ptr again somehow?
+                    prev_link2 = read_u32() # prev atomic ptr again
                     
                     padAAAA = read_u32()       # AAAAAAAA (necessary for Leeds Engine rendering)
 
@@ -773,17 +1199,19 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                     if self.mdl_type == 'PED':
                         
                         # === Frame/bone loop ===
-                        process_frame_recursive(f, frame_ptr, parent_dummy=None, dummies_list=dummies, log=log)
-
+                        process_frame(f, frame_ptr, parent_world=None, parent_dummy=None, dummies_list=dummies, log=log)
+                        
                         # === Map bone names to dummy objects ===
                         def canonical_bone_name(name):
                             return name.lower().replace("~", "_").replace(" ", "_")
 
                         bone_name_to_dummy = {canonical_bone_name(obj.name): obj for obj in dummies}
                         
-                        # === Use our dummy helpers to create bones(should be correct hierarchy order) & set up armature ===
-                        armature_obj = convert_dummies_to_armature(dummies, armature_name="MDL_Armature", bone_size=0.05, delete_dummies=True)
+                        # === Use our dummy helpers to create bones & set up armature ===
+                        armature_obj = dummies_to_armature(dummies, armature_name="Armature", bone_size=0.05, delete_dummies=True)
                         
+                        demote_nonpalette_frames(armature_obj, delete_bones=True, parent_to_armature=True, empty_size=0.05, report=log)
+
                     # For BUILDING/PROP: skip ALL bone logic, just continue to geometry
                     f.seek(geom_ptr)
                     section_type = 3
@@ -842,7 +1270,7 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                     current_material["rgba"] = rgba
                                     log(f"    🎨 RGBA Value: 0x{rgba:08X}")
 
-                                    _ = read_u32()  # Unknown value
+                                    _ = read_u32()  # Unknown value (what is this?)
 
                                     spec_ptr = read_u32()
                                     log(f"    ⤷ Specular Ptr: 0x{spec_ptr:X}")
@@ -859,9 +1287,15 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                     f.seek(old_mat_pos)
                                     current_atomic_material_list.append(current_material)
 
-                                    # TODO: MatFX
+                                    # TODO: MatFX here?
 
                                 f.seek(old_pos)
+
+                                # === Build Blender materials for this atomic, in the same order as material_id ===
+                                blender_mats.clear()
+                                for i, mdesc in enumerate(current_atomic_material_list):
+                                    bm = create_material(mdesc, index=i, report=log)
+                                    blender_mats.append(bm)
                                 
                                 # Skip 13 DWORDs
                                 for i in range(13):
@@ -882,22 +1316,26 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                 log(f"🟧 zScale is at file offset: 0x{zscale_offset-4:X}")
                                 log(f"✔ xScale: {xScale}, yScale: {yScale}, zScale: {zScale}")
 
-                                # Read overall translation as floats, apply scale factor
+                                # Read overall translation for meshes
                                 scaleFactor = 100
-                                TranslationFactor = {}
+
+                                # Read overall translation X, multiply by scale factor, divide by 100
                                 offset_x = f.tell()
-                                TranslationFactor['x'] = struct.unpack('<f', f.read(4))[0] * scaleFactor 
-                                log(f"✔ TranslationFactor['x'] read at file offset: 0x{offset_x:X} ({offset_x})")
+                                tx = struct.unpack('<f', f.read(4))[0] * scaleFactor / 100
+                                log(f"✔ TranslationFactor X read at file offset: 0x{offset_x:X} ({offset_x})")
 
-                                # Read Y
+                                # Read overall translation Y, multiply by scale factor, divide by 100
                                 offset_y = f.tell()
-                                TranslationFactor['y'] = struct.unpack('<f', f.read(4))[0] * scaleFactor / 100
-                                log(f"✔ TranslationFactor['y'] read at file offset: 0x{offset_y:X} ({offset_y})")
+                                ty = struct.unpack('<f', f.read(4))[0] * scaleFactor / 100
+                                log(f"✔ TranslationFactor Y read at file offset: 0x{offset_y:X} ({offset_y})")
 
-                                # Read Z
+                                # Read overall translation Z, multiply by scale factor, divide by 100
                                 offset_z = f.tell()
-                                TranslationFactor['z'] = struct.unpack('<f', f.read(4))[0] * scaleFactor / 100
-                                log(f"✔ TranslationFactor['z'] read at file offset: 0x{offset_z:X} ({offset_z})")
+                                tz = struct.unpack('<f', f.read(4))[0] * scaleFactor / 100
+                                log(f"✔ TranslationFactor Z read at file offset: 0x{offset_z:X} ({offset_z})")
+
+                                # Store overall Translation as tuple
+                                TranslationFactor = (tx, ty, tz)
 
                                 log(f"✔ TranslationFactor: {TranslationFactor}")
                                 
@@ -941,6 +1379,9 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                     # Prepare empty lists to accumulate the vertices and faces for this part
                                     part_verts = []
                                     part_faces = []
+                                    strips_meta = []
+                                    part_vcols = []
+                                    part_loop_colors = []
 
                                     # vert_base is always zero for each part; it would be used if vertex indices were global
                                     vert_base = 0
@@ -962,7 +1403,7 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                
                                     if 'partOffsets' in locals():
                                         log("====== Geometry dmaPacket Offsets ======")
-                                        for i, part_offset in enumerate(partOffsets):   # dmaPacket = exclusive to PS2
+                                        for i, part_offset in enumerate(partOffsets): 
                                             log(f"Part {i+1}: dmaPacket offset 0x{geoStart + part_offset:X}")
                                         log("===================================")
                                     
@@ -970,8 +1411,6 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                         # Save the current offset in case we want to log where we start looking for markers
                                         marker_seek = f.tell()
                                         log(f"🔎 Looking for triangle strip marker at offset: 0x{marker_seek:X}")
-
-                                        
 
                                         # Read 4 bytes as a potential marker
                                         marker = struct.unpack('<I', f.read(4))[0]
@@ -982,7 +1421,7 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                             log(f"✔ 0x6C018000 split flag found at 0x{split_flag_offset:X} -- reading split section header...")
 
                                             # Read and log each split block header field (these are always in this order)
-                                            marker_bytes = f.read(4)  # already read, but you may want to re-log bytes for clarity
+                                            marker_bytes = f.read(4) 
                                             log(f"  [0x{f.tell()-4:X}] marker: {marker_bytes.hex()} (should be 00 80 01 6C)")
 
                                             zeros1_offset = f.tell()
@@ -1123,16 +1562,19 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                         
                                          # we'll collect all the new vertices for this strip in here before adding them to the main list.
                                         verts = []
-
-                                        
+          
                                         skin_indices = []
                                         skin_weights = []
 
-                                        # Before we add anything, let's remember how many verts we already had for this part.
-                                        # That way, when we make faces, our indices won't get messed up & everything stays nicely in order.
+                                        # remember how many verts we already had for this part
                                         base_idx = len(part_verts)
 
                                         globalScale = scaleFactor * 0.00000030518203134641490805874367518203
+
+                                        if TranslationFactor is None:
+                                            tx = ty = tz = 0.0
+                                        else:
+                                            tx, ty, tz = float(TranslationFactor[0]), float(TranslationFactor[1]), float(TranslationFactor[2])
 
                                         for vi in range(curStripVertCount):
                                             offset_x = f.tell()
@@ -1142,9 +1584,9 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                             offset_z = f.tell()
                                             z_raw = struct.unpack('<h', f.read(2))[0]
 
-                                            x = x_raw * xScale * globalScale
-                                            y = y_raw * yScale * globalScale
-                                            z = z_raw * zScale * globalScale
+                                            x = x_raw * xScale * globalScale + tx
+                                            y = y_raw * yScale * globalScale + ty
+                                            z = z_raw * zScale * globalScale + tz
 
                                             verts.append((x, y, z))
 
@@ -1154,17 +1596,6 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                             log(f"           • Z Offset: 0x{offset_z:X}, Raw: {z_raw}, Final: {z:.6f}")
                                         
                                         part_verts.extend(verts)
-                                        
-                                        # After the for-loop reading all vertices in the strip
-                                        # For vertex/attribute data, there is two technical sectors(404040, 505050...)
-                                        tech_sectors = []
-                                        for i in range(3):
-                                            sector_bytes = f.read(4)    # necessary stuff for Leeds Engine rendering
-                                            tech_sectors.append(sector_bytes)
-                                            as_int = int.from_bytes(sector_bytes, byteorder='little', signed=False)
-                                            log(f"    Attribute Technical Sector {i}: {sector_bytes.hex()} (int: {as_int})")
-
-                                        log(f"  Technical Sectors after vertices: {[s.hex() for s in tech_sectors]}")
                                         
                                         # Now create faces for this strip:
                                         for i in range(2, curStripVertCount):
@@ -1193,7 +1624,7 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                         padByte2 = struct.unpack('<B', f.read(1))[0]
                                         log(f"    ⬛ curStripTVertCount: {curStripTVertCount} (pad2={padByte2}) at 0x{f.tell():X}")
                                         
-                                        UV_SCALE = 4096.0  # or maybe 2048 in some models - 4096 seems standard for LCS/VCS
+                                        UV_SCALE = 32768.0 #  PS2 divides by 32767
                                         
                                         uvs = []
                                         for i in range(curStripTVertCount):
@@ -1235,7 +1666,6 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                                 log(f"📍 Rewound to file offset: 0x{rewound_pos:X} ({rewound_pos})")
                                                 break
       
-
                                             # === If it's a known split attribute subsection ===
                                             elif b1 == 0x80 and b3 in (0x6F, 0x6A, 0x6C):
                                                 # We have a split attribute header!
@@ -1248,9 +1678,9 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                                     log(f"      🎨 Reading {section_count} vertex colors")
                                                     for i in range(section_count):
                                                         vcolor = struct.unpack('<H', f.read(2))[0]
-                                                        r = (vcolor & 0x1F) * (1.0 / 31.0)
-                                                        g = ((vcolor >> 5) & 0x1F) * (1.0 / 31.0)
-                                                        b = ((vcolor >> 10) & 0x1F) * (1.0 / 31.0)
+                                                        r = (vcolor & 0x1F) * (1.0 / 32.0)
+                                                        g = ((vcolor >> 5) & 0x1F) * (1.0 / 32.0)
+                                                        b = ((vcolor >> 10) & 0x1F) * (1.0 / 32.0)
                                                         a = ((vcolor >> 15) & 0x01) * 1.0
                                                         log(f"         R={r:.3f} G={g:.3f} B={b:.3f} A={a:.1f} (raw=0x{vcolor:04X})")
                                                     pad = 2 - ((2 * section_count) % 4)
@@ -1260,46 +1690,65 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                                 elif b3 == 0x6A:
                                                     log(f"      🧲 Reading {section_count} normals")
                                                     for i in range(section_count):
-                                                        nx = struct.unpack('<b', f.read(1))[0] / 127.0
-                                                        ny = struct.unpack('<b', f.read(1))[0] / 127.0
-                                                        nz = struct.unpack('<b', f.read(1))[0] / 127.0
+                                                        nx = struct.unpack('<b', f.read(1))[0] / 128.0
+                                                        ny = struct.unpack('<b', f.read(1))[0] / 128.0
+                                                        nz = struct.unpack('<b', f.read(1))[0] / 128.0
                                                         log(f"         N={nx:.4f} {ny:.4f} {nz:.4f}")
                                                     pad = 4 - ((3 * section_count) % 4)
                                                     if pad != 4:
                                                         f.read(pad)
 
-
                                                 elif b3 == 0x6C:
                                                     log(f"      🦴 Reading {section_count} skin weights")
                                                     for i in range(section_count):
-                                                        bone1 = struct.unpack('<B', f.read(1))[0] // 4
+                                                        bone1 = struct.unpack('<H', f.read(2))[0] // 4
                                                         f.read(1)
-                                                        w1 = struct.unpack('<H', f.read(2))[0] / 4096.0
-                                                        bone2 = struct.unpack('<B', f.read(1))[0] // 4
+                                                        w1 = struct.unpack('<B', f.read(1))[0] / 128.0
+                                                        bone2 = struct.unpack('<H', f.read(2))[0] // 4
                                                         f.read(1)
-                                                        w2 = struct.unpack('<H', f.read(2))[0] / 4096.0
-                                                        bone3 = struct.unpack('<B', f.read(1))[0] // 4
+                                                        w2 = struct.unpack('<B', f.read(1))[0] / 128.0
+                                                        bone3 = struct.unpack('<H', f.read(2))[0] // 4
                                                         f.read(1)
-                                                        w3 = struct.unpack('<H', f.read(2))[0] / 4096.0
-                                                        bone4 = struct.unpack('<B', f.read(1))[0] // 4
+                                                        w3 = struct.unpack('<B', f.read(1))[0] / 128.0
+                                                        bone4 = struct.unpack('<H', f.read(2))[0] // 4
                                                         f.read(1)
-                                                        w4 = struct.unpack('<H', f.read(2))[0] / 4096.0
-                                                        log(f"         B1={bone1} W1={w1:.4f} ... B4={bone4} W4={w4:.4f}")
+                                                        w4 = struct.unpack('<B', f.read(1))[0] / 128.0
 
-                                                        # ✅ NEW: build the per-vertex lists ---------------------------
+
+                                                        # build the per-vertex lists
                                                         indices  = [bone1, bone2, bone3, bone4]
                                                         weights  = [w1,    w2,    w3,    w4   ]
-                                                        # --------------------------------------------------------------
 
-                                                        log(f"         B1={bone1} W1={w1:.4f} ... B4={bone4} W4={w4:.4f}")
+                                                        log(f"         B1={bone1} W1={w1:.4f} B2={bone2} W2={w2:.4f} B3={bone3} W3={w3:.4f} B4={bone4} W4={w4:.4f}")
 
                                                         skin_indices.append(indices)
                                                         skin_weights.append(weights)
+                                                    
+
                                                 continue  # After reading this split subsection, see if there's another
-                                
-                                    root_empty = bpy.data.objects.get("MDL_Root")
+
+                                        # === After UVs and attribute subsections, once skin_indices/skin_weights are populated ===
+                                        if len(skin_indices) != curStripVertCount or len(skin_weights) != curStripVertCount:
+                                            log(f"[WARN] strip verts={curStripVertCount}, skin_idx={len(skin_indices)}, skin_wts={len(skin_weights)} — padding zeros to match")
+                                            # pad if file omits some weights for this strip, which we want to avoid or diagnose
+                                            while len(skin_indices) < curStripVertCount:
+                                                skin_indices.append([0, 0, 0, 0])
+                                                skin_weights.append([0.0, 0.0, 0.0, 0.0])
+                                            skin_indices = skin_indices[:curStripVertCount]
+                                            skin_weights = skin_weights[:curStripVertCount]
+
+                                        # Record where this strip was appended into the part mesh’s vertex list
+                                        strips_meta.append(
+                                            (base_idx, curStripVertCount, list(skin_indices), list(skin_weights))
+                                        )
+
+                                        # reset, start new strip
+                                        skin_indices.clear()
+                                        skin_weights.clear()
+                                    
+                                    root_empty = bpy.data.objects.get("scene_root")
                                     if root_empty is None:
-                                        root_empty = bpy.data.objects.new("MDL_Root", None)
+                                        root_empty = bpy.data.objects.new("scene_root", None)
                                         bpy.context.collection.objects.link(root_empty)
                                         root_empty.empty_display_size = 0.05
                                     else:
@@ -1307,45 +1756,113 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                             bpy.context.collection.objects.link(root_empty)
                                     # Fix root
                                     root_empty.location = (0, 0, 0)
- 
+
                                     # If we have any vertices collected for this part,
                                     # proceed to create a Blender mesh object for it
                                     if part_verts:
                                         # Create a new Blender mesh data block for this part,
                                         # naming it uniquely by the part index
-                                        mesh = bpy.data.meshes.new(f"ImportedMDL_Part{part_index}")
+                                        mesh = bpy.data.meshes.new(f"Mesh_{part_index}")
                                         
                                         # Create a new Blender object that uses this mesh
-                                        obj = bpy.data.objects.new(f"ImportedMDL_Part{part_index}", mesh)
-                                        
+                                        obj = bpy.data.objects.new(f"Mesh_{part_index}", mesh)
+
+                                        # For this part:
+                                        part_mat_id = int(partMaterials[part_index])
+                                        if 0 <= part_mat_id < len(blender_mats):
+                                            _ensure_single_material(obj, blender_mats[part_mat_id], report=log)
+                                        else:
+                                            log(f"⚠ part_mat_id {part_mat_id} out of range (0..{len(blender_mats)-1}). Leaving default material.")
+
                                         
                                         # Link the object to the current Blender collection,
                                         # so it actually appears in the scene
                                         bpy.context.collection.objects.link(obj)
-                                        
 
+                                        part_mat_id = int(partMaterials[part_index])
+                                        if 0 <= part_mat_id < len(blender_mats):
+                                            _ensure_single_material(obj, blender_mats[part_mat_id], report=log)
+                                        else:
+                                            log(f"⚠ part_mat_id {part_mat_id} out of range (0..{len(blender_mats)-1}). Leaving default material.")
                                         
-                                        # Fill the mesh with our decoded geometry data:
-                                        # - 'part_verts' is the full list of (x, y, z) vertices for this part
-                                        # - the second argument (edges) is left as an empty list, since this model
-                                        #   format only defines triangles, not stand-alone edges
-                                        # - 'part_faces' contains all the (v0, v1, v2) triangle indices
-                                        mesh.from_pydata(part_verts, [], part_faces)
-
-                                        ps2_index_to_bonename = {i: b.name for i, b in enumerate(armature_obj.data.bones)}
-                                        assign_skinning(obj, armature_obj, skin_indices, skin_weights, ps2_index_to_bonename)
                                         add_modifiers_to_mesh(obj, armature_obj)
                                         
-                                        # Update the mesh, which tells Blender to finish calculating face normals,
-                                        # topology, etc., for display and further operations
+                                        # Fill the mesh
+                                        mesh.from_pydata(part_verts, [], part_faces)
+
+                                        # --- Vertex colors ---
+                                        assume_255 = True 
+                                        try:
+                                            if 'part_loop_colors' in locals() and part_loop_colors:
+                                                _blit_vertex_colors(mesh, part_faces, part_loop_colors, assume_255=assume_255)
+                                            elif 'part_vcols' in locals() and part_vcols:
+                                                _blit_vertex_colors(mesh, part_faces, part_vcols, assume_255=assume_255)
+                                            elif 'mesh_colors' in locals() and mesh_colors:
+                                                _blit_vertex_colors(mesh, part_faces, mesh_colors, assume_255=assume_255)
+                                            elif vertex_colors:
+                                                _blit_vertex_colors(mesh, part_faces, vertex_colors, assume_255=assume_255)
+                                            else:
+                                                # ensure a visible layer even if a model has no colors
+                                                _blit_vertex_colors(mesh, part_faces, [(255,255,255,255)] * len(mesh.loops), assume_255=assume_255)
+                                        except Exception as e:
+                                            log(f"Vertex-color write failed: {e}")
+
+
+                                        # --- Vertex color assignment (safe + unified) ---
+                                        # Only run if we actually collected any colors
+                                        if 'mesh_colors' in locals() and mesh_colors:
+                                            # Create/ensure a CORNER (per-loop) layer so shared verts can differ by face
+                                            ca = mesh.color_attributes.get("Col")
+                                            if ca is None:
+                                                # BYTE_COLOR is perfect for 0–255 data we read from the file
+                                                ca = mesh.color_attributes.new(name="Col", type='BYTE_COLOR', domain='CORNER')
+
+                                            loops = mesh.loops
+
+                                            def as_float_rgba(c):
+                                                # Accept (r,g,b) or (r,g,b,a) in either 0–255 ints or 0–1 floats
+                                                if not c:
+                                                    return (1.0, 1.0, 1.0, 1.0)
+                                                if len(c) == 3:
+                                                    r, g, b = c; a = 255 if isinstance(r, int) else 1.0
+                                                else:
+                                                    r, g, b, a = c[:4]
+                                                if isinstance(r, int) or isinstance(g, int) or isinstance(b, int) or isinstance(a, int):
+                                                    return (r/255.0, g/255.0, b/255.0, (a/255.0 if a is not None else 1.0))
+                                                return (float(r), float(g), float(b), float(a if a is not None else 1.0))
+
+                                            if len(mesh_colors) == len(mesh.vertices):
+                                                # Map each loop’s vertex_index to that vertex’s color
+                                                for li, loop in enumerate(loops):
+                                                    vi = loop.vertex_index
+                                                    ca.data[li].color = as_float_rgba(mesh_colors[vi])
+                                            elif len(mesh_colors) == len(loops):
+                                                for li in range(len(loops)):
+                                                    ca.data[li].color = as_float_rgba(mesh_colors[li])
+                                            else:
+                                                for li in range(len(loops)):
+                                                    ca.data[li].color = (1.0, 1.0, 1.0, 1.0)
+
+                                            mesh.color_attributes.active_color = ca
+                                            mesh.color_attributes.render_color = ca
+
+                                        # Build palette-based mapping: fileIndex -> boneName
+                                        index_to_bonename = build_index_to_bonename(armature_obj, log)
+
+                                        # Assign weights per strip
+                                        for vbase, count, s_idx, s_wts in strips_meta:
+                                            assign_strip_weights(
+                                                obj, armature_obj, s_idx, s_wts, index_to_bonename, vbase,
+                                                normalize=True, per_vertex_replace=True
+                                            )
+                                        
+                                        # Update the mesh, which tells Blender to finish calculating face normals
                                         mesh.update()
                                         
-                                        # Log a success message, reporting the mesh and the number of vertices imported
                                         log(f"✔ Imported mesh part {part_index} with {len(part_verts)} verts")
-                                                                             
-                                        offset_z = 0.88 # hackish but needed a way to have meshes + armature together for now
-                                        imported_meshes = [obj for obj in bpy.context.collection.objects if obj.name.startswith("ImportedMDL_Part")]
-                                                       
+                                                                                
+                                        imported_meshes = [obj for obj in bpy.context.collection.objects if obj.name.startswith("Mesh_")]
+                                                        
                                         # === PARENT ARMATURE TO MDL_ROOT(male/female base) ===
                                         armature_obj.parent = root_empty
                                         print(f"✔ Parented armature '{armature_obj.name}' to '{root_empty.name}'.")
@@ -1360,17 +1877,25 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                             arm_mod = mesh_obj.modifiers.new(name="Armature", type='ARMATURE')
                                             arm_mod.object = armature_obj
                                             print(f"✔ Assigned armature modifier to {mesh_obj.name}")
-                                            # Set armature as parent
-                                            mesh_obj.parent = armature_obj
+ 
+                                            M_world = frame_mats.get(current_frame_ptr)
+                                            R = Matrix.Rotation(-math.pi/2, 4, 'X')
+
+                                            M_world = frame_mats_world.get(frame_ptr)  # world for the parent frame
+                                            if M_world is not None:
+                                                # match the mesh(es) to armature space
+                                                obj.matrix_world = M_world
+
+                                            obj.parent = armature_obj
+                                            obj.matrix_parent_inverse = armature_obj.matrix_world.inverted()
+
                                         # Move only the mesh object upward in local space
                                         for obj in imported_meshes:
                                             obj.parent = root_empty
-                                        mesh_obj.location.z += offset_z
                                     else:
-                                        # If there were no vertices found for this part,
-                                        # log a warning message indicating the issue
                                         log(f"✗ No vertices found to import in part {part_index}!")
-                                        
+                            
+                            # Going off on our own here now, using librwgta as a ref...
                             # === PSP geometry struct logic ===
                         elif self.platform == 'PSP':
                             log(f" Attempting PSP Stories MDL read...")
@@ -1445,7 +1970,8 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                     f.seek(old_mat_pos)
                                     current_atomic_material_list.append(current_material)
 
-                                    # TODO: MatFX
+
+                                    # TODO: MatFX here?
 
                                 f.seek(old_pos)
                             f.seek(12, 1)
@@ -1632,6 +2158,7 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                 mesh_colors = []
                                 mesh_normals = []
                                 mesh_weights = []
+                                mesh_indices = []
 
                                 # For PSP, the triangle strips are typically indexed implicitly, not with explicit index buffers.
                                 # We'll read vertices in order, build triangle strips according to mesh['numTriangles'].
@@ -1666,22 +2193,35 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                     v = {}
                                     local_o = 0
 
-                                    # === Weights(Skin) ===
+                                    # === Weights (PSP) ===
                                     if wghtfmt:
-                                        w = []
-                                        for j in range(nwght):
-                                            w.append(vertex_data[local_o])
-                                            local_o += 1
-                                        v['w'] = [w[j]/128.0 for j in range(min(4, nwght))]
-                                        v['i'] = [mesh['bonemap'][j] for j in range(min(4, nwght))]
-                                        for j in range(len(v['w']), 4):
-                                            v['w'].append(0.0)
-                                            v['i'].append(0)
-                                            for j in range(4, nwght):
-                                                if w[j] != 0:
-                                                    log(f"Warning: nonzero unused weight byte (w[{j}] = {w[j]}) in vertex; ignored")
-                                        mesh_weights.append(v['w'])
 
+                                        weights_raw = [vertex_data[local_o + j] for j in range(nwght)]
+                                        local_o += nwght 
+
+                                        K = min(4, nwght)
+                                        w4 = [weights_raw[j] / 128.0 for j in range(K)]
+                                        if K < 4:
+                                            w4.extend([0.0] * (4 - K))
+
+                                        palette = mesh.get('bonemap') or []
+                                        idx4 = []
+                                        for j in range(K):
+                                            idx4.append(palette[j] if j < len(palette) else 0)
+                                        if K < 4:
+                                            idx4.extend([0] * (4 - K))
+
+                                        s = sum(w4)
+                                        if s > 0.0:
+                                            w4 = [w / s for w in w4]
+
+                                        if nwght > 4 and any(x != 0 for x in weights_raw[4:]):
+                                            log(f"PSP: vertex had {nwght} weights; extra bytes beyond 4 were non-zero and ignored: {weights_raw[4:]}")
+
+                                        v['w'] = w4
+                                        v['i'] = idx4
+                                        mesh_weights.append(w4)
+                                        mesh_indices.append(idx4)
                                     # === UVs ===
                                     if uvfmt == 1:
                                         v['u'] = vertex_data[local_o]/128.0 * mesh['uvScale'][0]
@@ -1741,15 +2281,20 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                                         mesh_faces.append((v0, v1, v2))
                                         
                                 # Create Blender mesh object for this mesh/strip
-                                # This is also the point I realized The_Hero and LCS Team updated
+                                # This is also the point I read that The_Hero and LCS Team updated
                                 # Alex(AK73)'s 3DSMax MDL Importer from 1.0.0 to 3.0.0 10+ years ago lol
+                                # ... yet it's nowhere to be found
+
                                 mesh_verts, mesh_faces = (mesh_verts, mesh_faces)
                                 mesh_data = bpy.data.meshes.new(f"PSP_Mesh_{mesh_index}")
                                 mesh_obj = bpy.data.objects.new(f"PSP_Mesh_{mesh_index}", mesh_data)
                                 bpy.context.collection.objects.link(mesh_obj)
-                                                       
+                            
                                 mesh_data.from_pydata(mesh_verts, [], mesh_faces)
                                 mesh_data.update()
+
+                                M_world = frame_mats_world.get(frame_ptr)
+                                mesh_obj.matrix_world = M_world
                                 
                                 log(f"✔ Built Blender mesh: PSP_Mesh_{mesh_index}, verts={len(mesh_verts)}, faces={len(mesh_faces)}")
                                 # TODO: handle UVs, colors, normals, weights here by creating layers and assigning them
@@ -1772,8 +2317,6 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                 pass
             return {'CANCELLED'}
 
-
-        # Write debug log to file at the end
         txt_path = os.path.splitext(filepath)[0] + "_import_log.txt"
         try:
             with open(txt_path, 'w', encoding='utf-8') as outf:
@@ -1785,16 +2328,15 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 #######################################################
 def menu_func_import(self, context):
-    self.layout.operator(ImportMDLOperator.bl_idname, text="R* Leeds Model(.MDL)")
-#######################################################
+    self.layout.operator(ImportMDLOperator.bl_idname, text="R* Leeds: Stories Model (.mdl)")
+
 def register():
     bpy.utils.register_class(ImportMDLOperator)
     bpy.types.TOPBAR_MT_file_import.append(menu_func_import)
-#######################################################
+
 def unregister():
     bpy.utils.unregister_class(ImportMDLOperator)
     bpy.types.TOPBAR_MT_file_import.remove(menu_func_import)
-#######################################################
 
 if __name__ == "__main__":
     register()  
