@@ -22,5 +22,6 @@ from .dff_menus import *
 from .pie_menus import *
 from .dff_ot import *
 from .map import *
+from .mdl_ot import *
 from .tdfx_ot import *
 from .ifp_ot import *

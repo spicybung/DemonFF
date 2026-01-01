@@ -17,9 +17,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import math
+
 from ..gtaLib import dff
-from mathutils import Vector
 from ..gtaLib.dff import entries
+
+from mathutils import Vector
 
 
 #######################################################

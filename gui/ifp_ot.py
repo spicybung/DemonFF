@@ -24,6 +24,38 @@ from os import SEEK_CUR
 from dataclasses import dataclass
 from mathutils import Matrix, Vector, Quaternion
 
+# LCS/VCS/Manhunt2 bone names mapped to standard GTA SA/RenderWare bone names
+LCS_VCS_TO_GTA_SA_BONE_MAP = {
+    "jaw": "Jaw",
+    "l_foot": "L Foot",
+    "l_calf": "L Calf",
+    "l_thigh": "L Thigh",
+    "r_toe0": "R Toe0",
+    "r_foot": "R Foot",
+    "r_calf": "R Calf",
+    "r_thigh": "R Thigh",
+    "spine": "Spine",
+    "pelvis": "Pelvis",
+    "root": "Root",
+    "pivots": "Root",         # Could be ignored/skipped, or mapped to Root
+    "male_base": "Root",      # Ditto
+    "scene_root": "Root",     # Ditto
+    "l_finger": "L Finger",
+    "l_hand": "L Hand",
+    "l_forearm": "L Forearm",
+    "l_upperarm": "L UpperArm",
+    "bip01_l_clavicle": "L Clavicle",
+    "r_finger": "R Finger",
+    "r_hand": "R Hand",
+    "r_forearm": "R Forearm",
+    "r_upperarm": "R UpperArm",
+    "bip01_r_clavicle": "R Clavicle",
+    "neck": "Neck",
+    "spine1": "Spine1",
+    "l_toe0": "L Toe0",
+    "head": "Head"
+}
+
 
 #######################################################
 bl_info = {
@@ -126,11 +158,24 @@ def create_action(arm_obj, anim, fps, global_matrix):
     missing_bones = set()
 
     for b in anim.bones:
-        # Always match bones by name first, fallback to fuzzy name comparison if needed
-        bone = arm_obj.data.bones.get(b.name)
+        # Map IFP bone name to target Leeds/SA armature name
+        mapped_bone_name = b.name
+        # Try mapping from GTA SA → LCS/VCS (for IFP import to Leeds skeleton)
+        for leeds_bone, gta_bone in LCS_VCS_TO_GTA_SA_BONE_MAP.items():
+            if b.name == gta_bone:
+                mapped_bone_name = leeds_bone
+                break
+        # Fallback: if importing an IFP *with Leeds names* into a SA rig, remap Leeds→SA instead
+        if mapped_bone_name not in arm_obj.data.bones and b.name in LCS_VCS_TO_GTA_SA_BONE_MAP:
+            mapped_bone_name = LCS_VCS_TO_GTA_SA_BONE_MAP[b.name]
+
+        bone = arm_obj.data.bones.get(mapped_bone_name)
         if not bone:
-            # Try fuzzy match (case-insensitive or partial name matching)
+            # Try fuzzy match (case-insensitive, partial, both original and mapped)
+            bone = next((bref for bref in arm_obj.data.bones if mapped_bone_name.lower() in bref.name.lower()), None)
+        if not bone:
             bone = next((bref for bref in arm_obj.data.bones if b.name.lower() in bref.name.lower()), None)
+
 
 
         if bone:

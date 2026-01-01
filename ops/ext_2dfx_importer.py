@@ -19,9 +19,12 @@
 
 # See: https://gtamods.com/wiki/2d_Effect_(RW_Section)
 
+import os
 import bpy
 import math
+
 from ..gtaLib import dff
+
 from mathutils import Vector
 
 
@@ -262,12 +265,11 @@ class ext_2dfx_importer:
         return obj
    #######################################################
     def import_escalator(self, entry):
-        # Create the escalator object
+        # Escalator object(signifies start & end)
         obj = bpy.data.objects.new("2dfx_escalator", None)
         obj.empty_display_type = 'PLAIN_AXES'
         obj.empty_display_size = 0.5
 
-        # Assign 2DFX settings to the OBJECT, not data
         settings = obj.dff.ext_2dfx
         settings.standart_pos = entry.standart_pos
         settings.bottom_pos = entry.bottom

@@ -116,11 +116,17 @@ types = {
     "Geometry"                : 15,
     "Clump"                   : 16,
     "Atomic"                  : 20,
+    "Texture Native"          : 21,
+    "Texture Dictionary"      : 22,
+    "Image"                   : 24,
     "Geometry List"           : 26,
     "Animation Anim"          : 27,
     "Right to Render"         : 31,
+    "PI Texture Dictionary"   : 35,
     "UV Animation Dictionary" : 43,
     "Morph PLG"               : 261,
+    "Animation PLG"           : 264,
+    "Bone PLG"                : 270,
     "Skin PLG"                : 278,
     "HAnim PLG"               : 286,
     "User Data PLG"           : 287,
@@ -128,6 +134,7 @@ types = {
     "Delta Morph PLG"         : 290,
     "UV Animation PLG"        : 309,
     "Bin Mesh PLG"            : 1294,
+    "Native Data PLG"         : 1296,
     "Pipeline Set"            : 39056115,
     "Specular Material"       : 39056118,
     "2d Effect"               : 39056120,
@@ -135,7 +142,6 @@ types = {
     "Collision Model"         : 39056122,
     "Reflection Material"     : 39056124,
     "Frame"                   : 39056126,
-    "SAMP Collision"          : 39056127, # Transferred to dff_samp
 }
 
 #######################################################

@@ -476,7 +476,7 @@ class SAEFFECTS_OT_AddTextInfo(Operator):
 class SAEFFECTS_OT_ExportInfo(Operator):
     bl_idname = "saeffects.export_info"
     bl_label = "Export Binary Info"
-    bl_description = "Exports selected 2DFX objects as a binary .bin file"
+    bl_description = "Export selected 2DFX as a binary(.bin) file"
     
     def execute(self, context):
         global effectfile
@@ -488,7 +488,7 @@ class SAEFFECTS_OT_ExportInfo(Operator):
 class SAEFFECTS_OT_ExportTextInfo(Operator):
     bl_idname = "saeffects.export_text_info"
     bl_label = "Export Text Info"
-    bl_description = "Exports selected 2DFX objects as a readable text(.txt) format"
+    bl_description = "Export selected 2DFX as a text(.txt) file"
     
     filepath: StringProperty(subtype="FILE_PATH")
 

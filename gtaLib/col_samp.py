@@ -17,8 +17,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Keeping seperate track for SA-MP COL files,
-# as some structures don't matter, and aren't calculated/needed(such as file size).
+# NOTE: Keeping seperate track for SA-MP COL files,
+# as some structures don't matter, and aren't calculated/needed(such as some magic values).
+
 from .dff import strlen
 from collections import namedtuple
 from struct import error as StructError

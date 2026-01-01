@@ -19,6 +19,7 @@
 
 import os
 import struct
+
 from ..data import map_data
 from collections import namedtuple
 from bpy_extras.io_utils import ImportHelper
@@ -79,24 +80,26 @@ class GenericSectionUtility:
 
     #######################################################
     def getDataStructure(self, lineParams):
-        struct_map = self.dataStructures
-
-        if self.sectionName == "inst":
+        if self.ipl_version == "AUTO":
             field_count = len(lineParams)
-
-            if field_count == 11:
-                return struct_map.get("inst_binary")   # Binary 
-            elif field_count == 13:
-                return struct_map.get("inst")   # GTA III
+            if field_count == 13:
+                return self.dataStructures["III"]["inst"]
             elif field_count == 14:
-                return struct_map.get("inst")   # Vice City
+                return self.dataStructures["VC"]["inst"]
             elif field_count == 12:
-                return struct_map.get("inst")   # SA 
+                return self.dataStructures["SA"]["inst"]
+            elif field_count == 11:
+                return self.dataStructures["SA"].get("inst_binary")
             else:
                 print("INST error: Unknown number of line parameters")
                 return None
 
-        return struct_map.get(self.sectionName)
+        version_structs = self.dataStructures.get(self.ipl_version)
+        if version_structs is None:
+            print(f"⚠ Unknown IPL version: {self.ipl_version}")
+            return None
+
+        return version_structs.get(self.sectionName)
     #######################################################
     def write(self):
         pass

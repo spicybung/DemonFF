@@ -4,25 +4,21 @@
 
 ## Introduction
 
-DemonFF is a neat little fork of DragonFF made to further enhance your workflow for working with Renderware files, and more. Whether you're working with Rockstar file formats - such as for GTA - or it happens to be another Renderware title, DemonFF seeks to ease the process of working with many RW types including .DFF files, .COL files, as well as .IFP animation, and map editing(.IPL/.IDE/.PWN/.LUA).
+DemonFF is a neat little fork of DragonFF made to further enhance your workflow for working with Renderware files, and more. Whether you're working with GTA game assets - or it happens to be another Renderware game, DemonFF simplifies the process of importing and exporting many RW types such as .DFF files, as well as .IFP animation, and map editing(.IPL/.IDE/.PWN/.LUA).
 
 #### File Types
 
 - [X] Model files
-  - [X] .DFF (including SA-MP)
-  - [X] .MDL *(Partial, experimental)*
-- [X] Texture Files (.txd)
-  - [X] Import (including SA-MP)
+- [ ] Texture Files
+  - [X] Import *(Partial, experimental)*
   - [x] Export
-- [X] Collision files (including the ones packed in a .dff)
-  - [X] Import (including SA-MP)
-  - [X] Export (including SA-MP)
-- [x] Map files (.ipl, .ide)
-  - [X] Import (including binary .ipl)
-  - [X] Export (including .pwn)
-- [X] Animation files ( .ifp)
+- [X] Collision files (including the ones packed in dff)
   - [X] Import
-  - [ ] Export
+  - [X] Export
+- [x] Map files (.ipl, .ide)
+  - [X] Import *(Partial, experimental)*
+  - [X] Export
+- [X] Animation files ( .ifp)
 - [X] IMG archives (.img)
   - [X] Import *(Partial, experimental)*
   - [ ] Export
@@ -38,7 +34,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
   - [X] UV Animation
 - [X] Rockstar Specular and Reflection Extensions
 - [X] 2D Effects *(Including escalators)*
-- [X] SAMP compatible models (SAMP Collision)
+- [X] SAMP compatible models
 
 ## Features Further Explained
 
@@ -52,7 +48,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 - **Rockstar Section IDs**: DemonFF supports Rockstar's Renderware section IDs, allowing you to work with R* Renderware files seamlessly.
 
-- **SAMP/open.mp Compatibility**: DemonFF is compatible with San Andreas Multiplayer (SA-MP) as well as open.mp, and comes with Pawn(.pwn) features.
+- **SAMP/open.mp Compatibility**: DemonFF is designed for compatibility with San Andreas Multiplayer (SA-MP) as well as open.mp, and comes with Pawn(.pwn) features.
   
 - **MTA Compatibility**: DemonFF is planned to support .LUA scripts for Multi Theft Auto, allowing ease during map creation(SOON...).
 
@@ -90,10 +86,10 @@ This project is licensed under the GPL 3.0 License - see the [LICENSE](LICENSE) 
 ## Acknowledgments
 
 - Special thanks to the Blender community and contributors.
-- The GTA modding community as a whole.
+- The GTA modding community.
 - The GTA Mods Wiki for being a huge considerate help in figuring things, such as data structures, out.
 - Kam, The_Hero, Goldfish, and more for their contributions to Grand Theft Auto & Renderware modding.
-- Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible at the start.
+- Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible.
 - Beckzy, as well as others from the SAMP/open.mp community for their testing & patience.
 - The SkR community, for their insipiration. 
 - Many other special people.

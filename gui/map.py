@@ -24,6 +24,7 @@ import random
 import numpy as np
 
 from ..data import map_data
+
 from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper
 from gpu_extras.batch import batch_for_shader
@@ -42,7 +43,8 @@ class SCENE_OT_demonff_map_filebrowser(bpy.types.Operator, ImportHelper):
     #######################################################
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "import_as_binary")
+        layout.prop(context.scene.dff, "ipl_version")       # GTA III, VC, SA
+        layout.prop(context.scene.dff, "import_as_binary")  # Faster processing?
     #######################################################
     def execute(self, context):
         settings = context.scene.dff
@@ -169,6 +171,16 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         default=False
     )
 
+    ipl_version: bpy.props.EnumProperty(
+        name="IPL Version",
+        description="Choose IPL format (structure) to interpret .ipl files",
+        items=[
+            ("III", "GTA III", "GTA III IPL structure (13 fields)"),
+            ("VC", "GTA Vice City", "Vice City IPL structure (14 fields)"),
+            ("SA", "GTA San Andreas", "San Andreas IPL structure (12 fields)"),
+        ],
+        default="SA"
+    )
 
     custom_ipl_path: bpy.props.StringProperty(
         name="Custom IPL",
@@ -594,253 +606,6 @@ class Mass_IDE_Import_Operator(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 #######################################################
-class ExportToIPLOperator(bpy.types.Operator):
-    bl_idname = "object.export_to_ipl"
-    bl_label = "Export to IPL"
-    filename_ext = ".ipl"
-
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-    #######################################################
-    def execute(self, context):
-        #######################################################
-        def export_to_ipl(file_path, objects):
-            with open(file_path, 'w') as f:
-                f.write("inst\n")
-
-                for obj in objects:
-                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
-                        continue
-
-                    # Determine if the mesh is parented to an empty - export the XYZ of the empty for proper coords
-                    parent = obj.parent
-                    if parent and parent.type == 'EMPTY':
-                        position = parent.location
-                        rotation = quat_to_degrees(parent.rotation_quaternion)
-                    else:
-                        position = obj.location
-                        rotation = quat_to_degrees(obj.rotation_quaternion)
-
-                    # Use IDE_ID from the object
-                    object_id = obj.get("IDE_ID", 0)  # Use stored IDE_ID if present
-
-                    interior = obj.get('Interior', 0)
-                    lod_index = obj.get('LODIndex', -1)
-
-                    base_name = obj.name.split('.')[0]
-
-                    line = f"{object_id}, {base_name}, {interior}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
-                           f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {lod_index}  # {obj.name}\n"
-                    f.write(line)
-                    print(f"Exporting {obj.name} with IDE ID {object_id}")
-
-                f.write("end\n")
-                print(f"Exported IPL to {file_path}")
-
-        selected_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
-        if not selected_objects:
-            self.report({'INFO'}, "No mesh objects selected. Export cancelled.")
-            return {'CANCELLED'}
-
-        output_file = self.filepath if self.filepath.endswith('.ipl') else self.filepath + '.ipl'
-
-        export_to_ipl(output_file, selected_objects)
-
-        self.report({'INFO'}, f"Exported {len(selected_objects)} objects to {output_file}")
-        return {'FINISHED'}
-    #######################################################
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-#######################################################
-class ExportToIDEOperator(bpy.types.Operator):
-    bl_idname = "object.export_to_ide"
-    bl_label = "Export to IDE"
-    filename_ext = ".ide"
-
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-    #######################################################
-    def execute(self, context):
-        #######################################################
-        def export_to_ide(file_path, objects):
-            name_mapping = {}
-            with open(file_path, 'w') as f:
-                f.write("objs\n")
-
-                for obj in objects:
-                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
-                        continue
-
-                    object_id = obj.get('IDE_ID', 0)  # Default to 0 if IDE_ID is not set
-                    base_name = obj.name.split('.')[0]
-                    txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
-                    if base_name not in name_mapping:
-                        name_mapping[base_name] = obj.name
-
-                    line = f"{object_id}, {name_mapping[base_name]}, {txd_name}, 1, {obj.get('DrawDistance', 300.0)}, 0  # {obj.name}\n"
-                    f.write(line)
-                    print(f"Exporting {obj.name} with ID {object_id} and TXD {txd_name}")
-
-                f.write("end\n")
-                print(f"Exported IDE to {file_path}")
-
-        scene_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
-        if not scene_objects:
-            self.report({'INFO'}, "No mesh objects in scene. Export cancelled.")
-            return {'CANCELLED'}
-
-        output_file = self.filepath if self.filepath.endswith('.ide') else self.filepath + '.ide'
-
-        export_to_ide(output_file, scene_objects)
-
-        self.report({'INFO'}, f"Exported {len(scene_objects)} objects to {output_file}")
-        return {'FINISHED'}
-    #######################################################
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-#######################################################
-class ExportToPawnOperator(bpy.types.Operator):
-    bl_idname = "object.export_to_pawn"
-    bl_label = "Export to Pawn Script"
-    filename_ext = ".pwn"
-
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-    model_directory: bpy.props.StringProperty(
-        name="Model Directory",
-        default="",
-        description="Model directory for the artconfig paths"
-    )
-    skip_lod: bpy.props.BoolProperty(
-        name="Skip LOD Objects",
-        default=False,
-        description="Skip LOD objects in the .pwn and artconfig scripts"
-    )
-    stream_distance: bpy.props.FloatProperty(
-        name="Stream Distance",
-        default=300.0,
-        description="Stream distance for dynamic objects"
-    )
-    draw_distance: bpy.props.FloatProperty(
-        name="Draw Distance",
-        default=300.0,
-        description="Draw distance for objects"
-    )
-    x_offset: bpy.props.FloatProperty(
-        name="X Offset",
-        default=0.0,
-        description="Offset for the x coordinate of the objects"
-    )
-    y_offset: bpy.props.FloatProperty(
-        name="Y Offset",
-        default=0.0,
-        description="Offset for the y coordinate of the objects"
-    )
-    #######################################################
-    def execute(self, context):
-        def export_to_pawn(file_path, objects):
-            artconfig_path = os.path.join(os.path.dirname(file_path), 'artconfig.txt')
-            baseid = 19379
-            model_directory = self.model_directory.strip()
-            with open(file_path, 'w') as f, open(artconfig_path, 'w') as artconfig:
-                current_id = -1000  # Starting ID
-                max_id = -40000  # Maximum ID
-
-                name_mapping = {}
-                for obj in objects:
-                    if self.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
-                        continue
-
-                    if current_id <= max_id:
-                        self.report({'INFO'}, "Maximum ID limit reached. Exporting now...")
-                        # Reset current_id to continue the export process
-                        current_id = -100000 # Lets hope this number never gets reached :P
-
-                    # Determine if the mesh is parented to an empty
-                    parent = obj.parent
-                    if parent and parent.type == 'EMPTY':
-                        position = parent.location.copy()
-                        position.x += self.x_offset
-                        position.y += self.y_offset
-                        rotation = quat_to_degrees(parent.rotation_quaternion)
-                    else:
-                        position = obj.location.copy()
-                        position.x += self.x_offset
-                        position.y += self.y_offset
-                        rotation = quat_to_degrees(obj.rotation_quaternion)
-
-                    base_name = obj.name.split('.')[0]
-
-                    if base_name not in name_mapping:
-                        name_mapping[base_name] = current_id
-                        current_id -= 1  # Decrement for unique IDs
-                    object_id = name_mapping[base_name]
-
-                    interior = obj.get('Interior', -1)
-                    stream_distance = self.stream_distance
-                    draw_distance = self.draw_distance
-
-                    dff_name = obj.get('DFF_Name', base_name)  # Default to object name without suffix
-                    txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
-
-                    line = f"CreateDynamicObject({object_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
-                           f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
-                    f.write(line)
-                    print(f"Exporting {obj.name} with ID {object_id}")
-
-                    artconfig_line = f"AddSimpleModel(-1, {baseid}, {object_id}, \"{model_directory}/{dff_name}.dff\", \"{model_directory}/{txd_name}.txd\");  // {obj.name}\n"
-                    artconfig.write(artconfig_line)
-                    print(f"Writing to artconfig: {artconfig_line.strip()}")
-
-                    if 'LODIndex' in obj:
-                        lod_index = obj['LODIndex']
-                        lod_line = f"CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
-                                   f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // LOD for {obj.name}\n"
-                        f.write(lod_line)
-                        print(f"Exporting LOD for {obj.name} with LODIndex {lod_index}")
-
-                print(f"Exported Pawn script to {file_path}")
-                print(f"Exported artconfig to {artconfig_path}")
-
-        selected_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
-        if not selected_objects:
-            self.report({'INFO'}, "No mesh objects selected. Export cancelled.")
-            return {'CANCELLED'}
-
-        output_file = self.filepath if self.filepath.endswith('.pwn') else self.filepath + '.pwn'
-
-        export_to_pawn(output_file, selected_objects)
-
-        self.report({'INFO'}, f"Exported {len(selected_objects)} objects to {output_file}")
-        self.report({'INFO'}, f"Exported artconfig.txt to {os.path.dirname(output_file)}")
-        return {'FINISHED'}
-    #######################################################
-    def invoke(self, context, event):
-        context.window_manager.fileselect_add(self)
-        return {'RUNNING_MODAL'}
-    #######################################################
-    def draw(self, context):
-        layout = self.layout
-        layout.prop(self, "model_directory")
-        layout.prop(self, "skip_lod")
-        layout.prop(self, "stream_distance")
-        layout.prop(self, "draw_distance")
-        layout.prop(self, "x_offset")
-        layout.prop(self, "y_offset")
-#######################################################
-class RemoveBuildingForPlayerOperator(bpy.types.Operator):
-    bl_idname = "object.remove_building_for_player"
-    bl_label = "Remove Building For Player"
-    bl_options = {'REGISTER', 'UNDO'}
-    #######################################################
-    def execute(self, context):
-        for obj in context.selected_objects:
-            obj_id = obj.get("IDE_ID", -1)
-            position = obj.location
-            radius = 200.0  # Default radius, can be adjusted
-            line = f"RemoveBuildingForPlayer(playerid, {obj_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, {radius:.2f});"
-            print(line)
-        return {'FINISHED'}
-#######################################################
 class DEMONFF_UL_ide_paths(bpy.types.UIList):
     def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
         layout.prop(item, "name", text="", emboss=True)
@@ -945,10 +710,6 @@ def register():
     bpy.utils.register_class(DFFSceneProps)
     bpy.utils.register_class(SAMP_IDE_Import_Operator)
     bpy.utils.register_class(Mass_IDE_Import_Operator)
-    bpy.utils.register_class(ExportToIPLOperator)
-    bpy.utils.register_class(ExportToIDEOperator)
-    bpy.utils.register_class(ExportToPawnOperator)
-    bpy.utils.register_class(RemoveBuildingForPlayerOperator)
     bpy.utils.register_class(MapImportPanel)
     bpy.utils.register_class(DemonFFMapExportPanel)
     bpy.utils.register_class(DemonFFPawnPanel)
@@ -962,10 +723,6 @@ def unregister():
     bpy.utils.unregister_class(DFFSceneProps)
     bpy.utils.unregister_class(SAMP_IDE_Import_Operator)
     bpy.utils.unregister_class(Mass_IDE_Import_Operator)
-    bpy.utils.unregister_class(ExportToIPLOperator)
-    bpy.utils.unregister_class(ExportToIDEOperator)
-    bpy.utils.unregister_class(ExportToPawnOperator)
-    bpy.utils.unregister_class(RemoveBuildingForPlayerOperator)
     bpy.utils.unregister_class(MapImportPanel)
     bpy.utils.unregister_class(DemonFFMapExportPanel)
     bpy.utils.unregister_class(DemonFFPawnPanel)

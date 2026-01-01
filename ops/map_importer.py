@@ -84,7 +84,8 @@ class Map_Import_Operator(bpy.types.Operator):
     #######################################################
     def draw(self, context):
         layout = self.layout
-        layout.prop(self, "import_as_binary")
+        layout.prop(context.scene.dff, "import_as_binary")
+        layout.prop(context.scene.dff, "ipl_version") 
     #######################################################
     def import_object(self, context):
 

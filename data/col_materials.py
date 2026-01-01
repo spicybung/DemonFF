@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# Converted from col.ini by Steve-M: http://ce2.steve-m.com/?cmd=materials
+# NOTE: Converted from col.ini by Steve-M: http://ce2.steve-m.com/?cmd=materials
 
 default = {
     "group": 12,

@@ -31,6 +31,7 @@ from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
 from .dff_ot import SCENE_OT_dff_frame_move, SCENE_OT_dff_atomic_move, SCENE_OT_dff_update
 from .col_ot import EXPORT_OT_col
 from .ifp_ot import IMPORT_OT_ifp
+from .mdl_ot import IMPORT_OT_mdl_custom
 
 from .ext_2dfx_menus import EXT2DFXObjectProps, EXT2DFXMenus
 
@@ -1001,6 +1002,8 @@ class DFF_MT_ImportChoice(bpy.types.Menu):
         layout = self.layout
         layout.operator(IMPORT_OT_dff_custom.bl_idname, 
                         text="DemonFF DFF (.dff/.col)")
+        layout.operator(IMPORT_OT_mdl_custom.bl_idname, 
+                        text="DemonFF MDL (.mdl)")
         layout.operator(IMPORT_OT_ifp.bl_idname, 
                         text="DemonFF IFP (.ifp)")
 
@@ -1566,7 +1569,7 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
 
 #######################################################    
 class COLLECTION_PT_custom_cleanup_panel(bpy.types.Panel):
-    bl_label = "DemonFF - Collection Tools"
+    bl_label = "DemonFF - Collections"
     bl_idname = "COLLECTION_PT_custom_cleanup_panel"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'

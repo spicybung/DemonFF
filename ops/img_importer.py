@@ -23,6 +23,7 @@ import bpy
 import struct
 
 from .dff_importer import import_dff
+
 from bpy.props import StringProperty
 from bpy.types import Operator, Panel
 from bpy_extras.io_utils import ImportHelper
@@ -106,6 +107,7 @@ class ImgImporter:
 class IMPORT_OT_img(Operator, ImportHelper):
     bl_idname = "import_scene.img"
     bl_label = "Import IMG(.img)"
+    bl_description = "Import a Renderware IMG archive."
     filename_ext = ".img"
 
     filter_glob: StringProperty(

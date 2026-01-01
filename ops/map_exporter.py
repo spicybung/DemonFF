@@ -22,6 +22,7 @@ import os
 
 from ..data import map_data
 from ..ops.importer_common import game_version
+
 from bpy.props import StringProperty, CollectionProperty
 
 
@@ -266,6 +267,7 @@ class Mass_IDE_Import_Operator(bpy.types.Operator):
 class ExportToIPLOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ipl"
     bl_label = "Export to IPL"
+    bl_description = "Export selected objects as an IPL file"
     filename_ext = ".ipl"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -324,6 +326,7 @@ class ExportToIPLOperator(bpy.types.Operator):
 class ExportToIDEOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ide"
     bl_label = "Export to IDE"
+    bl_description = "Export selected objects as an IDE file"
     filename_ext = ".ide"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -371,6 +374,7 @@ class ExportToIDEOperator(bpy.types.Operator):
 class ExportToPawnOperator(bpy.types.Operator):
     bl_idname = "object.export_to_pawn"
     bl_label = "Export to Pawn Script"
+    bl_description = "Export selected objects as a DynamicObject pawn script"
     filename_ext = ".pwn"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -500,6 +504,7 @@ class ExportToPawnOperator(bpy.types.Operator):
 class RemoveBuildingForPlayerOperator(bpy.types.Operator):
     bl_idname = "object.remove_building_for_player"
     bl_label = "Remove Building For Player"
+    bl_description = "Export RemoveBuilding script to console"
     bl_options = {'REGISTER', 'UNDO'}
     #######################################################
     def execute(self, context):

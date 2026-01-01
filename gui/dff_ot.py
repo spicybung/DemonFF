@@ -24,7 +24,7 @@ import time
 from ..ops.state import State
 from ..gtaLib import txd as txd_lib
 from bpy_extras.io_utils import ImportHelper, ExportHelper
-from ..ops import dff_exporter, dff_importer, col_importer, samp_exporter, txd_importer
+from ..ops import dff_exporter, dff_importer, col_importer, dff_samp_exporter, txd_importer
 
 
 #######################################################
@@ -64,7 +64,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
 
     truncate_frame_names: bpy.props.BoolProperty(
         name="Truncate Frame Names",
-        description="Truncate object name and frame names to >24 bytes",
+        description="Truncate object name and frame names to <22 bytes",
         default=False
     )
 
@@ -100,7 +100,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
 
     export_format: bpy.props.EnumProperty(
         items=(
-            ('DEFAULT', "Default", "Export with the default col format for .DFF"),
+            ('DEFAULT', "Original", "Export with the original col format for .DFF"),
             ('SAMP', "SAMP", "Export with SAMP collision"),
         ),
         name="Collision",
@@ -110,9 +110,13 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
 
     export_version: bpy.props.EnumProperty(
         items=(
+            ('0x31001', "GTA 3 (v3.1.0.1)", "Grand Theft Auto 3 PC/PS2 (v3.1.0.1)"),
             ('0x33002', "GTA 3 (v3.3.0.2)", "Grand Theft Auto 3 PC (v3.3.0.2)"),
-            ('0x34003', "GTA VC (v3.4.0.3)", "Grand Theft Auto VC PC (v3.4.0.3)"),
-            ('0x36003', "GTA SA (v3.6.0.3)", "Grand Theft Auto SA PC (v3.6.0.3)"),
+            ('0x34003', "GTA VC/MH1 (v3.4.0.3)", "Grand Theft Auto VC/Manhunt PC (v3.4.0.3)"),  # For MH1, see: https://steamcommunity.com/sharedfiles/filedetails/?id=3324829436
+            ('0x34005', "GTA VC Anroid (v3.4.0.5)", "Grand Theft Auto VC Android (v3.4.0.5)"),
+            ('0x34003', "GTA VC/GTA SA (v3.4.0.3)", "Grand Theft Auto VC/SA (v3.4.0.3)"),
+            ('0x36003', "GTA SA (v3.6.0.5)", "Grand Theft Auto SA PC (v3.6.0.5)"),
+            ('0x37002', "Bully (v3.7.0.2)", "Bully PS2 (v3.7.0.2)"),
             ('custom', "Custom", "Custom RW Version")
         ),
         name="Version Export"
@@ -207,7 +211,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             if self.export_format == 'DEFAULT':
                 dff_exporter.export_dff(export_options)
             elif self.export_format == 'SAMP':
-                samp_exporter.export_dff(export_options)
+                dff_samp_exporter.export_dff(export_options)
 
             self.report({"INFO"}, f"Finished export in {time.time() - start:.2f}s")
 
@@ -244,7 +248,7 @@ class IMPORT_OT_txd(bpy.types.Operator, ImportHelper):
                                               subtype='FILE_PATH',
                                               options={'HIDDEN'})
 
-    # Stores all the file names to read (not just the firsst)
+    # Stores all the file names to read (not just the first)
     files : bpy.props.CollectionProperty(
         type    = bpy.types.OperatorFileListElement,
         options = {'HIDDEN'}
@@ -326,13 +330,14 @@ class IMPORT_OT_txd(bpy.types.Operator, ImportHelper):
 #######################################################
 class IMPORT_OT_txd_samp(bpy.types.Operator, ImportHelper):
     bl_idname = "import_scene.txd_samp"
-    bl_description = 'Import TXD and save overflow textures (over 1000) into a new TXD'
+    bl_description = 'Import a RW TXD file and save overflow textures (>1000) into a new TXD'
     bl_label = "Import TXD (SAMP)"
     filename_ext = ".txd"
 
     filter_glob: bpy.props.StringProperty(default="*.txd", options={'HIDDEN'})
     filepath: bpy.props.StringProperty(name="File Path", subtype='FILE_PATH')
 
+    #######################################################
     def execute(self, context):
 
         full_path = self.filepath
@@ -348,7 +353,7 @@ class IMPORT_OT_txd_samp(bpy.types.Operator, ImportHelper):
             self.report({'INFO'}, f"TXD has {tex_count} textures, no overflow.")
             return {'FINISHED'}
 
-        # Split the TXD into main (first 1000) and overflow
+        # Split the TXD into main (first 1000) and overflow (second TXD)
         main_textures = original_txd.native_textures[:1000]
         overflow_textures = original_txd.native_textures[1000:]
 
@@ -572,10 +577,11 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):  # too lazy to fi
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="untitled.dff")
 
+    #######################################################
     def execute(self, context):
         start = time.time()
         try:
-            samp_exporter.export_dff({
+            dffsamp_exporter.export_dff({
                 "file_name": self.filepath,
                 "directory": os.path.dirname(self.filepath),
                 "selected": True,
@@ -590,7 +596,7 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):  # too lazy to fi
         except Exception as e:
             self.report({"ERROR"}, str(e))
         return {'FINISHED'}
-
+    #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
@@ -732,7 +738,7 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
 
                 version = importer.version
 
-                if version in ['0x33002', '0x34003', '0x36003']:
+                if version in ['0x33002', '0x34003', '0x36003', '0x37002']:
                     context.scene['custom_imported_version'] = version
                 else:
                     context.scene['custom_imported_version'] = "custom"

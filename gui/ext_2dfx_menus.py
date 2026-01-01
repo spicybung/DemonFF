@@ -21,6 +21,11 @@
 
 import bpy
 
+from bpy.props import IntProperty
+from bpy.props import BoolProperty
+from bpy.props import FloatProperty
+from bpy.props import StringProperty
+from bpy.props import FloatVectorProperty
 from bpy_extras.io_utils import ImportHelper
 
 from ..gtaLib import txd
@@ -34,6 +39,7 @@ particle_txd_names = [
     'coronaringb', 'coronareflect', 'coronamoon', 'coronaheadlightline', 'cloudmasked',
     'cloudhigh', 'cloud1', 'carfx1', 'bloodpool_64'
 ]
+
 
 #######################################################
 def particle_txd_search_func(props, context, edit_text):
@@ -50,7 +56,8 @@ class IMPORT_OT_ParticleTXDNames(bpy.types.Operator, ImportHelper):
 
     filter_glob : bpy.props.StringProperty(default="*.txd",
                                               options={'HIDDEN'})
-
+    
+    #######################################################
     def execute(self, context):
         global particle_txd_names
         txd_file = txd.txd()
@@ -469,7 +476,7 @@ class EXT2DFXMenus:
         }
 
         functions[effect](layout, context)
-
+#######################################################
 def register():
     bpy.utils.register_class(IMPORT_OT_ParticleTXDNames)
 
