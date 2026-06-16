@@ -26,6 +26,18 @@ import mathutils
 from ..gtaLib import dff
 from .col_exporter import export_col
 from collections import defaultdict
+
+
+#######################################################
+def convert_export_normal(normal, normal_space):
+    """Convert a Blender normal for export."""
+    if normal is None:
+        return None
+    # Blender gives mathutils.Vector for loop.normal / vertex.normal
+    if normal_space == 'DIRECTX':
+        return mathutils.Vector((normal.x, -normal.y, normal.z))
+    return mathutils.Vector((normal.x, normal.y, normal.z))
+
 from ..ops.ext_2dfx_exporter import ext_2dfx_exporter
 
 
@@ -290,6 +302,7 @@ class dff_exporter:
     parent_queue = {}
     collection = None
     export_coll = False
+    coll_ext_type = 39056122
 
 
     #######################################################
@@ -702,11 +715,16 @@ class dff_exporter:
                     for kb in mesh.shape_keys.key_blocks:
                         sk_cos.append(kb.data[loop.vertex_index].co)
 
+
+                normal_space = getattr(obj.dff, "export_normal_space", 'OPENGL')
+
+                loop_n = convert_export_normal(loop.normal, normal_space)
+                vert_n = convert_export_normal(vertex.normal, normal_space)
                 key = (loop.vertex_index,
-                    tuple(loop.normal),
+                    tuple(loop_n),
                     tuple(tuple(uv) for uv in uvs))
 
-                normal = loop.normal if obj.dff.export_split_normals else vertex.normal
+                normal = loop_n if obj.dff.export_split_normals else vert_n
 
                 if key not in verts_indices:
                     face['verts'].append(len(vertices_list))
@@ -1047,7 +1065,7 @@ class dff_exporter:
             })
 
             if len(mem) != 0:
-                self.dff.collisions = [mem]
+                self.dff.collisions = [dff.ExtensionColl(self.coll_ext_type, mem)]
 
         if name is None:
             self.dff.write_file(self.file_name, self.version )
@@ -1113,6 +1131,7 @@ def export_dff(options):
     dff_exporter.path = options['directory']
     dff_exporter.version = options['version']
     dff_exporter.export_coll = options['export_coll']
+    dff_exporter.coll_ext_type = options.get('coll_ext_type', 39056122)
 
     # Normalize and attempt forced read on file path without directory checks
     file_path = os.path.normpath(options['file_name'])

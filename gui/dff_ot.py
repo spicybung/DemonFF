@@ -52,9 +52,24 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         default=False
     )
 
+    export_all_normals: bpy.props.BoolProperty(
+        name="Force Export Normals (All)",
+        description="Recalculate and enable custom normals for all meshes before export (useful for mass export)",
+        default=False
+    )
+
     export_coll: bpy.props.BoolProperty(
         name="Export Collision",
         default=True
+    )
+
+    coll_ext_type: bpy.props.EnumProperty(
+        items=(
+            ('39056122', "Default", "Default collision extension type"),
+            ('39056127', "SA-MP", "SA-MP collision extension type")
+        ),
+        name="Collision Chunk",
+        default='39056122'
     )
     
     export_frame_names: bpy.props.BoolProperty(
@@ -158,8 +173,11 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             row = box.row()
             row.prop(self, "reset_positions")
 
+        layout.prop(self, "export_all_normals")
         layout.prop(self, "only_selected")
         layout.prop(self, "export_coll")
+        if self.export_coll and self.export_format == 'DEFAULT':
+            layout.prop(self, "coll_ext_type")
         layout.prop(self, "export_frame_names")
         layout.prop(self, "truncate_frame_names")
         layout.prop(self, "export_tristrips")
@@ -193,6 +211,15 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         try:
             objects_to_export = bpy.context.selected_objects if self.only_selected else bpy.context.scene.objects
 
+            
+            # Force normals for all meshes if enabled
+            if self.export_all_normals:
+                for obj in objects_to_export:
+                    if obj.type == 'MESH' and obj.data:
+                        mesh = obj.data
+                        mesh.use_auto_smooth = True
+                        mesh.calc_normals_split()
+
             export_options = {
                 "file_name": self.filepath,
                 "directory": self.directory,
@@ -202,6 +229,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
                 "preserve_rotations" : self.preserve_rotations,
                 "version": self.get_selected_rw_version(),
                 "export_coll": self.export_coll,
+                "coll_ext_type": int(self.coll_ext_type),
                 "export_frame_names": self.export_frame_names,
                 "export_tristrips": self.export_tristrips,
                 "objects": objects_to_export,

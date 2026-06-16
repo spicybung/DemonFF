@@ -140,6 +140,7 @@ types = {
     "2d Effect"               : 39056120,
     "Extra Vert Color"        : 39056121,
     "Collision Model"         : 39056122,
+    "SAMP Collision Model"    : 39056127,
     "Reflection Material"     : 39056124,
     "Frame"                   : 39056126,
 }
@@ -1976,6 +1977,14 @@ class Extension2dfx:
         return self
 
 #######################################################
+class ExtensionColl:
+
+    #######################################################
+    def __init__(self, ext_type, data):
+        self.ext_type = ext_type
+        self.data = data
+
+#######################################################
 class DeltaMorph:
 
     #######################################################
@@ -3168,9 +3177,9 @@ class dff:
                 elif chunk.type == types["Atomic"]:  
                     self.read_atomic(chunk)
 
-                elif chunk.type == types["Collision Model"]:
+                elif chunk.type in (types["Collision Model"], types["SAMP Collision Model"]):
                     self.collisions.append(
-                        self.data[self.pos:self.pos + chunk.size]
+                        ExtensionColl(chunk.type, self.data[self.pos:self.pos + chunk.size])
                     )
                     self.pos += chunk.size
                     
@@ -3400,8 +3409,11 @@ class dff:
         for atomic in self.atomic_list:
             data += self.write_atomic(atomic)
 
-        for coll_data in self.collisions:
-            _data = Sections.write_chunk(coll_data, types["Collision Model"])
+        for coll in self.collisions:
+            if hasattr(coll, "ext_type") and hasattr(coll, "data"):
+                _data = Sections.write_chunk(coll.data, coll.ext_type)
+            else:
+                _data = Sections.write_chunk(coll, types["Collision Model"])
             data += Sections.write_chunk(_data, types["Extension"])
             
         data += Sections.write_chunk(b'', types["Extension"])

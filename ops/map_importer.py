@@ -87,6 +87,93 @@ class Map_Import_Operator(bpy.types.Operator):
         layout.prop(context.scene.dff, "import_as_binary")
         layout.prop(context.scene.dff, "ipl_version") 
     #######################################################
+    def stamp_map_properties(self, obj, inst):
+        if inst.id not in self._object_data:
+            return
+
+        ide_data = self._object_data[inst.id]
+        model_name = getattr(ide_data, "modelName", obj.name.split('.')[0])
+        txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
+
+        obj["IDE_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
+        obj["DFF_Name"] = model_name
+        obj["TXD_Name"] = txd_name
+
+        if hasattr(inst, "interior"):
+            obj["Interior"] = int(inst.interior) if str(inst.interior).lstrip('-').isdigit() else inst.interior
+        if hasattr(inst, "lod"):
+            obj["LODIndex"] = int(inst.lod) if str(inst.lod).lstrip('-').isdigit() else inst.lod
+
+        if hasattr(ide_data, "drawDistance"):
+            obj["DrawDistance"] = float(ide_data.drawDistance)
+        if hasattr(ide_data, "flags"):
+            obj["IDE_Flags"] = ide_data.flags
+
+        if hasattr(obj, "ide"):
+            obj.ide.obj_id = str(inst.id)
+            obj.ide.model_name = str(model_name)
+            obj.ide.txd_name = str(txd_name)
+            obj.ide.flags = str(getattr(ide_data, "flags", obj.get("IDE_Flags", 0)))
+
+            if hasattr(ide_data, "drawDistance"):
+                obj.ide.draw_distance = str(ide_data.drawDistance)
+            if hasattr(ide_data, "drawDistance1"):
+                obj.ide.draw_distance1 = str(ide_data.drawDistance1)
+            if hasattr(ide_data, "drawDistance2"):
+                obj.ide.draw_distance2 = str(ide_data.drawDistance2)
+            if hasattr(ide_data, "drawDistance3"):
+                obj.ide.draw_distance3 = str(ide_data.drawDistance3)
+
+            if hasattr(ide_data, "timeOn"):
+                obj.ide.obj_type = 'tobj'
+                obj.ide.time_on = str(ide_data.timeOn)
+                obj.ide.time_off = str(getattr(ide_data, "timeOff", 24))
+            else:
+                obj.ide.obj_type = 'objs'
+
+        if hasattr(obj, "ipl"):
+            if hasattr(inst, "interior"):
+                obj.ipl.interior = str(inst.interior)
+            if hasattr(inst, "lod"):
+                obj.ipl.lod = str(inst.lod)
+
+        if hasattr(obj, "dff_map"):
+            props = obj.dff_map
+            props.ipl_section = "inst"
+            try:
+                props.object_id = int(inst.id)
+            except Exception:
+                props.object_id = 0
+            props.model_name = str(model_name)
+            props.interior = int(getattr(inst, "interior", 0)) if str(getattr(inst, "interior", 0)).lstrip('-').isdigit() else 0
+            props.lod = int(getattr(inst, "lod", -1)) if str(getattr(inst, "lod", -1)).lstrip('-').isdigit() else -1
+            props.ide_section = "tobj" if hasattr(ide_data, "timeOn") else ("anim" if hasattr(ide_data, "animName") else "objs")
+            try:
+                props.ide_object_id = int(inst.id)
+            except Exception:
+                props.ide_object_id = 0
+            props.ide_model_name = str(model_name)
+            props.ide_txd_name = str(txd_name)
+            props.ide_flags = int(getattr(ide_data, "flags", obj.get("IDE_Flags", 0))) if str(getattr(ide_data, "flags", obj.get("IDE_Flags", 0))).lstrip('-').isdigit() else 0
+            if hasattr(ide_data, "drawDistance"):
+                props.ide_draw1 = float(ide_data.drawDistance)
+            if hasattr(ide_data, "drawDistance1"):
+                props.ide_draw1 = float(ide_data.drawDistance1)
+            if hasattr(ide_data, "drawDistance2"):
+                props.ide_draw2 = float(ide_data.drawDistance2)
+            if hasattr(ide_data, "drawDistance3"):
+                props.ide_draw3 = float(ide_data.drawDistance3)
+            if hasattr(ide_data, "timeOn"):
+                props.ide_time_on = int(ide_data.timeOn)
+                props.ide_time_off = int(getattr(ide_data, "timeOff", 24))
+            if hasattr(ide_data, "animName"):
+                props.ide_anim = str(ide_data.animName)
+            if not props.pawn_model_name:
+                props.pawn_model_name = str(model_name)
+            if not props.pawn_txd_name:
+                props.pawn_txd_name = str(txd_name)
+
+    #######################################################
     def import_object(self, context):
 
         # Are there any IPL entries left to import?
@@ -146,6 +233,7 @@ class Map_Import_Operator(bpy.types.Operator):
                     Map_Import_Operator.apply_transformation_to_object(
                         obj, inst
                     )
+                    self.stamp_map_properties(obj, inst)
 
             cached_2dfx = [obj for obj in model_cache if obj.dff.type == "2DFX"]
             for obj in cached_2dfx:
@@ -203,6 +291,7 @@ class Map_Import_Operator(bpy.types.Operator):
                 Map_Import_Operator.apply_transformation_to_object(
                     obj, inst
                 )
+                self.stamp_map_properties(obj, inst)
 
             # Set root object as 2DFX parent
             if root_objects:
@@ -655,6 +744,7 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
                     Map_Import_Operator.apply_transformation_to_object(
                         obj, inst
                     )
+                    Map_Import_Operator.stamp_map_properties(self, obj, inst)
 
             cached_2dfx = [obj for obj in model_cache if obj.dff.type == "2DFX"]
             for obj in cached_2dfx:
@@ -712,6 +802,7 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
                 Map_Import_Operator.apply_transformation_to_object(
                     obj, inst
                 )
+                Map_Import_Operator.stamp_map_properties(self, obj, inst)
 
             # Set root object as 2DFX parent
             if root_objects:

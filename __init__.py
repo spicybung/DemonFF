@@ -19,7 +19,7 @@
 
 import bpy
 from .gui import gui, pie_menus
-from .ops import map_importer, map_exporter, img_importer
+from .ops import map_importer, map_exporter, img_importer, ide_text_exporter, ipl_text_exporter
 
 from bpy.utils import register_class, unregister_class
 
@@ -73,6 +73,10 @@ _classes = [
     gui.Light2DFXObjectProps,
     gui.DFFMaterialProps,
     gui.DFFObjectProps,
+    gui.IDEObjectProps,
+    gui.IPLObjectProps,
+    gui.DFFMapObjectProps,
+    gui.MapObjectPanel,
     img_importer.IMPORT_PT_img_panel,
     img_importer.IMPORT_OT_img,
     gui.TXDImportPanel,
@@ -94,12 +98,16 @@ _classes = [
     map_importer.Binary_Map_Import_Operator,
     map_exporter.SAMP_IDE_Import_Operator,
     map_exporter.Mass_IDE_Import_Operator,
+    gui.SCENE_OT_import_ide,
     map_exporter.RemoveBuildingForPlayerOperator,
     map_exporter.ExportToIPLOperator,
     map_exporter.ExportToIDEOperator,
     map_exporter.ExportToPawnOperator,
+    gui.EXPORT_OT_pawn,
+    ide_text_exporter.EXPORT_OT_demonff_ide,
+    ipl_text_exporter.EXPORT_OT_demonff_ipl,
     map_exporter.DemonFFMapExportPanel,
-    map_exporter.DemonFFPawnPanel,
+    gui.DemonFFNewPawnPanel,
     gui.DEMONFF_PT_DFF2DFX,
     gui.SAEFFECTS_OT_AddLightInfo,
     gui.SAEFFECTS_OT_AddParticleInfo,
@@ -124,6 +132,9 @@ def register():
         register_class(cls)
 
     bpy.types.Scene.dff = bpy.props.PointerProperty(type=gui.DFFSceneProps)
+    bpy.types.Object.ide = bpy.props.PointerProperty(type=gui.IDEObjectProps)
+    bpy.types.Object.ipl = bpy.props.PointerProperty(type=gui.IPLObjectProps)
+    bpy.types.Object.dff_map = bpy.props.PointerProperty(type=gui.DFFMapObjectProps)
 
     bpy.types.Scene.saeffects_export_path = bpy.props.StringProperty(
         name="Binary",
@@ -156,13 +167,23 @@ def unregister():
         bpy.types.TOPBAR_MT_file_import.remove(gui.import_dff_func)
         bpy.types.TOPBAR_MT_file_export.remove(gui.export_dff_func)
 
+    if hasattr(bpy.types.Scene, "dff"):
+        del bpy.types.Scene.dff
+    if hasattr(bpy.types.Scene, "saeffects_export_path"):
+        del bpy.types.Scene.saeffects_export_path
+    if hasattr(bpy.types.Scene, "saeffects_text_export_path"):
+        del bpy.types.Scene.saeffects_text_export_path
+    if hasattr(bpy.types.Object, "ide"):
+        del bpy.types.Object.ide
+    if hasattr(bpy.types.Object, "ipl"):
+        del bpy.types.Object.ipl
+    if hasattr(bpy.types.Object, "dff_map"):
+        del bpy.types.Object.dff_map
+
     for cls in reversed(_classes):
         unregister_class(cls)
 
     pie_menus.unregister_keymaps()
-
-    del bpy.types.Scene.saeffects_export_path
-    del bpy.types.Scene.saeffects_text_export_path
 
 if __name__ == "__main__":
     register()

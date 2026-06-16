@@ -941,7 +941,8 @@ class dff_importer:
         
         # Add collisions
         for collision in self.dff.collisions:
-            col = import_col_mem(collision.data, os.path.basename(file_name), False)
+            collision_data = collision.data if hasattr(collision, "data") else collision
+            col = import_col_mem(collision_data, os.path.basename(file_name), False)
 
             if (2, 80, 0) <= bpy.app.version:
                 for collection in col:

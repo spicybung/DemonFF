@@ -36,6 +36,188 @@ def quat_to_degrees(quat):
 IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
 
 #######################################################
+def clean_map_name(name):
+    return name.split('.')[0]
+
+#######################################################
+def get_custom_prop(obj, key, default=None):
+    return obj[key] if key in obj else default
+
+#######################################################
+def get_dff_type(obj):
+    if hasattr(obj, "dff") and hasattr(obj.dff, "type"):
+        return obj.dff.type
+    return ""
+
+#######################################################
+def get_map_props(obj):
+    return obj.dff_map if hasattr(obj, "dff_map") else None
+
+#######################################################
+def first_good_value(*values, default=None):
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str) and value == "":
+            continue
+        return value
+    return default
+
+#######################################################
+def set_map_identity_props(obj, ide_id, model_name, txd_name, samp_id=None):
+    obj["IDE_ID"] = ide_id
+    obj["DFF_Name"] = model_name
+    obj["TXD_Name"] = txd_name
+    if samp_id is not None:
+        obj["SAMP_ID"] = samp_id
+
+    if hasattr(obj, "ide"):
+        obj.ide.obj_id = str(ide_id)
+        obj.ide.model_name = str(model_name)
+        obj.ide.txd_name = str(txd_name)
+
+    if hasattr(obj, "dff_map"):
+        obj.dff_map.object_id = int(ide_id) if str(ide_id).lstrip('-').isdigit() else 0
+        obj.dff_map.model_name = str(model_name)
+        obj.dff_map.ide_object_id = int(ide_id) if str(ide_id).lstrip('-').isdigit() else 0
+        obj.dff_map.ide_model_name = str(model_name)
+        obj.dff_map.ide_txd_name = str(txd_name)
+        if not obj.dff_map.pawn_model_name:
+            obj.dff_map.pawn_model_name = str(model_name)
+        if not obj.dff_map.pawn_txd_name:
+            obj.dff_map.pawn_txd_name = str(txd_name)
+
+#######################################################
+def get_object_model_name(obj):
+    props = get_map_props(obj)
+    if props:
+        return str(first_good_value(props.model_name, props.ide_model_name, props.pawn_model_name, default=clean_map_name(obj.name)))
+    if hasattr(obj, "ide") and obj.ide.model_name:
+        return obj.ide.model_name
+    return str(get_custom_prop(obj, "DFF_Name", clean_map_name(obj.name)))
+
+#######################################################
+def get_object_txd_name(obj):
+    props = get_map_props(obj)
+    if props:
+        return str(first_good_value(props.ide_txd_name, props.pawn_txd_name, default=None) or get_custom_prop(obj, "TXD_Name", "default_txd"))
+    if hasattr(obj, "ide") and obj.ide.txd_name:
+        return obj.ide.txd_name
+    return str(get_custom_prop(obj, "TXD_Name", "default_txd"))
+
+#######################################################
+def get_pawn_model_name(obj):
+    props = get_map_props(obj)
+    if props and props.pawn_model_name:
+        return props.pawn_model_name
+    return get_object_model_name(obj)
+
+#######################################################
+def get_pawn_txd_name(obj):
+    props = get_map_props(obj)
+    if props and props.pawn_txd_name:
+        return props.pawn_txd_name
+    return get_object_txd_name(obj)
+
+#######################################################
+def get_object_ide_id(obj, default=0):
+    props = get_map_props(obj)
+    if props:
+        value = first_good_value(props.object_id, props.ide_object_id, default=None)
+        if value not in (None, 0):
+            return value
+    if hasattr(obj, "ide") and obj.ide.obj_id:
+        return obj.ide.obj_id
+    return get_custom_prop(obj, "IDE_ID", default)
+
+#######################################################
+def get_object_samp_id(obj, default=None):
+    if "SAMP_ID" in obj:
+        return obj["SAMP_ID"]
+    return default
+
+#######################################################
+def get_object_interior(obj, default=0):
+    props = get_map_props(obj)
+    if props and props.interior not in (None, 0):
+        return props.interior
+    if hasattr(obj, "ipl") and obj.ipl.interior:
+        return obj.ipl.interior
+    return get_custom_prop(obj, "Interior", default)
+
+#######################################################
+def get_object_lod(obj, default=-1):
+    props = get_map_props(obj)
+    if props and props.lod not in (None, 0):
+        return props.lod
+    if hasattr(obj, "ipl") and obj.ipl.lod:
+        return obj.ipl.lod
+    return get_custom_prop(obj, "LODIndex", default)
+
+#######################################################
+def get_object_flags(obj, default=0):
+    props = get_map_props(obj)
+    if props and props.ide_flags:
+        return props.ide_flags
+    if hasattr(obj, "ide") and obj.ide.flags:
+        return obj.ide.flags
+    return get_custom_prop(obj, "IDE_Flags", default)
+
+#######################################################
+def get_object_draw_distances(obj):
+    props = get_map_props(obj)
+    if props:
+        distances = []
+        for value in (props.ide_draw1, props.ide_draw2, props.ide_draw3):
+            if value:
+                distances.append(str(value))
+        if not distances and props.ide_draw_distance:
+            distances.append(str(props.ide_draw_distance))
+        if distances:
+            return distances
+
+    if hasattr(obj, "ide"):
+        distances = []
+        if obj.ide.draw_distance:
+            distances.append(obj.ide.draw_distance)
+        if obj.ide.draw_distance1:
+            distances.append(obj.ide.draw_distance1)
+        if obj.ide.draw_distance2:
+            distances.append(obj.ide.draw_distance2)
+        if obj.ide.draw_distance3:
+            distances.append(obj.ide.draw_distance3)
+        if distances:
+            return distances
+    return [str(get_custom_prop(obj, "DrawDistance", 300.0))]
+
+#######################################################
+def get_object_ide_section(obj):
+    props = get_map_props(obj)
+    if props and props.ide_section:
+        return props.ide_section
+    if hasattr(obj, "ide") and obj.ide.obj_type:
+        return obj.ide.obj_type
+    return "objs"
+
+#######################################################
+def object_is_lod(obj):
+    name = obj.name.lower()
+    return name.startswith("lod") or ".colmesh" in name or get_dff_type(obj) == 'COL'
+
+#######################################################
+def get_transform_source(obj):
+    if obj.parent and obj.parent.type == 'EMPTY':
+        return obj.parent
+    return obj
+
+#######################################################
+def get_export_transform(obj):
+    source = get_transform_source(obj)
+    position = source.location.copy()
+    rotation = source.matrix_world.to_quaternion()
+    scale = source.scale.copy()
+    return position, rotation, scale
+
 class DFFFrameProps(bpy.types.PropertyGroup):
     obj  : bpy.props.PointerProperty(type=bpy.types.Object)
     icon : bpy.props.StringProperty()
@@ -75,14 +257,14 @@ class DFFSceneProps(bpy.types.PropertyGroup):
 
     game_root: bpy.props.StringProperty(
         name='Game root',
-        default='C:\\Program Files (x86)\\Steam\\steamapps\\common\\',
+        default='',
         description="Folder with the game's executable",
         subtype='DIR_PATH'
     )
 
     dff_folder: bpy.props.StringProperty(
         name='Dff folder',
-        default='C:\\Users\\blaha\\Documents\\GitHub\\DragonFF\\tests\\dff',
+        default='',
         description="Define a folder where all of the dff models are stored.",
         subtype='DIR_PATH'
     )
@@ -163,8 +345,7 @@ def import_ide(filepaths, context):
             base_name = obj.name.split('.')[0]
             if base_name in obj_data:
                 samp_id, txd_name = obj_data[base_name]
-                obj["SAMP_ID"] = samp_id
-                obj["TXD_Name"] = txd_name
+                set_map_identity_props(obj, abs(int(samp_id)), base_name, txd_name, samp_id)
                 print(f"Assigned SAMP ID {samp_id} and TXD {txd_name} to {obj.name}")
             else:
                 print(f"No matching SAMP ID found for {obj.name}")
@@ -219,8 +400,7 @@ def mass_import_samp_ide(filepaths, context):
             if base_name in obj_data:  # If the object name matches one from the IDE file
                 samp_id, txd_name = obj_data[base_name]
                 samp_id = -abs(samp_id)  # Apply '-' to the second argument (modelid)
-                obj["SAMP_ID"] = samp_id  # Assign SAMP ID
-                obj["TXD_Name"] = txd_name  # Assign TXD Name
+                set_map_identity_props(obj, abs(int(samp_id)), base_name, txd_name, samp_id)
                 print(f"Assigned SAMP ID {samp_id} and TXD {txd_name} to {obj.name}")
             else:
                 print(f"No matching SAMP ID found for {obj.name}")
@@ -271,105 +451,150 @@ class ExportToIPLOperator(bpy.types.Operator):
     filename_ext = ".ipl"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    #######################################################
+    def format_inst_line(self, context, obj):
+        game_id = context.scene.dff.game_version_dropdown
+        object_id = get_object_ide_id(obj, 0)
+        model_name = get_object_model_name(obj)
+        interior = get_object_interior(obj, 0)
+        lod_index = get_object_lod(obj, -1)
+        position, rotation, scale = get_export_transform(obj)
+
+        rot_w = -rotation.w
+        rot_x = rotation.x
+        rot_y = rotation.y
+        rot_z = rotation.z
+
+        if game_id == game_version.III:
+            return (
+                f"{object_id}, {model_name}, "
+                f"{position.x:.6f}, {position.y:.6f}, {position.z:.6f}, "
+                f"{scale.x:.6f}, {scale.y:.6f}, {scale.z:.6f}, "
+                f"{rot_x:.6f}, {rot_y:.6f}, {rot_z:.6f}, {rot_w:.6f}"
+            )
+
+        if game_id == game_version.VC:
+            return (
+                f"{object_id}, {model_name}, {interior}, "
+                f"{position.x:.6f}, {position.y:.6f}, {position.z:.6f}, "
+                f"{scale.x:.6f}, {scale.y:.6f}, {scale.z:.6f}, "
+                f"{rot_x:.6f}, {rot_y:.6f}, {rot_z:.6f}, {rot_w:.6f}"
+            )
+
+        return (
+            f"{object_id}, {model_name}, {interior}, "
+            f"{position.x:.6f}, {position.y:.6f}, {position.z:.6f}, "
+            f"{rot_x:.6f}, {rot_y:.6f}, {rot_z:.6f}, {rot_w:.6f}, {lod_index}"
+        )
+
     #######################################################
     def execute(self, context):
-        #######################################################
-        def export_to_ipl(file_path, objects):
-            with open(file_path, 'w') as f:
-                f.write("inst\n")
-
-                for obj in objects:
-                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
-                        continue
-
-                    # Determine if the mesh is parented to an empty - export the XYZ of the empty for proper coords
-                    parent = obj.parent
-                    if parent and parent.type == 'EMPTY':
-                        position = parent.location
-                        rotation = quat_to_degrees(parent.rotation_quaternion)
-                    else:
-                        position = obj.location
-                        rotation = quat_to_degrees(obj.rotation_quaternion)
-
-                    # Use IDE_ID from the object
-                    object_id = obj.get("IDE_ID", 0)  # Use stored IDE_ID if present
-
-                    interior = obj.get('Interior', 0)
-                    lod_index = obj.get('LODIndex', -1)
-
-                    base_name = obj.name.split('.')[0]
-
-                    line = f"{object_id}, {base_name}, {interior}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
-                           f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {lod_index}  # {obj.name}\n"
-                    f.write(line)
-                    print(f"Exporting {obj.name} with IDE ID {object_id}")
-
-                f.write("end\n")
-                print(f"Exported IPL to {file_path}")
-
-        selected_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
+        selected_objects = [obj for obj in context.selected_objects if obj.type == 'MESH']
         if not selected_objects:
             self.report({'INFO'}, "No mesh objects selected. Export cancelled.")
             return {'CANCELLED'}
 
-        output_file = self.filepath if self.filepath.endswith('.ipl') else self.filepath + '.ipl'
+        output_file = self.filepath if self.filepath.lower().endswith('.ipl') else self.filepath + '.ipl'
 
-        export_to_ipl(output_file, selected_objects)
+        with open(output_file, 'w', encoding='latin-1') as file:
+            file.write("inst\n")
+            written = 0
+            for obj in selected_objects:
+                if context.scene.dff.skip_lod and object_is_lod(obj):
+                    continue
+                file.write(self.format_inst_line(context, obj) + f"  # {obj.name}\n")
+                print(f"Exporting {obj.name} with IDE ID {get_object_ide_id(obj, 0)}")
+                written += 1
+            file.write("end\n")
 
-        self.report({'INFO'}, f"Exported {len(selected_objects)} objects to {output_file}")
+        self.report({'INFO'}, f"Exported {written} objects to {output_file}")
         return {'FINISHED'}
+
     #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+
 #######################################################
 class ExportToIDEOperator(bpy.types.Operator):
     bl_idname = "object.export_to_ide"
     bl_label = "Export to IDE"
-    bl_description = "Export selected objects as an IDE file"
+    bl_description = "Export scene objects as an IDE file"
     filename_ext = ".ide"
 
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    #######################################################
+    def format_objs_line(self, obj):
+        object_id = get_object_ide_id(obj, 0)
+        model_name = get_object_model_name(obj)
+        txd_name = get_object_txd_name(obj)
+        flags = get_object_flags(obj, 0)
+        distances = get_object_draw_distances(obj)
+
+        if len(distances) == 1:
+            return f"{object_id}, {model_name}, {txd_name}, {distances[0]}, {flags}"
+        if len(distances) == 2:
+            return f"{object_id}, {model_name}, {txd_name}, 1, {distances[0]}, {distances[1]}, {flags}"
+        return f"{object_id}, {model_name}, {txd_name}, 1, {distances[0]}, {distances[1]}, {distances[2]}, {flags}"
+
+    #######################################################
+    def format_tobj_line(self, obj):
+        base_line = self.format_objs_line(obj)
+        time_on = obj.ide.time_on if hasattr(obj, "ide") and obj.ide.time_on else "0"
+        time_off = obj.ide.time_off if hasattr(obj, "ide") and obj.ide.time_off else "24"
+        return f"{base_line}, {time_on}, {time_off}"
+
     #######################################################
     def execute(self, context):
-        #######################################################
-        def export_to_ide(file_path, objects):
-            name_mapping = {}
-            with open(file_path, 'w') as f:
-                f.write("objs\n")
-
-                for obj in objects:
-                    if context.scene.dff.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
-                        continue
-
-                    object_id = obj.get('IDE_ID', 0)  # Default to 0 if IDE_ID is not set
-                    base_name = obj.name.split('.')[0]
-                    txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
-                    if base_name not in name_mapping:
-                        name_mapping[base_name] = obj.name
-
-                    line = f"{object_id}, {name_mapping[base_name]}, {txd_name}, 1, {obj.get('DrawDistance', 300.0)}, 0  # {obj.name}\n"
-                    f.write(line)
-                    print(f"Exporting {obj.name} with ID {object_id} and TXD {txd_name}")
-
-                f.write("end\n")
-                print(f"Exported IDE to {file_path}")
-
-        scene_objects = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH']
+        scene_objects = [obj for obj in context.scene.objects if obj.type == 'MESH']
         if not scene_objects:
             self.report({'INFO'}, "No mesh objects in scene. Export cancelled.")
             return {'CANCELLED'}
 
-        output_file = self.filepath if self.filepath.endswith('.ide') else self.filepath + '.ide'
+        output_file = self.filepath if self.filepath.lower().endswith('.ide') else self.filepath + '.ide'
+        seen_ids = set()
+        objs_lines = []
+        tobj_lines = []
 
-        export_to_ide(output_file, scene_objects)
+        for obj in scene_objects:
+            if context.scene.dff.skip_lod and object_is_lod(obj):
+                continue
 
-        self.report({'INFO'}, f"Exported {len(scene_objects)} objects to {output_file}")
+            object_id = str(get_object_ide_id(obj, 0))
+            seen_key = object_id if object_id not in ('', '0') else get_object_model_name(obj)
+            if seen_key in seen_ids:
+                continue
+            seen_ids.add(seen_key)
+
+            if hasattr(obj, "ide") and obj.ide.obj_type == 'tobj':
+                tobj_lines.append(self.format_tobj_line(obj) + f"  # {obj.name}")
+            else:
+                objs_lines.append(self.format_objs_line(obj) + f"  # {obj.name}")
+
+            print(f"Exporting {obj.name} with ID {object_id} and TXD {get_object_txd_name(obj)}")
+
+        with open(output_file, 'w', encoding='latin-1') as file:
+            if objs_lines:
+                file.write("objs\n")
+                for line in objs_lines:
+                    file.write(line + "\n")
+                file.write("end\n")
+            if tobj_lines:
+                file.write("tobj\n")
+                for line in tobj_lines:
+                    file.write(line + "\n")
+                file.write("end\n")
+
+        self.report({'INFO'}, f"Exported {len(objs_lines) + len(tobj_lines)} object definitions to {output_file}")
         return {'FINISHED'}
+
     #######################################################
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
+
 #######################################################
 class ExportToPawnOperator(bpy.types.Operator):
     bl_idname = "object.export_to_pawn"
@@ -442,19 +667,23 @@ class ExportToPawnOperator(bpy.types.Operator):
                         position.y += self.y_offset
                         rotation = quat_to_degrees(obj.rotation_quaternion)
 
-                    base_name = obj.name.split('.')[0]
+                    base_name = clean_map_name(obj.name)
 
-                    if base_name not in name_mapping:
-                        name_mapping[base_name] = current_id
-                        current_id -= 1  # Decrement for unique IDs
-                    object_id = name_mapping[base_name]
+                    explicit_samp_id = get_object_samp_id(obj)
+                    if explicit_samp_id is not None:
+                        object_id = explicit_samp_id
+                    else:
+                        if base_name not in name_mapping:
+                            name_mapping[base_name] = current_id
+                            current_id -= 1
+                        object_id = name_mapping[base_name]
 
-                    interior = obj.get('Interior', -1)
+                    interior = get_object_interior(obj, -1)
                     stream_distance = self.stream_distance
                     draw_distance = self.draw_distance
 
-                    dff_name = obj.get('DFF_Name', base_name)  # Default to object name without suffix
-                    txd_name = obj.get('TXD_Name', 'default_txd')  # Ensure TXD name is set
+                    dff_name = get_object_model_name(obj)
+                    txd_name = get_object_txd_name(obj)
 
                     line = f"CreateDynamicObject({object_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
                            f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
@@ -465,8 +694,9 @@ class ExportToPawnOperator(bpy.types.Operator):
                     artconfig.write(artconfig_line)
                     print(f"Writing to artconfig: {artconfig_line.strip()}")
 
-                    if 'LODIndex' in obj:
-                        lod_index = obj['LODIndex']
+                    lod_value = get_object_lod(obj, None)
+                    if lod_value is not None and str(lod_value) != '-1':
+                        lod_index = lod_value
                         lod_line = f"CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
                                    f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // LOD for {obj.name}\n"
                         f.write(lod_line)
@@ -509,7 +739,7 @@ class RemoveBuildingForPlayerOperator(bpy.types.Operator):
     #######################################################
     def execute(self, context):
         for obj in context.selected_objects:
-            obj_id = obj.get("IDE_ID", -1)
+            obj_id = get_object_ide_id(obj, -1)
             position = obj.location
             radius = 200.0  # Default radius, can be adjusted
             line = f"RemoveBuildingForPlayer(playerid, {obj_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, {radius:.2f});"
@@ -565,6 +795,11 @@ class DemonFFPawnPanel(bpy.types.Panel):
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
+
+    @classmethod
+    def poll(cls, context):
+        return False
+
     #######################################################
     def draw(self, context):
         layout = self.layout
@@ -584,7 +819,6 @@ def register():
     bpy.utils.register_class(RemoveBuildingForPlayerOperator)
     bpy.utils.unregister_class(MapImportPanel)
     bpy.utils.register_class(DemonFFMapExportPanel)
-    bpy.utils.register_class(DemonFFPawnPanel)
     DFFSceneProps.register()
 
 def unregister():
@@ -599,8 +833,131 @@ def unregister():
     bpy.utils.unregister_class(RemoveBuildingForPlayerOperator)
     bpy.utils.unregister_class(MapImportPanel)
     bpy.utils.unregister_class(DemonFFMapExportPanel)
-    bpy.utils.unregister_class(DemonFFPawnPanel)
     DFFSceneProps.unregister()
 
 if __name__ == "__main__":
     register()
+
+#######################################################
+class ide_exporter:
+    total_definitions_num = 0
+
+#######################################################
+def export_ide(options):
+    from . import ide_exporter as ide_exporter_module
+
+    ide_exporter_module.export_ide(options)
+    total = len(getattr(ide_exporter_module.ide_exporter, "objs_objects", []))
+    total += len(getattr(ide_exporter_module.ide_exporter, "tobj_objects", []))
+    total += len(getattr(ide_exporter_module.ide_exporter, "anim_objects", []))
+    ide_exporter.total_definitions_num = total
+
+#######################################################
+class pwn_exporter:
+    only_selected = False
+    model_directory = ""
+    skip_lod = False
+    stream_distance = 300.0
+    draw_distance = 300.0
+    x_offset = 0.0
+    y_offset = 0.0
+    z_offset = 0.0
+    total_objects_num = 0
+
+    @staticmethod
+    def collect_objects(context):
+        objects = []
+        for obj in context.scene.objects:
+            if obj.type != 'MESH':
+                continue
+            if pwn_exporter.only_selected and not obj.select_get():
+                continue
+            if pwn_exporter.skip_lod and object_is_lod(obj):
+                continue
+            objects.append(obj)
+        return objects
+
+    @staticmethod
+    def get_or_create_model_id(obj, name_mapping, current_id):
+        samp_id = get_object_samp_id(obj)
+        if samp_id not in (None, ""):
+            try:
+                return int(samp_id), current_id
+            except Exception:
+                return samp_id, current_id
+
+        key = get_pawn_model_name(obj).lower()
+        if key not in name_mapping:
+            name_mapping[key] = current_id
+            current_id -= 1
+        return name_mapping[key], current_id
+
+    @staticmethod
+    def export_pawn(filename):
+        self = pwn_exporter
+        objects = self.collect_objects(bpy.context)
+        self.total_objects_num = 0
+
+        output_file = filename if filename.lower().endswith('.pwn') else filename + '.pwn'
+        artconfig_path = os.path.join(os.path.dirname(output_file), 'artconfig.txt')
+        model_directory = self.model_directory.strip().replace('\\', '/')
+        base_model_id = 19379
+        current_id = -1000
+        name_mapping = {}
+        written_models = set()
+
+        with open(output_file, 'w', encoding='latin-1') as pawn_file, open(artconfig_path, 'w', encoding='latin-1') as artconfig_file:
+            pawn_file.write("// Generated by DemonFF\n")
+            pawn_file.write("public OnGameModeInit()\n{\n")
+
+            for obj in objects:
+                model_id, current_id = self.get_or_create_model_id(obj, name_mapping, current_id)
+                source = get_transform_source(obj)
+                position = source.location.copy()
+                position.x += self.x_offset
+                position.y += self.y_offset
+                position.z += self.z_offset
+                rotation = quat_to_degrees(source.rotation_quaternion)
+                interior = get_object_interior(obj, -1)
+                model_name = get_pawn_model_name(obj)
+                txd_name = get_pawn_txd_name(obj)
+                safe_model_dir = model_directory.strip('/')
+                dff_path = f"{safe_model_dir}/{model_name}.dff" if safe_model_dir else f"{model_name}.dff"
+                txd_path = f"{safe_model_dir}/{txd_name}.txd" if safe_model_dir else f"{txd_name}.txd"
+
+                pawn_file.write(
+                    f"    CreateDynamicObject({model_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
+                    f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
+                    f"{interior}, 0, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // {obj.name}\n"
+                )
+
+                model_key = (model_id, dff_path.lower(), txd_path.lower())
+                if model_key not in written_models:
+                    written_models.add(model_key)
+                    artconfig_file.write(
+                        f"AddSimpleModel(-1, {base_model_id}, {model_id}, \"{dff_path}\", \"{txd_path}\");  // {model_name}\n"
+                    )
+
+                lod_index = get_object_lod(obj, None)
+                if lod_index not in (None, "", -1, "-1"):
+                    pawn_file.write(
+                        f"    CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
+                        f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
+                        f"{interior}, 0, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // LOD for {obj.name}\n"
+                    )
+
+                self.total_objects_num += 1
+
+            pawn_file.write("    return 1;\n}\n")
+
+#######################################################
+def export_pawn(options):
+    pwn_exporter.only_selected = options.get('only_selected', False)
+    pwn_exporter.model_directory = options.get('model_directory', '')
+    pwn_exporter.skip_lod = options.get('skip_lod', False)
+    pwn_exporter.stream_distance = options.get('stream_distance', 300.0)
+    pwn_exporter.draw_distance = options.get('draw_distance', 300.0)
+    pwn_exporter.x_offset = options.get('x_offset', 0.0)
+    pwn_exporter.y_offset = options.get('y_offset', 0.0)
+    pwn_exporter.z_offset = options.get('z_offset', 0.0)
+    pwn_exporter.export_pawn(options['file_name'])

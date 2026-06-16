@@ -1086,6 +1086,7 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
         box = layout.box()
         box.prop(settings, "export_normals", text="Export Normals")
         box.prop(settings, "export_split_normals", text="Export Custom Split Normals")
+        box.prop(settings, "export_normal_space", text="Normal Space")
         box.prop(settings, "export_binsplit", text="Export Bin Mesh PLG")
         box.prop(settings, "light", text="Enable Lighting")
         box.prop(settings, "modulate_color", text="Enable Modulate Material Color")
@@ -1294,6 +1295,19 @@ class DFFObjectProps(bpy.types.PropertyGroup):
         default=False,
         description="Whether Custom Split Normals will be exported (Flat Shading)."
     )
+
+
+    export_normal_space: bpy.props.EnumProperty(
+    name="Normal Space",
+    description=("Choose how vertex normals are written. "
+                 "OpenGL writes normals as-is. "
+                 "DirectX flips the Y component on export."),
+    items=(
+        ('OPENGL', 'OpenGL', 'Export normals as-is (default)'),
+        ('DIRECTX', 'DirectX', 'Flip Y component on export'),
+    ),
+    default='OPENGL'
+)
     
     export_tristrips: bpy.props.BoolProperty(
         default=False,
