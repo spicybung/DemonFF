@@ -32,23 +32,46 @@ from .ipl.enex_importer import enex_importer
 
 #######################################################
 def get_instance_model_data(inst, object_data):
-    keys = [getattr(inst, "id", None)]
+    inst_id = getattr(inst, "id", None)
+    model_name = str(getattr(inst, "modelName", "") or "").strip().lower()
+
+    keys = []
+
+    if model_name:
+        keys.append((str(inst_id), model_name))
+        keys.append(model_name)
+
+    keys.append(inst_id)
 
     try:
-        keys.append(str(inst.id))
+        keys.append(str(inst_id))
     except Exception:
         pass
 
     try:
-        keys.append(int(inst.id))
+        int_id = int(inst_id)
+        keys.append(int_id)
+        if model_name:
+            keys.append((str(int_id), model_name))
     except Exception:
         pass
 
+    seen = set()
     for key in keys:
+        marker = repr(key)
+        if marker in seen:
+            continue
+        seen.add(marker)
+
         if key in object_data:
             return object_data[key]
 
     return None
+
+#######################################################
+def get_instance_cache_key(inst, ide_data):
+    model_name = str(getattr(ide_data, "modelName", getattr(inst, "modelName", "")) or "").strip().lower()
+    return (str(getattr(inst, "id", "")), model_name)
 
 #######################################################
 def get_instance_model_name(inst, object_data):
@@ -166,10 +189,10 @@ class Map_Import_Operator(bpy.types.Operator):
         layout.prop(context.scene.dff, "ipl_version") 
     #######################################################
     def stamp_map_properties(self, obj, inst):
-        if inst.id not in self._object_data:
+        ide_data = get_instance_model_data(inst, self._object_data)
+        if ide_data is None:
             return
 
-        ide_data = self._object_data[inst.id]
         model_name = getattr(ide_data, "modelName", obj.name.split('.')[0])
         txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
 
@@ -275,11 +298,13 @@ class Map_Import_Operator(bpy.types.Operator):
         model = ide_data.modelName
         txd = ide_data.txdName
 
-        if inst.id in self._model_cache:
+        model_cache_key = get_instance_cache_key(inst, ide_data)
+
+        if model_cache_key in self._model_cache:
 
             # Get model from memory
             new_objects = {}
-            model_cache = self._model_cache[inst.id]
+            model_cache = self._model_cache[model_cache_key]
 
             cached_objects = [obj for obj in model_cache if obj.dff.type == "OBJ"]
             for obj in cached_objects:
@@ -385,11 +410,11 @@ class Map_Import_Operator(bpy.types.Operator):
             self._ipl_collection.children.link(importer.current_collection)
 
             # Save into buffer
-            self._model_cache[inst.id] = collection_objects
+            self._model_cache[model_cache_key] = collection_objects
             print(str(inst.id) + ' loaded new')
     
         # Look for collision mesh
-        name = self._model_cache[inst.id][0].name
+        name = self._model_cache[model_cache_key][0].name
         for obj in bpy.data.objects:
             if obj.dff.type == 'COL' and obj.name.endswith("%s.ColMesh" % name):
                 new_obj = bpy.data.objects.new(obj.name, obj.data)
@@ -790,11 +815,13 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
         model = ide_data.modelName
         txd = ide_data.txdName
 
-        if inst.id in self._model_cache:
+        model_cache_key = get_instance_cache_key(inst, ide_data)
+
+        if model_cache_key in self._model_cache:
 
             # Get model from memory
             new_objects = {}
-            model_cache = self._model_cache[inst.id]
+            model_cache = self._model_cache[model_cache_key]
 
             cached_objects = [obj for obj in model_cache if obj.dff.type == "OBJ"]
             for obj in cached_objects:
@@ -900,11 +927,11 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
             self._ipl_collection.children.link(importer.current_collection)
 
             # Save into buffer
-            self._model_cache[inst.id] = collection_objects
+            self._model_cache[model_cache_key] = collection_objects
             print(str(inst.id) + ' loaded new')
     
         # Look for collision mesh
-        name = self._model_cache[inst.id][0].name
+        name = self._model_cache[model_cache_key][0].name
         for obj in bpy.data.objects:
             if obj.dff.type == 'COL' and obj.name.endswith("%s.ColMesh" % name):
                 new_obj = bpy.data.objects.new(obj.name, obj.data)

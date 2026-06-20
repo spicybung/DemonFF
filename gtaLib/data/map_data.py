@@ -384,7 +384,8 @@ VCS_IDE = (
     'DATA/MAPS/washintS/washintS.IDE',
     'DATA/MAPS/mall/mall.IDE',
     'DATA/MAPS/shops/shops.IDE',
-    'DATA/MAPS/empire/empire.IDE'
+    'DATA/MAPS/empire/empire.IDE',
+    'DATA/MAPS/stadium/stadium.IDE'
 )
 
 
@@ -716,7 +717,8 @@ VCS_IPL = (
     ('DATA/MAPS/washintN/washintN.IPL', 'washintN', ''),
     ('DATA/MAPS/washintS/washintS.IPL', 'washintS', ''),
     ('DATA/MAPS/shops/shops.IPL',       'shops', ''),
-    ('DATA/MAPS/empire/empire.IPL',     'empire', '')
+    ('DATA/MAPS/empire/empire.IPL',     'empire', ''),
+    ('DATA/MAPS/stadium/stadium.IPL',   'stadium', '')
 )
 
 # Export

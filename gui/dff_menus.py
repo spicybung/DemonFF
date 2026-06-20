@@ -508,17 +508,59 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
 class OBJECT_OT_set_collision_objects(bpy.types.Operator):
     bl_idname = "object.set_collision_objects"
     bl_label = "Set All As Collision Objects"
-    bl_description = "Set all selected objects to collision objects"
+    bl_description = "Set selected mesh objects to collision objects, skipping 2DFX objects"
     bl_options = {'REGISTER', 'UNDO'}
-    ####################################################### 
+
+    @staticmethod
+    def is_2dfx_object(obj):
+        try:
+            if obj.dff.type == '2DFX':
+                return True
+        except AttributeError:
+            pass
+
+        name = obj.name.lower()
+        if '2dfx' in name:
+            return True
+
+        for collection in obj.users_collection:
+            if '2dfx' in collection.name.lower():
+                return True
+
+        return False
+
     @staticmethod
     def set_collision_objects(context):
+        changed_count = 0
+        skipped_2dfx_count = 0
+        skipped_non_mesh_count = 0
+
         for obj in context.selected_objects:
+            if obj.type != 'MESH':
+                skipped_non_mesh_count += 1
+                continue
+
+            if OBJECT_OT_set_collision_objects.is_2dfx_object(obj):
+                skipped_2dfx_count += 1
+                print(f"Skipped 2DFX object: {obj.name}")
+                continue
+
             obj.dff.type = 'COL'
+            changed_count += 1
             print(f"Set {obj.name} as a collision object")
-    ####################################################### 
+
+        return changed_count, skipped_2dfx_count, skipped_non_mesh_count
+
     def execute(self, context):
-        self.set_collision_objects(context)
+        changed_count, skipped_2dfx_count, skipped_non_mesh_count = self.set_collision_objects(context)
+        self.report(
+            {'INFO'},
+            "Set {0} object(s) as collision. Skipped {1} 2DFX object(s), {2} non-mesh object(s).".format(
+                changed_count,
+                skipped_2dfx_count,
+                skipped_non_mesh_count
+            )
+        )
         return {'FINISHED'}
 #######################################################   
 class OBJECT_OT_remove_frames(bpy.types.Operator):
@@ -1495,56 +1537,133 @@ class COLLECTION_OT_nuke_matched(bpy.types.Operator):
 class COLLECTION_OT_organize_scene_collection(bpy.types.Operator):
     bl_idname = "collection.organize_scene_collection"
     bl_label = "Organize Scene Collection"
-    bl_description = "Organize .col above matching .dff collections"
+    bl_description = "Put .col collections above their matching .dff collections"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @staticmethod
+    def split_blender_suffix(name):
+        if len(name) > 4 and name[-4] == "." and name[-3:].isdigit():
+            return name[:-4], name[-4:]
+        return name, ""
+
+    @staticmethod
+    def clean_collection_piece(name):
+        name = str(name).replace('\\', '/').split('/')[-1]
+        name, suffix = COLLECTION_OT_organize_scene_collection.split_blender_suffix(name)
+        return name, suffix
+
+    @staticmethod
+    def get_dff_key(collection_name):
+        name = str(collection_name)
+        match = re.match(r"^(?P<base>.+?)\.dff(?P<suffix>\.\d{3})?$", name, re.IGNORECASE)
+        if not match:
+            return None
+
+        base = match.group('base')
+        suffix = match.group('suffix') or ""
+        return base.lower(), suffix
+
+    @staticmethod
+    def get_col_key(collection_name):
+        name = str(collection_name)
+        lower_name = name.lower()
+
+        if '.col.' in lower_name:
+            prefix, model_part = re.split(r"\.col\.", name, maxsplit=1, flags=re.IGNORECASE)
+            model, suffix = COLLECTION_OT_organize_scene_collection.split_blender_suffix(model_part)
+            return model.lower(), suffix
+
+        match = re.match(r"^(?P<base>.+?)\.col(?P<suffix>\.\d{3})?$", name, re.IGNORECASE)
+        if match:
+            return match.group('base').lower(), match.group('suffix') or ""
+
+        return None
+
+    @staticmethod
+    def link_child(parent, child):
+        if child.name not in parent.children.keys():
+            parent.children.link(child)
+
+    @staticmethod
+    def unlink_child(parent, child):
+        if child.name in parent.children.keys():
+            parent.children.unlink(child)
+
+    @staticmethod
+    def organize_collection(parent):
+        children = list(parent.children)
+        if not children:
+            return 0
+
+        dff_items = []
+        col_items = []
+        other_items = []
+
+        for index, child in enumerate(children):
+            dff_key = COLLECTION_OT_organize_scene_collection.get_dff_key(child.name)
+            col_key = COLLECTION_OT_organize_scene_collection.get_col_key(child.name)
+
+            if dff_key is not None:
+                dff_items.append({"collection": child, "key": dff_key, "index": index})
+            elif col_key is not None:
+                col_items.append({"collection": child, "key": col_key, "index": index, "used": False})
+            else:
+                other_items.append({"collection": child, "index": index})
+
+        if not dff_items and not col_items:
+            changed_count = 0
+            for child in children:
+                changed_count += COLLECTION_OT_organize_scene_collection.organize_collection(child)
+            return changed_count
+
+        ordered_children = []
+
+        for dff_item in sorted(dff_items, key=lambda item: item["index"]):
+            dff_base, dff_suffix = dff_item["key"]
+
+            exact_matches = [
+                item for item in col_items
+                if not item["used"] and item["key"] == (dff_base, dff_suffix)
+            ]
+
+            if exact_matches:
+                for item in sorted(exact_matches, key=lambda item: item["index"]):
+                    ordered_children.append(item["collection"])
+                    item["used"] = True
+            else:
+                base_matches = [
+                    item for item in col_items
+                    if not item["used"] and item["key"][0] == dff_base
+                ]
+                if base_matches:
+                    item = sorted(base_matches, key=lambda item: item["index"])[0]
+                    ordered_children.append(item["collection"])
+                    item["used"] = True
+
+            ordered_children.append(dff_item["collection"])
+
+        remaining_cols = [item for item in col_items if not item["used"]]
+        for item in sorted(remaining_cols, key=lambda item: item["index"]):
+            ordered_children.append(item["collection"])
+
+        for item in sorted(other_items, key=lambda item: item["index"]):
+            ordered_children.append(item["collection"])
+
+        for child in children:
+            COLLECTION_OT_organize_scene_collection.unlink_child(parent, child)
+
+        for child in ordered_children:
+            COLLECTION_OT_organize_scene_collection.link_child(parent, child)
+
+        changed_count = 1
+        for child in ordered_children:
+            changed_count += COLLECTION_OT_organize_scene_collection.organize_collection(child)
+
+        return changed_count
 
     def execute(self, context):
-
-        def get_base_name(name):
-            if ".dff" in name:
-                return name.split(".dff")[0]
-            elif ".col" in name:
-                return name.split(".col")[0]
-            return name
-
-        def organize_pairs(scene):
-            all_colls = list(scene.collection.children)
-
-            pairs = []
-            others = []
-
-            pair_map = {}
-
-            for col in all_colls:
-                base = get_base_name(col.name)
-
-                if base not in pair_map:
-                    pair_map[base] = {"col": None, "dff": None}
-
-                if ".col" in col.name:
-                    pair_map[base]["col"] = col
-                elif ".dff" in col.name:
-                    pair_map[base]["dff"] = col
-                else:
-                    others.append(col)
-
-            # Unlink all first
-            for c in all_colls:
-                scene.collection.children.unlink(c)
-
-            # Link back in pairwise order: .col first, .dff next
-            for base in sorted(pair_map.keys()):
-                pair = pair_map[base]
-                if pair["col"]:
-                    scene.collection.children.link(pair["col"])
-                if pair["dff"]:
-                    scene.collection.children.link(pair["dff"])
-
-            # Link the rest (non .col/.dff) last
-            for col in sorted(others, key=lambda c: c.name):
-                scene.collection.children.link(col)
-
-        organize_pairs(context.scene)
-        self.report({'INFO'}, ".col collections are now above their matching .dff collections.")
+        changed_count = self.organize_collection(context.scene.collection)
+        self.report({'INFO'}, "Organized .col/.dff collection order in {0} collection(s).".format(changed_count))
         return {'FINISHED'}
     
 #######################################################
@@ -1568,44 +1687,279 @@ class COLLECTION_OT_remove_empty_collections(bpy.types.Operator):
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
-    bl_description = "Duplicate all mesh objects in the scene as collision meshes"
+    bl_description = "Duplicate mesh objects as collision meshes, skipping 2DFX and LOD objects"
     bl_options = {'REGISTER', 'UNDO'}
 
-    def execute(self, context):
-        root_collection = bpy.context.scene.collection
-        collection_pairs = []
+    unique_models_only: bpy.props.BoolProperty(
+        name="Skip repeated model instances",
+        description="Old fast mode. Only creates one collision duplicate for each model name. Leave off for map imports so repeated object instances get matching collisions",
+        default=False
+    )
 
-        for obj in context.scene.objects:
-            if not obj.users_collection or obj.type != 'MESH':
+    copy_mesh_data: bpy.props.BoolProperty(
+        name="Copy mesh data",
+        description="Copy mesh data once per source mesh. Disable for linked-data duplicates, but editing a collision mesh will also edit every object using that data",
+        default=True
+    )
+
+    clear_existing: bpy.props.BoolProperty(
+        name="Replace existing collision duplicates",
+        description="Clear old generated objects from matching .col collections before creating new ones",
+        default=True
+    )
+
+    skip_lod_objects: bpy.props.BoolProperty(
+        name="Skip LOD objects",
+        description="Skip LOD/LODf objects while creating collision duplicates",
+        default=True
+    )
+
+    @staticmethod
+    def strip_blender_suffix(name):
+        if len(name) > 4 and name[-4] == "." and name[-3:].isdigit():
+            return name[:-4]
+        return name
+
+    @staticmethod
+    def split_blender_suffix(name):
+        if len(name) > 4 and name[-4] == "." and name[-3:].isdigit():
+            return name[:-4], name[-4:]
+        return name, ""
+
+    @staticmethod
+    def clean_model_name(name):
+        name = str(name).replace('\\', '/').split('/')[-1]
+        for suffix in ('.dff', '.DFF', '.col', '.COL'):
+            if name.endswith(suffix):
+                name = name[:-len(suffix)]
+        return SCENE_OT_duplicate_all_as_collision.strip_blender_suffix(name)
+
+    @staticmethod
+    def get_dff_collection_key(collection_name):
+        match = re.match(r"^(?P<base>.+?)\.dff(?P<suffix>\.\d{3})?$", str(collection_name), re.IGNORECASE)
+        if not match:
+            return None
+        return match.group('base'), match.group('suffix') or ""
+
+    @staticmethod
+    def is_dff_collection(collection):
+        return SCENE_OT_duplicate_all_as_collision.get_dff_collection_key(collection.name) is not None
+
+    @staticmethod
+    def get_source_dff_collection(obj):
+        dff_collections = [collection for collection in obj.users_collection if SCENE_OT_duplicate_all_as_collision.is_dff_collection(collection)]
+        if dff_collections:
+            dff_collections.sort(key=lambda collection: len(collection.name))
+            return dff_collections[0]
+        return None
+
+    @staticmethod
+    def get_collection_parent(scene, child_collection):
+        if child_collection.name in scene.collection.children.keys():
+            return scene.collection
+
+        for collection in bpy.data.collections:
+            if child_collection.name in collection.children.keys():
+                return collection
+
+        return scene.collection
+
+    @staticmethod
+    def get_source_model_name(obj):
+        source_collection = SCENE_OT_duplicate_all_as_collision.get_source_dff_collection(obj)
+        if source_collection:
+            dff_key = SCENE_OT_duplicate_all_as_collision.get_dff_collection_key(source_collection.name)
+            if dff_key:
+                return SCENE_OT_duplicate_all_as_collision.clean_model_name(dff_key[0])
+
+        for key in ("DFF_Name", "dff_name", "model_name", "ModelName"):
+            value = obj.get(key)
+            if value:
+                return SCENE_OT_duplicate_all_as_collision.clean_model_name(value)
+
+        return SCENE_OT_duplicate_all_as_collision.clean_model_name(obj.name)
+
+    @staticmethod
+    def build_collision_collection_name(obj, model_name):
+        source_collection = SCENE_OT_duplicate_all_as_collision.get_source_dff_collection(obj)
+        if source_collection:
+            dff_key = SCENE_OT_duplicate_all_as_collision.get_dff_collection_key(source_collection.name)
+            if dff_key:
+                base, suffix = dff_key
+                clean_base = SCENE_OT_duplicate_all_as_collision.clean_model_name(base)
+                return f"{clean_base}.col.{clean_base}{suffix}"
+
+        clean_model = SCENE_OT_duplicate_all_as_collision.clean_model_name(model_name)
+        return f"{clean_model}.col.{clean_model}"
+
+    @staticmethod
+    def get_collision_parent_collection(scene, obj):
+        source_collection = SCENE_OT_duplicate_all_as_collision.get_source_dff_collection(obj)
+        if source_collection:
+            return SCENE_OT_duplicate_all_as_collision.get_collection_parent(scene, source_collection)
+        return scene.collection
+
+    @staticmethod
+    def is_lod_name(name):
+        name = SCENE_OT_duplicate_all_as_collision.clean_model_name(name).lower()
+        return (
+            name.startswith('lod') or
+            name.startswith('lodf_') or
+            name.startswith('lodachw_') or
+            name.startswith('lodn_') or
+            name.startswith('lod_')
+        )
+
+    @staticmethod
+    def is_collision_collection(collection):
+        name = collection.name.lower()
+        return name.endswith('.col') or '.col.' in name
+
+    @staticmethod
+    def is_2dfx_object(obj):
+        try:
+            if obj.dff.type == '2DFX':
+                return True
+        except AttributeError:
+            pass
+
+        name = obj.name.lower()
+        if '2dfx' in name:
+            return True
+
+        for collection in obj.users_collection:
+            if '2dfx' in collection.name.lower():
+                return True
+
+        return False
+
+    @staticmethod
+    def is_collision_object(obj):
+        if any(SCENE_OT_duplicate_all_as_collision.is_collision_collection(collection) for collection in obj.users_collection):
+            return True
+
+        try:
+            if obj.dff.type in {'COL', 'SHA'}:
+                return True
+        except AttributeError:
+            pass
+
+        return False
+
+    @staticmethod
+    def ensure_collection(parent_collection, name):
+        for child in parent_collection.children:
+            if child.name == name:
+                return child
+
+        collection = bpy.data.collections.new(name)
+        parent_collection.children.link(collection)
+        return collection
+
+    @staticmethod
+    def clear_generated_collection(collection):
+        for obj in list(collection.objects):
+            bpy.data.objects.remove(obj, do_unlink=True)
+
+    @staticmethod
+    def copy_dff_collision_settings(source_obj, duplicate):
+        try:
+            duplicate.dff.type = 'COL'
+            duplicate.dff.col_material = source_obj.dff.col_material
+            duplicate.dff.col_flags = source_obj.dff.col_flags
+            duplicate.dff.col_brightness = source_obj.dff.col_brightness
+            duplicate.dff.col_light = source_obj.dff.col_light
+        except AttributeError:
+            pass
+
+    @staticmethod
+    def copy_custom_properties(source_obj, duplicate):
+        for key in source_obj.keys():
+            duplicate[key] = source_obj[key]
+
+    def execute(self, context):
+        mesh_cache = {}
+        cleared_collections = set()
+        created_model_names = set()
+        created_count = 0
+        skipped_repeated_count = 0
+        skipped_lod_count = 0
+        skipped_collision_count = 0
+        skipped_2dfx_count = 0
+        skipped_non_mesh_count = 0
+
+        source_objects = list(context.scene.objects)
+
+        for obj in source_objects:
+            if obj.type != 'MESH' or obj.data is None:
+                skipped_non_mesh_count += 1
                 continue
 
-            col_name = f"{obj.name}.col.{obj.name}"
+            if self.is_collision_object(obj):
+                skipped_collision_count += 1
+                continue
 
-            duplicate = obj.copy()
-            duplicate.data = obj.data.copy() if obj.data else None
-            duplicate.name = col_name
+            if self.is_2dfx_object(obj):
+                skipped_2dfx_count += 1
+                continue
 
-            col_collection = bpy.data.collections.new(col_name)
-            root_collection.children.link(col_collection)
+            model_name = self.get_source_model_name(obj)
+
+            if self.skip_lod_objects and (self.is_lod_name(model_name) or self.is_lod_name(obj.name)):
+                skipped_lod_count += 1
+                continue
+
+            if self.unique_models_only and model_name in created_model_names:
+                skipped_repeated_count += 1
+                continue
+
+            created_model_names.add(model_name)
+
+            parent_collection = self.get_collision_parent_collection(context.scene, obj)
+            col_collection_name = self.build_collision_collection_name(obj, model_name)
+            col_collection = self.ensure_collection(parent_collection, col_collection_name)
+
+            if self.clear_existing and col_collection.name not in cleared_collections:
+                self.clear_generated_collection(col_collection)
+                cleared_collections.add(col_collection.name)
+
+            if self.copy_mesh_data:
+                mesh_key = obj.data.name_full
+                mesh_data = mesh_cache.get(mesh_key)
+                if mesh_data is None:
+                    mesh_data = obj.data.copy()
+                    mesh_data.name = f"{self.clean_model_name(model_name)}_col_mesh"
+                    mesh_cache[mesh_key] = mesh_data
+            else:
+                mesh_data = obj.data
+
+            col_object_name = f"{col_collection.name}.ColMesh"
+            duplicate = bpy.data.objects.new(col_object_name, mesh_data)
+            duplicate.matrix_world = obj.matrix_world.copy()
+            duplicate.hide_select = obj.hide_select
+            duplicate.show_name = obj.show_name
+
+            self.copy_custom_properties(obj, duplicate)
+            self.copy_dff_collision_settings(obj, duplicate)
+
             col_collection.objects.link(duplicate)
+            created_count += 1
 
-            if hasattr(duplicate, "dff"):
-                duplicate.dff.type = 'COL'
+        try:
+            COLLECTION_OT_organize_scene_collection.organize_collection(context.scene.collection)
+        except Exception as error:
+            print("Could not organize .col/.dff collections after collision duplicate:", error)
 
-
-            original_collection = obj.users_collection[0]
-            collection_pairs.append((col_collection, original_collection))
-
-        # Reorder so col comes first
-        for col_collection, dff_collection in collection_pairs:
-            if dff_collection in root_collection.children:
-                root_collection.children.unlink(dff_collection)
-            if col_collection in root_collection.children:
-                root_collection.children.unlink(col_collection)
-            root_collection.children.link(col_collection)
-            root_collection.children.link(dff_collection)
-
-        self.report({'INFO'}, "Objects duplicated as .COL objects.")
+        self.report(
+            {'INFO'},
+            "Created {0} collision duplicate(s). Skipped {1} repeated model(s), {2} LOD(s), {3} collision object(s), {4} 2DFX object(s).".format(
+                created_count,
+                skipped_repeated_count,
+                skipped_lod_count,
+                skipped_collision_count,
+                skipped_2dfx_count
+            )
+        )
         return {'FINISHED'}
 
 #######################################################    

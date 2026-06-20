@@ -352,18 +352,37 @@ class MapDataUtility:
             data['IDE_paths'] = ide_paths
 
         else:
-            # Prune IDEs unrelated to current IPL section (SA only). First, make IDE_paths a mutable list, then iterate
-            # over a copy so we can remove elements during iteration. This is a naive pruning which keeps all ides with a
-            # few generic keywords in their name and culls anything else with a prefix different from the given ipl_section
-            if game_id == map_data.game_version.SA:
+            # VCS PC-port maps reuse SA-style text IPL/IDE data, but the converted
+            # island chunks are not globally unique. Many segment IDEs reuse the
+            # same local ID range, so loading every VCS IDE for one IPL can make
+            # harmless local IDs look like duplicate global IDs and can resolve an
+            # IPL entry to the wrong model. Keep the normal generic/shared IDEs,
+            # then keep only the IDE that belongs to the selected map segment.
+            if game_id in (map_data.game_version.SA, map_data.game_version.VCS):
                 data['IDE_paths'] = list(data['IDE_paths'])
-                for p in data['IDE_paths'].copy():
-                    if p.startswith('DATA/MAPS/generic/') or p.startswith('DATA/MAPS/leveldes/') or 'xref' in p:
+
+                ipl_norm = str(ipl_section).replace('\\', '/').lower()
+                ipl_name = os.path.splitext(os.path.basename(ipl_norm))[0]
+                ipl_dir = os.path.basename(os.path.dirname(ipl_norm))
+
+                for ide_path in data['IDE_paths'].copy():
+                    ide_norm = str(ide_path).replace('\\', '/').lower()
+                    ide_name = os.path.splitext(os.path.basename(ide_norm))[0]
+                    ide_dir = os.path.basename(os.path.dirname(ide_norm))
+
+                    if '/generic/' in ide_norm or '/leveldes/' in ide_norm or 'xref' in ide_norm:
                         continue
-                    ide_prefix = p.split('/')[-1].lower()
-                    ipl_prefix = ipl_section.split('/')[-1].lower()[:3]
+
+                    if game_id == map_data.game_version.VCS:
+                        if ide_name == ipl_name or ide_dir == ipl_dir:
+                            continue
+                        data['IDE_paths'].remove(ide_path)
+                        continue
+
+                    ide_prefix = ide_name[:3]
+                    ipl_prefix = ipl_name[:3]
                     if not ide_prefix.startswith(ipl_prefix):
-                        data['IDE_paths'].remove(p)
+                        data['IDE_paths'].remove(ide_path)
 
         # Load IDEs
         ide = self.load_ide_data(
@@ -411,24 +430,35 @@ class MapDataUtility:
             for entry in ipl['enex']:
                 enex_instances.append(entry)
 
-        # Get all IDE objs into flat ID keyed dictionaries
-        if 'objs' in ide:
-            for entry in ide['objs']:
-                if entry.id in object_data:
-                    print('OJBS ERROR!! a duplicate ID!!')
-                object_data[entry.id] = entry
+        # Get all IDE objects into an ID keyed dictionary.
+        # Duplicate IDs are expected in some converted PC-port map sets if shared
+        # or unrelated IDEs slip in. Prefer the first entry for the plain ID key
+        # and also keep a model-name qualified key so IPL entries that include a
+        # model name can still resolve the exact object.
+        duplicate_ide_ids = set()
 
-        if 'tobj' in ide:
-            for entry in ide['tobj']:
-                if entry.id in object_data:
-                    print('TOBJ ERROR!! a duplicate ID!!')
-                object_data[entry.id] = entry
+        def add_ide_entry(section_name, entry):
+            entry_id = entry.id
+            model_name = str(getattr(entry, 'modelName', '')).strip().lower()
 
-        if 'anim' in ide:
-            for entry in ide['anim']:
-                if entry.id in object_data:
-                    print('ANIM ERROR!! a duplicate ID!!')
-                object_data[entry.id] = entry
+            for key in (entry_id, str(entry_id)):
+                if key in object_data:
+                    old_model = str(getattr(object_data[key], 'modelName', '')).strip().lower()
+                    if old_model != model_name:
+                        duplicate_ide_ids.add(str(entry_id))
+                    continue
+                object_data[key] = entry
+
+            if model_name:
+                object_data[(str(entry_id), model_name)] = entry
+                object_data[model_name] = entry
+
+        for section_name in ('objs', 'tobj', 'anim'):
+            for entry in ide.get(section_name, []):
+                add_ide_entry(section_name, entry)
+
+        if duplicate_ide_ids:
+            print('MapDataUtility: duplicate IDE IDs kept by model name:', ', '.join(sorted(duplicate_ide_ids)[:16]))
 
         return MapData(
             object_instances = object_instances,
@@ -612,9 +642,16 @@ class MapDataUtility:
 
             for section_name in ('objs', 'tobj', 'anim'):
                 for entry in sections.get(section_name, []):
-                    if entry.id in object_data:
-                        print('%s ERROR!! a duplicate ID!!' % section_name.upper())
-                    object_data[entry.id] = entry
+                    entry_id = entry.id
+                    model_name = str(getattr(entry, 'modelName', '')).strip().lower()
+
+                    for key in (entry_id, str(entry_id)):
+                        if key not in object_data:
+                            object_data[key] = entry
+
+                    if model_name:
+                        object_data[(str(entry_id), model_name)] = entry
+                        object_data[model_name] = entry
 
         for index, inst in enumerate(object_instances):
             model = object_data.get(inst.id)
