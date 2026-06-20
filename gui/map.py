@@ -338,7 +338,8 @@ class DFFSceneProps(bpy.types.PropertyGroup):
 
     skip_lod: bpy.props.BoolProperty(
         name        = "Skip LOD Objects",
-        default     = False
+        description = "Skip map models named like LOD/LODf instead of using the SA IPL lod field backwards",
+        default     = True
     )
 
     load_txd: bpy.props.BoolProperty(
@@ -346,14 +347,42 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         default     = False
     )
 
+    txd_pack: bpy.props.BoolProperty(
+        name        = "Pack Images",
+        description = "Pack imported TXD images into the .blend file",
+        default     = False
+    )
+
     read_mat_split  :  bpy.props.BoolProperty(
         name        = "Read Material Split",
-        description = "Whether to read material split for loading triangles",
+        description = "Use the DFF bin mesh/material split while importing map DFFs",
+        default     = True
+    )
+
+    create_backfaces: bpy.props.BoolProperty(
+        name        = "Create Backfaces",
+        description = "Keep duplicate/backface triangles by creating separate vertices for them",
         default     = False
     )
 
     load_collisions: bpy.props.BoolProperty(
         name        = "Load Map Collisions",
+        default     = False
+    )
+
+
+    load_cull: bpy.props.BoolProperty(
+        name        = "Load Map CULL",
+        default     = False
+    )
+
+    load_grge: bpy.props.BoolProperty(
+        name        = "Load Map GRGE",
+        default     = False
+    )
+
+    load_enex: bpy.props.BoolProperty(
+        name        = "Load Map ENEX",
         default     = False
     )
 
@@ -762,53 +791,83 @@ class RemoveIDEPathOperator(bpy.types.Operator):
         return {'FINISHED'}
 #######################################################
 class MapImportPanel(bpy.types.Panel):
-    """Creates a Panel in the scene context of the properties editor"""
-    bl_label = "DemonFF - Map Import"
+    bl_label = "DemonFF - Map I/O"
     bl_idname = "SCENE_PT_map_import"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
-    ####################################################### R*
+
     def draw(self, context):
         layout = self.layout
         settings = context.scene.dff
 
-        flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
+        flow = layout.grid_flow(
+            row_major=True,
+            columns=0,
+            even_columns=True,
+            even_rows=False,
+            align=True
+        )
         col = flow.column()
 
         col.prop(settings, "game_version_dropdown", text="Game")
-        
 
-        col.prop(settings, "skip_lod", text="Skip LOD objects")
-
-        col.prop(settings, "use_binary_ipl", text="Use binary IPL")
-        col.prop(settings, "use_custom_map_section", text="Use text IPL")
-
-        if not settings.use_binary_ipl and not settings.use_custom_map_section:
+        if settings.use_custom_map_section:
+            row = col.row(align=True)
+            row.prop(settings, "custom_ipl_path", text="IPL path")
+            row.operator("scene.select_ipl", text="", icon='FILEBROWSER')
+        elif not settings.use_binary_ipl:
             col.prop(settings, "map_sections", text="Map segment")
-        elif settings.use_custom_map_section:
-            col.prop(settings, "custom_ipl_path", text="Custom IPL")
 
+        col.prop(settings, "use_custom_map_section", text="Use Custom Map Section")
+        col.prop(settings, "use_binary_ipl", text="Use binary IPL")
+        col.separator()
+
+        box = col.box()
+        box.prop(settings, "load_txd", text="Load TXD files")
+        if settings.load_txd and hasattr(settings, "txd_pack"):
+            box.prop(settings, "txd_pack", text="Pack Images")
+
+        col.prop(settings, "skip_lod", text="Skip LOD Objects")
+        col.prop(settings, "read_mat_split", text="Read Material Split")
+        col.prop(settings, "create_backfaces", text="Create Backfaces")
+        col.prop(settings, "load_collisions", text="Load Map Collisions")
+
+        box = col.box()
+        box.label(text="Import Entries")
+        grid = box.grid_flow(columns=3, even_columns=True, even_rows=True)
+        grid.prop(settings, "load_cull", text="CULL")
+        grid.prop(settings, "load_grge", text="GRGE")
+        grid.prop(settings, "load_enex", text="ENEX")
 
         if settings.use_binary_ipl or settings.use_custom_map_section:
-            col.label(text="Select IDE(s) and IPL:")
+            layout.separator()
+            layout.label(text="IDE paths")
             layout.template_list("DEMONFF_UL_ide_paths", "", settings, "ide_paths", settings, "ide_index")
 
             row = layout.row(align=True)
             row.operator("scene.add_ide_path", text="Add IDE")
             row.operator("scene.remove_ide_path", text="Remove IDE")
 
-        layout.prop(settings, "game_root")
-        layout.prop(settings, "dff_folder")
+        layout.separator()
+        layout.prop(settings, "game_root", text="Game root")
+        layout.prop(settings, "dff_folder", text="Dff folder")
 
-        # IDE paths if using binary or custom ipl is true
         if settings.use_binary_ipl:
-            layout.operator("scene.binary_import_ipl", text="Import Binary IPL", icon='FILE_FOLDER')
-        elif settings.use_custom_map_section:
-            layout.operator("scene.demonff_map_import", text="Import Text IPL", icon='FILE_FOLDER')
+            layout.operator("scene.binary_import_ipl", text="Import binary IPL", icon='FILE_FOLDER')
         else:
-            layout.operator("scene.demonff_map_import", text="Import Segment IPL", icon='FILE_FOLDER')   # Can also import IDEs now too
+            layout.operator("scene.demonff_map_import", text="Import map section", icon='FILE_FOLDER')
 
+        layout.separator()
+
+        row = layout.row()
+        row.operator("object.export_to_ipl", text="Export IPL")
+
+        row = layout.row()
+        row.operator("object.export_to_ide", text="Export IDE")
+
+        row = layout.row()
+        row.operator("object.samp_mass_ide_import", text="Import IDE Data")
 #######################################################
 class DemonFFMapExportPanel(bpy.types.Panel):
     bl_label = "DemonFF - Map Export"
@@ -1132,7 +1191,7 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
 
     only_selected: bpy.props.BoolProperty(name="Only Selected", default=False)
     model_directory: bpy.props.StringProperty(name="Model Directory", default="", description="Model directory for artconfig paths")
-    skip_lod: bpy.props.BoolProperty(name="Skip LOD Objects", default=False)
+    skip_lod: bpy.props.BoolProperty(name="Skip LOD Objects", default=True)
     stream_distance: bpy.props.FloatProperty(name="Stream Distance", default=300.0)
     draw_distance: bpy.props.FloatProperty(name="Draw Distance", default=300.0)
     x_offset: bpy.props.FloatProperty(name="X Offset", default=0.0)
@@ -1184,9 +1243,7 @@ class DemonFFNewPawnPanel(bpy.types.Panel):
     bl_context = "scene"
 
     def draw(self, context):
-        row = self.layout.row()
-        row.operator("scene.pwn_export", text="Export PWN + artconfig")
-        row.operator("scene.ide_import", text="Import IDE Data")
+        self.layout.operator("scene.pwn_export", text="Export PWN + artconfig")
 
 #######################################################
 def register():

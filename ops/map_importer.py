@@ -26,6 +26,84 @@ import tempfile
 from ..ops import dff_importer, col_importer
 from ..gtaLib import map as map_utilites
 from .importer_common import (hide_object)
+from .ipl.cull_importer import cull_importer
+from .ipl.grge_importer import grge_importer
+from .ipl.enex_importer import enex_importer
+
+#######################################################
+def get_instance_model_data(inst, object_data):
+    keys = [getattr(inst, "id", None)]
+
+    try:
+        keys.append(str(inst.id))
+    except Exception:
+        pass
+
+    try:
+        keys.append(int(inst.id))
+    except Exception:
+        pass
+
+    for key in keys:
+        if key in object_data:
+            return object_data[key]
+
+    return None
+
+#######################################################
+def get_instance_model_name(inst, object_data):
+    ide_data = get_instance_model_data(inst, object_data)
+
+    if ide_data is not None and hasattr(ide_data, "modelName"):
+        return str(ide_data.modelName)
+
+    if hasattr(inst, "modelName"):
+        return str(inst.modelName)
+
+    return ""
+
+#######################################################
+def is_lod_model_name(model_name):
+    name = str(model_name or "").strip().lower()
+    compact = "".join(ch for ch in name if ch.isalnum())
+
+    if compact.startswith("lod"):
+        return True
+
+    if compact.startswith("lo") and "lod" in compact[:5]:
+        return True
+
+    return False
+
+#######################################################
+def is_lod_instance(inst, object_data):
+    return is_lod_model_name(get_instance_model_name(inst, object_data))
+
+#######################################################
+def link_optional_map_entries(context, parent_collection, map_data, settings):
+    entry_sets = (
+        ("CULL", bool(getattr(settings, "load_cull", False)), map_data.get("cull_instances", []), cull_importer.import_cull),
+        ("GRGE", bool(getattr(settings, "load_grge", False)), map_data.get("grge_instances", []), grge_importer.import_grge),
+        ("ENEX", bool(getattr(settings, "load_enex", False)), map_data.get("enex_instances", []), enex_importer.import_enex),
+    )
+
+    for name, enabled, entries, importer in entry_sets:
+        if not enabled or not entries:
+            continue
+
+        collection = bpy.data.collections.new(name)
+        parent_collection.children.link(collection)
+
+        for entry in entries:
+            try:
+                obj = importer(entry)
+            except Exception as ex:
+                print(f"Could not import {name} entry: {ex}")
+                continue
+
+            collection.objects.link(obj)
+
+#######################################################
 
  # Converts text IPL to binary IPL for processing
 def convert_ipl_to_binary(text_ipl_path):
@@ -185,16 +263,17 @@ class Map_Import_Operator(bpy.types.Operator):
         inst = self._object_instances[self._inst_index]
         self._inst_index += 1
 
-        # Skip LODs if user selects this
-        if hasattr(inst, 'lod') and int(inst.lod) == -1 and self.settings.skip_lod:
+        # Skip actual low-detail models, not normal SA instances with lod == -1.
+        if self.settings.skip_lod and is_lod_instance(inst, self._object_data):
             return
 
         # Deleted objects that Rockstar forgot to remove?
-        if inst.id not in self._object_data:
+        ide_data = get_instance_model_data(inst, self._object_data)
+        if ide_data is None:
             return
 
-        model = self._object_data[inst.id].modelName
-        txd = self._object_data[inst.id].txdName
+        model = ide_data.modelName
+        txd = ide_data.txdName
 
         if inst.id in self._model_cache:
 
@@ -273,11 +352,12 @@ class Map_Import_Operator(bpy.types.Operator):
                     'load_txd'         : self.settings.load_txd,
                     'txd_filename'     : "%s.txd" % txd,
                     'skip_mipmaps'     : True,
-                    'txd_pack'         : False,
+                    'txd_pack'         : self.settings.txd_pack,
                     'image_ext'        : 'PNG',
                     'connect_bones'    : False,
                     'use_mat_split'    : self.settings.read_mat_split,
-                    'remove_doubles'   : True,
+                    'remove_doubles'   : False,
+                    'create_backfaces' : self.settings.create_backfaces,
                     'group_materials'  : True,
                     'import_normals'   : True,
                     "materials_naming" : "DEF",
@@ -351,9 +431,9 @@ class Map_Import_Operator(bpy.types.Operator):
                 for i in range(len(self._object_instances)):
                     id = self._object_instances[i].id
                     # Deleted objects that Rockstar forgot to remove?
-                    if id not in self._object_data:
+                    objdata = get_instance_model_data(self._object_instances[i], self._object_data)
+                    if objdata is None:
                         continue
-                    objdata = self._object_data[id]
                     if not hasattr(objdata, 'filename'):
                         continue
                     prefix = objdata.filename.split('/')[-1][:-4].lower()
@@ -494,6 +574,7 @@ class Map_Import_Operator(bpy.types.Operator):
         collection_name = os.path.basename(map_section)
         self._ipl_collection = bpy.data.collections.new(collection_name)
         self._mesh_collection.children.link(self._ipl_collection)
+        link_optional_map_entries(context, self._ipl_collection, map_data, self.settings)
 
         # Get a list of the .col files available
         for filename in os.listdir(self.settings.dff_folder):
@@ -611,6 +692,7 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
         # Create IPL section container collection
         self._ipl_collection = bpy.data.collections.new(os.path.basename(self.filepath))
         self._mesh_collection.children.link(self._ipl_collection)
+        link_optional_map_entries(context, self._ipl_collection, map_data, self.settings)
 
         # Cache all .col files
         for filename in os.listdir(self.settings.dff_folder):
@@ -637,9 +719,9 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
             if self.settings.load_collisions and self._check_collisions:
                 for inst in self._object_instances:
                     id = inst.id
-                    if id not in self._object_data:
+                    objdata = get_instance_model_data(self._object_instances[i], self._object_data)
+                    if objdata is None:
                         continue
-                    objdata = self._object_data[id]
                     if not hasattr(objdata, 'filename'):
                         continue
                     prefix = objdata.filename.split('/')[-1][:-4].lower()
@@ -696,16 +778,17 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
         inst = self._object_instances[self._inst_index]
         self._inst_index += 1
 
-        # Skip LODs if user selects this
-        if hasattr(inst, 'lod') and int(inst.lod) == -1 and self.settings.skip_lod:
+        # Skip actual low-detail models, not normal SA instances with lod == -1.
+        if self.settings.skip_lod and is_lod_instance(inst, self._object_data):
             return
 
         # Deleted objects that Rockstar forgot to remove?
-        if inst.id not in self._object_data:
+        ide_data = get_instance_model_data(inst, self._object_data)
+        if ide_data is None:
             return
 
-        model = self._object_data[inst.id].modelName
-        txd = self._object_data[inst.id].txdName
+        model = ide_data.modelName
+        txd = ide_data.txdName
 
         if inst.id in self._model_cache:
 
@@ -784,11 +867,12 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
                     'load_txd'         : self.settings.load_txd,
                     'txd_filename'     : "%s.txd" % txd,
                     'skip_mipmaps'     : True,
-                    'txd_pack'         : False,
+                    'txd_pack'         : self.settings.txd_pack,
                     'image_ext'        : 'PNG',
                     'connect_bones'    : False,
                     'use_mat_split'    : self.settings.read_mat_split,
-                    'remove_doubles'   : True,
+                    'remove_doubles'   : False,
+                    'create_backfaces' : self.settings.create_backfaces,
                     'group_materials'  : True,
                     'import_normals'   : True,
                     "materials_naming" : "DEF",

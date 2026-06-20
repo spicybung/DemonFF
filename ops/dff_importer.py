@@ -50,6 +50,7 @@ class dff_importer:
     current_collection = None
     use_mat_split      = False
     remove_doubles     = False
+    create_backfaces   = False
     import_normals     = False
     group_materials    = False
     version            = ""
@@ -161,18 +162,30 @@ class dff_importer:
                 if v1 == v2 or v2 == v3 or v1 == v3:
                     continue
 
-                # Skip if face already exists with the same vertex set
-                vert_set = {v1, v2, v3}
-                found = False
-                for face in bm.faces:
-                    if vert_set == set(face.verts):
-                        found = True
-                        break
-                if found:
-                    continue
-
+                # Blender bmesh does not allow two faces to reuse the exact same vertex set.
+                # Some GTA map models use those duplicate triangles as backfaces, so preserve them
+                # when the map importer asks for backfaces.
                 try:
                     face = bm.faces.new([v1, v2, v3])
+                except ValueError:
+                    if not self.create_backfaces:
+                        vert_index += 3
+                        continue
+
+                    bm.verts.new(geom.vertices[f.a])
+                    bm.verts.new(geom.vertices[f.b])
+                    bm.verts.new(geom.vertices[f.c])
+                    bm.verts.ensure_lookup_table()
+                    bm.verts.index_update()
+
+                    try:
+                        face = bm.faces.new(bm.verts[-3:])
+                    except Exception as e:
+                        vert_index += 3
+                        print(f"Face error: {e}")
+                        continue
+
+                try:
 
                     if len(mat_indices) > 0:
                         face.material_index = mat_indices[f.material]
@@ -967,7 +980,8 @@ def import_dff(options):
     dff_importer.image_ext        = options['image_ext']
     dff_importer.use_bone_connect = options['connect_bones']
     dff_importer.use_mat_split    = options['use_mat_split']
-    dff_importer.remove_doubles   = options['remove_doubles']
+    dff_importer.remove_doubles   = options.get('remove_doubles', False)
+    dff_importer.create_backfaces = options.get('create_backfaces', False)
     dff_importer.group_materials  = options['group_materials']
     dff_importer.import_normals   = options['import_normals']
     dff_importer.materials_naming = options['materials_naming']

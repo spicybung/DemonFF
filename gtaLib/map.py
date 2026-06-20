@@ -114,6 +114,8 @@ class SectionUtility:
 #######################################################
 class MapDataUtility:
 
+    forced_ide_paths = None
+
     # Finds the path to a file case-insensitively
     #######################################################
     @staticmethod
@@ -321,14 +323,32 @@ class MapDataUtility:
 
         data = map_data.data[game_id].copy()
 
-        if is_custom_ipl:
+        if self.forced_ide_paths:
+            data['IDE_paths'] = list(self.forced_ide_paths)
+
+        elif is_custom_ipl:
             # Find paths to all IDEs
             ide_paths = []
-            for root_path, _, files in os.walk(os.path.join(game_root, "data/maps")):
-                for file in files:
-                    if file.lower().endswith(".ide"):
-                        fullpath = os.path.join(root_path, file)
-                        ide_paths.append(os.path.relpath(fullpath, game_root))
+            map_root_candidates = (
+                os.path.join(game_root, "DATA", "MAPS"),
+                os.path.join(game_root, "data", "maps"),
+            )
+
+            map_roots = []
+            for candidate in map_root_candidates:
+                if os.path.isdir(candidate) and candidate not in map_roots:
+                    map_roots.append(candidate)
+
+            if not map_roots:
+                map_roots.append(os.path.join(game_root, "DATA", "MAPS"))
+
+            for map_root in map_roots:
+                for root_path, _, files in os.walk(map_root):
+                    for file in files:
+                        if file.lower().endswith(".ide"):
+                            fullpath = os.path.join(root_path, file)
+                            ide_paths.append(os.path.relpath(fullpath, game_root))
+
             data['IDE_paths'] = ide_paths
 
         else:
@@ -503,3 +523,108 @@ class MapDataUtility:
 
         with open(filename, 'w') as file_stream:
             self.write_text_ide_to_stream(file_stream, game_id, ide_data)
+
+    ########################################################################
+    @staticmethod
+    def override_ide_paths(ide_paths):
+        MapDataUtility.forced_ide_paths = list(ide_paths or [])
+
+    ########################################################################
+    @staticmethod
+    def map_data_as_dict(map_data_object):
+        return {
+            'object_instances': map_data_object.object_instances,
+            'object_data': map_data_object.object_data,
+            'cull_instances': map_data_object.cull_instances,
+            'grge_instances': map_data_object.grge_instances,
+            'enex_instances': map_data_object.enex_instances,
+        }
+
+    ########################################################################
+    @staticmethod
+    def getMapData(game_id, game_root, ipl_section, is_custom_ipl):
+        map_data_object = MapDataUtility.load_map_data(
+            game_id,
+            game_root,
+            ipl_section,
+            is_custom_ipl
+        )
+
+        return MapDataUtility.map_data_as_dict(map_data_object)
+
+    ########################################################################
+    @staticmethod
+    def getBinaryMapData(game_id, binary_ipl_path, ide_paths):
+        data = map_data.data[game_id].copy()
+        structures = data['structures']
+        ide_aliases = data['IDE_aliases']
+
+        object_instances = []
+        object_data = {}
+
+        with open(binary_ipl_path, 'rb') as file_stream:
+            if MapDataUtility.is_binary_ipl_stream(file_stream):
+                sections = MapDataUtility.read_binary_ipl_from_stream(
+                    file_stream,
+                    structures
+                )
+                object_instances.extend(sections.get('inst', []))
+            else:
+                file_stream.seek(0)
+                raw = file_stream.read()
+
+                for offset in range(0x4C, len(raw), 40):
+                    chunk = raw[offset:offset + 40]
+                    if len(chunk) < 40:
+                        break
+
+                    pos = struct.unpack('<3f', chunk[0x00:0x0C])
+                    rot = struct.unpack('<4f', chunk[0x0C:0x1C])
+                    model_id = struct.unpack('<H', chunk[0x1C:0x1E])[0]
+                    interior_id = struct.unpack('<h', chunk[0x1E:0x20])[0]
+                    lod_model_id = struct.unpack('<i', chunk[0x24:0x28])[0]
+
+                    inst = structures['inst_binary'](
+                        str(model_id),
+                        '',
+                        str(interior_id),
+                        str(pos[0]), str(pos[1]), str(pos[2]),
+                        str(rot[0]), str(rot[1]), str(rot[2]), str(rot[3]),
+                        str(lod_model_id)
+                    )
+
+                    object_instances.append(inst)
+
+        binary_dir = os.path.dirname(binary_ipl_path)
+        for ide_path in ide_paths:
+            if os.path.isabs(ide_path):
+                fullpath = ide_path
+            else:
+                fullpath = MapDataUtility.find_path_case_insensitive(binary_dir, ide_path)
+                if fullpath is None:
+                    fullpath = os.path.join(binary_dir, ide_path)
+
+            sections = MapDataUtility.read_file(
+                fullpath,
+                structures,
+                ide_aliases
+            )
+
+            for section_name in ('objs', 'tobj', 'anim'):
+                for entry in sections.get(section_name, []):
+                    if entry.id in object_data:
+                        print('%s ERROR!! a duplicate ID!!' % section_name.upper())
+                    object_data[entry.id] = entry
+
+        for index, inst in enumerate(object_instances):
+            model = object_data.get(inst.id)
+            if model and hasattr(inst, '_replace'):
+                object_instances[index] = inst._replace(modelName=model.modelName)
+
+        return {
+            'object_instances': object_instances,
+            'object_data': object_data,
+            'cull_instances': [],
+            'grge_instances': [],
+            'enex_instances': [],
+        }

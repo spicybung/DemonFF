@@ -34,6 +34,9 @@ from .ifp_ot import IMPORT_OT_ifp
 from .mdl_ot import IMPORT_OT_mdl_custom
 
 from .ext_2dfx_menus import EXT2DFXObjectProps, EXT2DFXMenus
+from .ipl.cull_menus import CULLObjectProps, CULLMenus
+from .ipl.grge_menus import GRGEObjectProps, GRGEMenus
+from .ipl.enex_menus import ENEXObjectProps, ENEXMenus
 
 # Global variables
 fx_images = ["coronastar", "shad_exp"]
@@ -1151,6 +1154,15 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
         layout.prop(settings, "effect", text="Effect")
         EXT2DFXMenus.draw_menu(int(settings.effect), layout, context)
     #######################################################
+    def draw_cull_menu(self, context):
+        CULLMenus.draw_menu(self.layout, context)
+    #######################################################
+    def draw_grge_menu(self, context):
+        GRGEMenus.draw_menu(self.layout, context)
+    #######################################################
+    def draw_enex_menu(self, context):
+        ENEXMenus.draw_menu(self.layout, context)
+    #######################################################
     def draw_obj_menu(self, context):
         layout = self.layout
         settings = context.object.dff
@@ -1167,6 +1179,15 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
 
         elif settings.type == '2DFX':
             self.draw_2dfx_menu(context)
+
+        elif settings.type == 'CULL':
+            self.draw_cull_menu(context)
+
+        elif settings.type == 'GRGE':
+            self.draw_grge_menu(context)
+
+        elif settings.type == 'ENEX':
+            self.draw_enex_menu(context)
 
     #######################################################
     def draw(self, context):
@@ -1252,6 +1273,9 @@ class DFFMaterialProps(bpy.types.PropertyGroup):
 class DFFObjectProps(bpy.types.PropertyGroup):
 
     ext_2dfx: bpy.props.PointerProperty(type=EXT2DFXObjectProps)
+    cull: bpy.props.PointerProperty(type=CULLObjectProps)
+    grge: bpy.props.PointerProperty(type=GRGEObjectProps)
+    enex: bpy.props.PointerProperty(type=ENEXObjectProps)
 
     is_frame : bpy.props.BoolProperty(
         default     = False,
@@ -1265,6 +1289,9 @@ class DFFObjectProps(bpy.types.PropertyGroup):
             ('COL', 'Collision Object', 'Object is a collision object'),
             ('SHA', 'Shadow Object', 'Object is a shadow object'),
             ('2DFX', '2DFX', 'Object is a 2dfx object'),
+            ('CULL', 'CULL', 'Object is a CULL zone'),
+            ('GRGE', 'GRGE', 'Object is a GRGE zone'),
+            ('ENEX', 'ENEX', 'Object is an ENEX marker'),
             ('NON', "Don't export", 'Object will NOT be exported.')
         )
     )
