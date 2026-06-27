@@ -24,9 +24,9 @@ from .ops import map_importer, map_exporter, img_importer, ide_text_exporter, ip
 from bpy.utils import register_class, unregister_class
 
 bl_info = {
-    "name": "GTA DemonFF",
+    "name": "DemonFF",
     "author": "SpicyBung",
-    "version": (0, 0, 5),
+    "version": (0, 5, 1),
     "blender": (2, 80, 0),      # Tested and working on 3.x & 4.x
     "category": "Import-Export",
     "location": "File > Import/Export",
@@ -107,6 +107,7 @@ _classes = [
     map_exporter.ExportToIPLOperator,
     map_exporter.ExportToIDEOperator,
     map_exporter.ExportToPawnOperator,
+    gui.IMPORT_OT_pawn,
     gui.EXPORT_OT_pawn,
     ide_text_exporter.EXPORT_OT_demonff_ide,
     ipl_text_exporter.EXPORT_OT_demonff_ipl,
@@ -130,9 +131,60 @@ _classes = [
 
 
 # Register and unregister functions
-def register():
-    for cls in _classes:
+def safe_register_class(cls):
+    try:
         register_class(cls)
+    except ValueError:
+        try:
+            unregister_class(cls)
+        except Exception:
+            pass
+        register_class(cls)
+
+
+def safe_unregister_class(cls):
+    try:
+        unregister_class(cls)
+    except Exception:
+        pass
+
+
+def remove_runtime_properties():
+    for owner, name in (
+        (bpy.types.Scene, "dff"),
+        (bpy.types.Scene, "saeffects_export_path"),
+        (bpy.types.Scene, "saeffects_text_export_path"),
+        (bpy.types.Object, "ide"),
+        (bpy.types.Object, "ipl"),
+        (bpy.types.Object, "dff_map"),
+    ):
+        if hasattr(owner, name):
+            try:
+                delattr(owner, name)
+            except Exception:
+                pass
+
+
+def append_menu_once(menu, func):
+    try:
+        menu.remove(func)
+    except Exception:
+        pass
+    menu.append(func)
+
+
+def remove_menu_once(menu, func):
+    try:
+        menu.remove(func)
+    except Exception:
+        pass
+
+
+def register():
+    remove_runtime_properties()
+
+    for cls in _classes:
+        safe_register_class(cls)
 
     bpy.types.Scene.dff = bpy.props.PointerProperty(type=gui.DFFSceneProps)
     bpy.types.Object.ide = bpy.props.PointerProperty(type=gui.IDEObjectProps)
@@ -150,43 +202,41 @@ def register():
         subtype='FILE_PATH'
     )
 
-
-
     if (2, 80, 0) > bpy.app.version:
-        bpy.types.INFO_MT_file_import.append(gui.import_dff_func)
-        bpy.types.INFO_MT_file_export.append(gui.export_dff_func)
+        append_menu_once(bpy.types.INFO_MT_file_import, gui.import_dff_func)
+        append_menu_once(bpy.types.INFO_MT_file_export, gui.export_dff_func)
     else:
-        bpy.types.TOPBAR_MT_file_import.append(gui.import_dff_func)
-        bpy.types.TOPBAR_MT_file_export.append(gui.export_dff_func)
-        
-    pie_menus.register_keymaps()
+        append_menu_once(bpy.types.TOPBAR_MT_file_import, gui.import_dff_func)
+        append_menu_once(bpy.types.TOPBAR_MT_file_export, gui.export_dff_func)
+
+    try:
+        pie_menus.unregister_keymaps()
+    except Exception:
+        pass
+    try:
+        pie_menus.register_keymaps()
+    except Exception:
+        pass
 
 
 def unregister():
     if (2, 80, 0) > bpy.app.version:
-        bpy.types.INFO_MT_file_import.remove(gui.import_dff_func)
-        bpy.types.INFO_MT_file_export.remove(gui.export_dff_func)
+        remove_menu_once(bpy.types.INFO_MT_file_import, gui.import_dff_func)
+        remove_menu_once(bpy.types.INFO_MT_file_export, gui.export_dff_func)
     else:
-        bpy.types.TOPBAR_MT_file_import.remove(gui.import_dff_func)
-        bpy.types.TOPBAR_MT_file_export.remove(gui.export_dff_func)
+        remove_menu_once(bpy.types.TOPBAR_MT_file_import, gui.import_dff_func)
+        remove_menu_once(bpy.types.TOPBAR_MT_file_export, gui.export_dff_func)
 
-    if hasattr(bpy.types.Scene, "dff"):
-        del bpy.types.Scene.dff
-    if hasattr(bpy.types.Scene, "saeffects_export_path"):
-        del bpy.types.Scene.saeffects_export_path
-    if hasattr(bpy.types.Scene, "saeffects_text_export_path"):
-        del bpy.types.Scene.saeffects_text_export_path
-    if hasattr(bpy.types.Object, "ide"):
-        del bpy.types.Object.ide
-    if hasattr(bpy.types.Object, "ipl"):
-        del bpy.types.Object.ipl
-    if hasattr(bpy.types.Object, "dff_map"):
-        del bpy.types.Object.dff_map
+    try:
+        pie_menus.unregister_keymaps()
+    except Exception:
+        pass
+
+    remove_runtime_properties()
 
     for cls in reversed(_classes):
-        unregister_class(cls)
+        safe_unregister_class(cls)
 
-    pie_menus.unregister_keymaps()
 
 if __name__ == "__main__":
     register()

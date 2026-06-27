@@ -31,119 +31,126 @@ class ext_2dfx_exporter:
     """ Helper class for 2dfx exporting """
 
     #######################################################
-    def __init__(self, effects):
+    def __init__(self, effects, location_overrides=None):
         self.effects = effects
+        self.location_overrides = location_overrides if location_overrides is not None else {}
+
+    #######################################################
+    def get_object_key(self, obj):
+        try:
+            return obj.as_pointer()
+        except Exception:
+            return id(obj)
+
+    #######################################################
+    def get_location(self, obj):
+        key = self.get_object_key(obj)
+        if key in self.location_overrides:
+            return self.location_overrides[key]
+
+        try:
+            return obj.matrix_world.translation.copy()
+        except Exception:
+            return obj.location
+
+    #######################################################
+    def get_rotation(self, obj):
+        try:
+            return obj.matrix_world.to_euler('ZXY')
+        except Exception:
+            return obj.matrix_local.to_euler('ZXY')
 
     #######################################################
     def export_light(self, obj):
-        global entries
-
-        if obj.type != 'LIGHT':
-            print(f"[DEBUG] Skipping object {obj.name} - Not a light.")
-            return
-
-        print(f"[DEBUG] Exporting light: {obj.name}")
         FL1, FL2 = dff.Light2dfx.Flags1, dff.Light2dfx.Flags2
-        settings = obj.data.ext_2dfx
 
-        # Initialize the entry with location
-        entry = dff.Light2dfx(obj.location)
-        print(f"[DEBUG] Initialized Light2dfx entry for {obj.name} with location: {obj.location}")
+        light_data = getattr(obj, "data", None)
+        settings = getattr(light_data, "ext_2dfx", None)
 
-        # Set view direction if applicable
-        if settings.export_view_vector:
-            print(f"[DEBUG] Setting view vector for {obj.name} to: {settings.view_vector}")
-            entry.lookDirection = settings.view_vector
+        if settings is None:
+            settings = getattr(getattr(obj, "dff", None), "ext_2dfx", None)
 
-        # Set color with alpha
+        if settings is None:
+            print("DemonFF 2DFX export: skipped %s because it has no 2DFX light settings." % getattr(obj, "name", "<unnamed>"))
+            return None
+
+        entry = dff.Light2dfx(self.get_location(obj))
+
+        try:
+            if settings.export_view_vector:
+                entry.lookDirection = settings.view_vector
+        except Exception:
+            pass
+
+        try:
+            color = list(light_data.color)
+        except Exception:
+            color = [1.0, 1.0, 1.0]
+
+        try:
+            alpha = float(settings.alpha)
+        except Exception:
+            alpha = 1.0
+
         entry.color = dff.RGBA._make(
-            list(int(255 * x) for x in list(obj.data.color) + [settings.alpha])
+            list(max(0, min(255, int(255 * x))) for x in color[:3]) +
+            [max(0, min(255, int(255 * alpha)))]
         )
-        print(f"[DEBUG] Set color for {obj.name} to RGBA: {entry.color}")
 
-        # Set additional light parameters
-        entry.coronaFarClip = settings.corona_far_clip
-        entry.pointlightRange = settings.point_light_range
-        entry.coronaSize = settings.corona_size
-        entry.shadowSize = settings.shadow_size
-        entry.coronaShowMode = int(settings.corona_show_mode)
-        entry.coronaEnableReflection = int(settings.corona_enable_reflection)
-        entry.coronaFlareType = settings.corona_flare_type
-        entry.shadowColorMultiplier = settings.shadow_color_multiplier
-        entry.coronaTexName = settings.corona_tex_name
-        entry.shadowTexName = settings.shadow_tex_name
-        entry.shadowZDistance = settings.shadow_z_distance
+        entry.coronaFarClip = getattr(settings, "corona_far_clip", 100.0)
+        entry.pointlightRange = getattr(settings, "point_light_range", 0.0)
+        entry.coronaSize = getattr(settings, "corona_size", 1.0)
+        entry.shadowSize = getattr(settings, "shadow_size", 0.0)
+        entry.coronaShowMode = int(getattr(settings, "corona_show_mode", 0))
+        entry.coronaEnableReflection = int(getattr(settings, "corona_enable_reflection", False))
+        entry.coronaFlareType = getattr(settings, "corona_flare_type", 0)
+        entry.shadowColorMultiplier = getattr(settings, "shadow_color_multiplier", 0)
+        entry.coronaTexName = getattr(settings, "corona_tex_name", "coronastar")
+        entry.shadowTexName = getattr(settings, "shadow_tex_name", "shad_exp")
+        entry.shadowZDistance = getattr(settings, "shadow_z_distance", 0)
 
-        print(f"[DEBUG] Set parameters for {obj.name}:")
-        print(f"        Corona Far Clip: {entry.coronaFarClip}")
-        print(f"        Point Light Range: {entry.pointlightRange}")
-        print(f"        Corona Size: {entry.coronaSize}")
-        print(f"        Shadow Size: {entry.shadowSize}")
-        print(f"        Corona Show Mode: {entry.coronaShowMode}")
-        print(f"        Corona Enable Reflection: {entry.coronaEnableReflection}")
-        print(f"        Corona Flare Type: {entry.coronaFlareType}")
-        print(f"        Shadow Color Multiplier: {entry.shadowColorMultiplier}")
-        print(f"        Corona Texture Name: {entry.coronaTexName}")
-        print(f"        Shadow Texture Name: {entry.shadowTexName}")
-        print(f"        Shadow Z Distance: {entry.shadowZDistance}")
-
-        # Log flags being set
-        print(f"[DEBUG] Setting flags for light: {obj.name}")
-        if settings.flag1_corona_check_obstacles:
+        if getattr(settings, "flag1_corona_check_obstacles", False):
             entry.set_flag(FL1.CORONA_CHECK_OBSTACLES.value)
-            print(f"        Flag set: CORONA_CHECK_OBSTACLES")
 
-        entry.set_flag(settings.flag1_fog_type << 1)
-        print(f"        Flag set: Fog Type << 1 ({settings.flag1_fog_type << 1})")
+        entry.set_flag(getattr(settings, "flag1_fog_type", 0) << 1)
 
-        if settings.flag1_without_corona:
+        if getattr(settings, "flag1_without_corona", False):
             entry.set_flag(FL1.WITHOUT_CORONA.value)
-            print(f"        Flag set: WITHOUT_CORONA")
 
-        if settings.flag1_corona_only_at_long_distance:
+        if getattr(settings, "flag1_corona_only_at_long_distance", False):
             entry.set_flag(FL1.CORONA_ONLY_AT_LONG_DISTANCE.value)
-            print(f"        Flag set: CORONA_ONLY_AT_LONG_DISTANCE")
 
-        if settings.flag1_at_day:
+        if getattr(settings, "flag1_at_day", False):
             entry.set_flag(FL1.AT_DAY.value)
-            print(f"        Flag set: AT_DAY")
 
-        if settings.flag1_at_night:
+        if getattr(settings, "flag1_at_night", False):
             entry.set_flag(FL1.AT_NIGHT.value)
-            print(f"        Flag set: AT_NIGHT")
 
-        if settings.flag1_blinking1:
+        if getattr(settings, "flag1_blinking1", False):
             entry.set_flag(FL1.BLINKING1.value)
-            print(f"        Flag set: BLINKING1")
 
-        if settings.flag2_corona_only_from_below:
+        if getattr(settings, "flag2_corona_only_from_below", False):
             entry.set_flag2(FL2.CORONA_ONLY_FROM_BELOW.value)
-            print(f"        Flag set2: CORONA_ONLY_FROM_BELOW")
 
-        if settings.flag2_blinking2:
+        if getattr(settings, "flag2_blinking2", False):
             entry.set_flag2(FL2.BLINKING2.value)
-            print(f"        Flag set2: BLINKING2")
 
-        if settings.flag2_udpdate_height_above_ground:
+        if getattr(settings, "flag2_udpdate_height_above_ground", False):
             entry.set_flag2(FL2.UDPDATE_HEIGHT_ABOVE_GROUND.value)
-            print(f"        Flag set2: UDPDATE_HEIGHT_ABOVE_GROUND")
 
-        if settings.flag2_check_view_vector:
+        if getattr(settings, "flag2_check_view_vector", False):
             entry.set_flag2(FL2.CHECK_DIRECTION.value)
-            print(f"        Flag set2: CHECK_DIRECTION")
 
-        if settings.flag2_blinking3:
+        if getattr(settings, "flag2_blinking3", False):
             entry.set_flag2(FL2.BLINKING3.value)
-            print(f"        Flag set2: BLINKING3")
 
-        print(f"[DEBUG] Light export completed for {obj.name}: {entry}")
         return entry
 
     #######################################################
     def export_particle(self, obj):
         settings = obj.dff.ext_2dfx
 
-        entry = dff.Particle2dfx(obj.location)
+        entry = dff.Particle2dfx(self.get_location(obj))
         entry.effect = settings.val_str24_1
 
         return entry
@@ -152,7 +159,7 @@ class ext_2dfx_exporter:
     def export_ped_attractor(self, obj):
         settings = obj.dff.ext_2dfx
 
-        entry = dff.PedAttractor2dfx(obj.location)
+        entry = dff.PedAttractor2dfx(self.get_location(obj))
 
         # Construct rotation matrix from the three direction vectors
         queue = settings.queue_dir
@@ -175,7 +182,7 @@ class ext_2dfx_exporter:
 
     #######################################################
     def export_sun_glare(self, obj):
-        entry = dff.SunGlare2dfx(obj.location)
+        entry = dff.SunGlare2dfx(self.get_location(obj))
 
         return entry
     
@@ -183,7 +190,7 @@ class ext_2dfx_exporter:
     def export_enter_exit(self, obj):
         settings = obj.dff.ext_2dfx
 
-        entry = dff.EnterExit2dfx(obj.location)
+        entry = dff.EnterExit2dfx(self.get_location(obj))
         entry.enter_angle = math.radians(settings.val_degree_1)
         entry.approximation_radius_x = settings.val_float_1
         entry.approximation_radius_y = settings.val_float_2
@@ -232,9 +239,9 @@ class ext_2dfx_exporter:
         flags |= {2:1, 4:2, 8:3, 16:0}[max_chars_num] << 2
         flags |= int(settings.color) << 4
 
-        rotation = obj.matrix_local.to_euler('ZXY')
+        rotation = self.get_rotation(obj)
 
-        entry = dff.RoadSign2dfx(obj.location)
+        entry = dff.RoadSign2dfx(self.get_location(obj))
 
         entry.rotation = Vector((
             rotation.x * (180 / math.pi),
@@ -254,7 +261,7 @@ class ext_2dfx_exporter:
     def export_trigger_point(self, obj):
         settings = obj.dff.ext_2dfx
 
-        entry = dff.TriggerPoint2dfx(obj.location)
+        entry = dff.TriggerPoint2dfx(self.get_location(obj))
         entry.point_id = settings.val_int_1
 
         return entry
@@ -263,7 +270,7 @@ class ext_2dfx_exporter:
     def export_cover_point(self, obj):
         settings = obj.dff.ext_2dfx
 
-        entry = dff.CoverPoint2dfx(obj.location)
+        entry = dff.CoverPoint2dfx(self.get_location(obj))
         entry.cover_type = settings.val_int_1
 
         if obj.rotation_mode in ('QUATERNION', 'AXIS_ANGLE'):
@@ -283,7 +290,7 @@ class ext_2dfx_exporter:
     def export_escalator(self, obj):
         settings = obj.dff.ext_2dfx
 
-        entry = dff.Escalator2DFX(obj.location) #effect_id begins after position vector for escalators
+        entry = dff.Escalator2DFX(self.get_location(obj)) #effect_id begins after position vector for escalators
 
         # Vectors
         entry.standart_pos = settings.standart_pos

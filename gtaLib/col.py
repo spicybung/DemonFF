@@ -21,6 +21,7 @@ from .dff import strlen
 from collections import namedtuple
 from struct import error as StructError
 from struct import unpack_from, calcsize, pack
+import math
 
 
 #######################################################
@@ -97,7 +98,19 @@ class Sections:
     def compress_vertices(vertices):
         compressed_vertices = []
         for vertex in vertices:
-            compressed_vertices.append(TVertex._make(int(i*128) for i in vertex))
+            clamped_coords = []
+            for coord in vertex:
+                try:
+                    value = float(coord)
+                except (TypeError, ValueError, OverflowError):
+                    value = 0.0
+
+                if not math.isfinite(value):
+                    value = 0.0
+
+                clamped_coords.append(Sections.clamp_value(int(round(value * 128))))
+
+            compressed_vertices.append(TVertex._make(clamped_coords))
 
         return compressed_vertices
             

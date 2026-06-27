@@ -21,6 +21,7 @@ import os
 import bpy
 import bmesh
 import os.path
+import re
 import mathutils
 
 from ..gtaLib import dff
@@ -292,7 +293,6 @@ class dff_exporter:
 
     selected = False
     preserve_positions = True
-    preserve_rotations = True
     mass_export = False
     file_name = ""
     dff = None
@@ -301,6 +301,7 @@ class dff_exporter:
     bones = {}
     parent_queue = {}
     collection = None
+    collision_objects = None
     export_coll = False
     coll_ext_type = 39056122
 
@@ -312,6 +313,16 @@ class dff_exporter:
         if bpy.app.version < (2, 80, 0):
             return a * b
         return a @ b
+
+    #######################################################
+    @staticmethod
+    def get_rotation_only_matrix(matrix):
+        try:
+            rotation = matrix.to_quaternion().to_matrix()
+        except Exception:
+            rotation = matrix.to_3x3().normalized()
+
+        return rotation.transposed()
     #######################################################    
     @staticmethod
     def get_object_parent(obj):
@@ -359,10 +370,7 @@ class dff_exporter:
             else:
                 position = (0, 0, 0)
 
-            if self.preserve_rotations:
-                rotation_matrix = matrix.to_3x3().transposed()
-            else:
-                rotation_matrix = ((1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0))
+            rotation_matrix = matrix.to_3x3().transposed()
 
         frame.creation_flags  =  0
         frame.parent          = -1
@@ -1055,13 +1063,27 @@ class dff_exporter:
 
         # Collision
         if self.export_coll:
+            collision_collection = self.get_collision_export_collection()
+            collision_objects = self.collision_objects
+
+            # Embedded DFF collision must never fall back to exporting every COL/SHA
+            # object in the matching collection. Repeated map instances can leave
+            # hundreds of generated collision duplicates in one .col collection, and
+            # that old fallback made one simple model receive the whole pile.
+            if collision_objects is None:
+                collision_objects = self.get_collision_objects_for_export_objects(self.collection, objects)
+
+            if collision_objects is None:
+                collision_objects = []
+
             mem = export_col({
                 'file_name'     : None,
                 'version'       : 3,
                 'memory'        : True,
-                'collection'    : self.collection,
-                'only_selected' : self.selected,
-                'mass_export'   : False
+                'collection'    : collision_collection,
+                'only_selected' : False,
+                'mass_export'   : False,
+                'objects'       : collision_objects,
             })
 
             if len(mem) != 0:
@@ -1070,7 +1092,8 @@ class dff_exporter:
         if name is None:
             self.dff.write_file(self.file_name, self.version )
         else:
-            filename = "%s/%s" % (self.path, name)
+            os.makedirs(self.path, exist_ok=True)
+            filename = os.path.join(self.path, name)
             if not filename.endswith('.dff'):
                 filename += '.dff'
             self.dff.write_file(filename, self.version)
@@ -1084,40 +1107,785 @@ class dff_exporter:
             
     #######################################################
     @staticmethod
+    def collection_children(collection):
+        if bpy.app.version < (2, 80, 0):
+            return []
+        return list(collection.children)
+
+    @staticmethod
+    def walk_collections(collection):
+        yield collection
+        for child in dff_exporter.collection_children(collection):
+            yield from dff_exporter.walk_collections(child)
+
+    @staticmethod
+    def is_collision_collection(collection):
+        name = collection.name.lower()
+        return name.endswith('.col') or '.col.' in name
+
+    @staticmethod
+    def split_blender_suffix(name):
+        if len(name) > 4 and name[-4] == "." and name[-3:].isdigit():
+            return name[:-4], name[-4:]
+        return name, ""
+
+    @staticmethod
+    def split_export_duplicate_suffix(name):
+        name = str(name or "")
+
+        match = re.match(r"^(?P<base>.+?\.dff)(?P<suffix>\.\d{3})(?P<trailing>\.dff)?$", name, re.IGNORECASE)
+        if match:
+            return match.group("base"), match.group("suffix")
+
+        match = re.match(r"^(?P<base>.+?)(?P<suffix>\.\d{3})(?P<trailing>\.dff)?$", name, re.IGNORECASE)
+        if match:
+            return match.group("base"), match.group("suffix")
+
+        return name, ""
+
+    @staticmethod
+    def get_duplicate_suffix_index(name):
+        base, suffix = dff_exporter.split_export_duplicate_suffix(name)
+        if not suffix:
+            return 0
+
+        try:
+            return int(suffix[1:]) + 1
+        except Exception:
+            return 999999
+
+    @staticmethod
+    def strip_dff_export_suffix(name):
+        name = os.path.basename(str(name or ""))
+        name, suffix = dff_exporter.split_export_duplicate_suffix(name)
+
+        if name.lower().endswith('.dff'):
+            name = name[:-4]
+
+        name, suffix = dff_exporter.split_export_duplicate_suffix(name)
+        if name.lower().endswith('.dff'):
+            name = name[:-4]
+
+        return clear_extension(name)
+
+    @staticmethod
+    def get_dff_collection_key(collection_name):
+        match = re.match(r"^(?P<base>.+?)\.dff(?P<suffix>\.\d{3})?$", str(collection_name), re.IGNORECASE)
+        if not match:
+            return None
+        return match.group('base').lower(), match.group('suffix') or ""
+
+    @staticmethod
+    def get_col_collection_key(collection_name):
+        name = str(collection_name)
+        lower_name = name.lower()
+
+        if '.col.' in lower_name:
+            model_part = re.split(r"\.col\.", name, maxsplit=1, flags=re.IGNORECASE)[1]
+            model, suffix = dff_exporter.split_blender_suffix(model_part)
+            return model.lower(), suffix
+
+        match = re.match(r"^(?P<base>.+?)\.col(?P<suffix>\.\d{3})?$", name, re.IGNORECASE)
+        if match:
+            return match.group('base').lower(), match.group('suffix') or ""
+
+        return None
+
+    @staticmethod
+    def get_collection_parent(target_collection):
+        if target_collection is None:
+            return None
+
+        scene_collection = bpy.context.scene.collection
+        if target_collection.name in scene_collection.children.keys():
+            return scene_collection
+
+        for collection in bpy.data.collections:
+            if target_collection.name in collection.children.keys():
+                return collection
+
+        return None
+
+    @staticmethod
+    def get_matching_collision_collection(dff_collection):
+        if dff_collection is None:
+            return None
+
+        dff_key = dff_exporter.get_dff_collection_key(dff_collection.name)
+        if dff_key is None:
+            return None
+
+        parent = dff_exporter.get_collection_parent(dff_collection)
+        search_collections = []
+
+        if parent is not None:
+            search_collections.extend(list(parent.children))
+
+        search_collections.extend(list(dff_collection.children))
+
+        col_items = []
+        seen = set()
+        for index, collection in enumerate(search_collections):
+            key = collection.as_pointer()
+            if key in seen or collection == dff_collection:
+                continue
+            seen.add(key)
+
+            col_key = dff_exporter.get_col_collection_key(collection.name)
+            if col_key is None:
+                continue
+
+            col_items.append((index, collection, col_key))
+
+        exact_matches = [item for item in col_items if item[2] == dff_key]
+        if exact_matches:
+            return sorted(exact_matches, key=lambda item: item[0])[0][1]
+
+        base_matches = [item for item in col_items if item[2][0] == dff_key[0]]
+        if base_matches:
+            return sorted(base_matches, key=lambda item: item[0])[0][1]
+
+        return None
+
+    @staticmethod
+    def get_collision_export_collection():
+        self = dff_exporter
+
+        if self.collection is None:
+            return None
+
+        matching_collection = self.get_matching_collision_collection(self.collection)
+        if matching_collection is not None:
+            return matching_collection
+
+        return self.collection
+
+    @staticmethod
+    def get_dff_type(obj):
+        dff_props = getattr(obj, 'dff', None)
+        if dff_props is None:
+            return None
+        return getattr(dff_props, 'type', None)
+
+    @staticmethod
+    def is_atomic_export_object(obj):
+        if obj.type not in {'MESH', 'EMPTY', 'ARMATURE'}:
+            return False
+        return dff_exporter.get_dff_type(obj) == 'OBJ'
+
+    @staticmethod
+    def is_2dfx_export_object(obj):
+        if obj.type not in {'MESH', 'EMPTY', 'LIGHT', 'FONT'}:
+            return False
+        return dff_exporter.get_dff_type(obj) == '2DFX'
+
+    @staticmethod
+    def is_exportable_dff_object(obj):
+        return dff_exporter.is_atomic_export_object(obj) or dff_exporter.is_2dfx_export_object(obj)
+
+    @staticmethod
+    def collection_has_exportable_objects(collection):
+        return any(dff_exporter.is_atomic_export_object(obj) for obj in collection.objects)
+
+    @staticmethod
+    def collection_has_selected_exportable_objects(collection):
+        for obj in collection.objects:
+            if dff_exporter.is_atomic_export_object(obj) and dff_exporter.is_selected(obj):
+                return True
+        return False
+
+    @staticmethod
+    def get_mass_export_collections():
+        self = dff_exporter
+
+        if bpy.app.version < (2, 80, 0):
+            return [bpy.data]
+
+        root_collection = bpy.context.scene.collection
+        collections = []
+        seen = set()
+
+        for collection in self.walk_collections(root_collection):
+            if collection == root_collection:
+                continue
+
+            key = collection.as_pointer()
+            if key in seen:
+                continue
+            seen.add(key)
+
+            if self.is_collision_collection(collection):
+                continue
+
+            if not self.collection_has_exportable_objects(collection):
+                continue
+
+            if self.selected and not self.collection_has_selected_exportable_objects(collection):
+                continue
+
+            collections.append(collection)
+
+        if not collections and self.collection_has_exportable_objects(root_collection):
+            if not self.selected or self.collection_has_selected_exportable_objects(root_collection):
+                collections.append(root_collection)
+
+        def collection_sort_key(collection):
+            return (
+                self.get_collection_model_key(collection),
+                self.get_duplicate_suffix_index(collection.name),
+                collection.name.lower(),
+            )
+
+        return sorted(collections, key=collection_sort_key)
+
+    @staticmethod
+    def get_single_export_objects():
+        self = dff_exporter
+        objects = {}
+
+        if bpy.app.version < (2, 80, 0):
+            object_source = bpy.data.objects
+        else:
+            object_source = bpy.context.scene.objects
+
+        for obj in object_source:
+            if not self.is_exportable_dff_object(obj):
+                continue
+
+            if self.selected and not self.is_selected(obj):
+                continue
+
+            objects[obj] = self.calculate_parent_depth(obj)
+
+        return sorted(objects, key=objects.get)
+
+    @staticmethod
+    def get_collection_export_objects(collection):
+        self = dff_exporter
+        objects = {}
+        collection_selected_for_export = self.collection_has_selected_exportable_objects(collection)
+
+        for obj in collection.objects:
+            if self.is_atomic_export_object(obj):
+                if self.selected and not self.is_selected(obj):
+                    continue
+            elif self.is_2dfx_export_object(obj):
+                if self.selected and not collection_selected_for_export and not self.is_selected(obj):
+                    continue
+            else:
+                continue
+
+            objects[obj] = self.calculate_parent_depth(obj)
+
+        return sorted(objects, key=objects.get)
+
+
+    @staticmethod
+    def get_blender_name_suffix(name):
+        match = re.match(r"^(?P<base>.*?)(?P<suffix>\.\d{3})?$", str(name))
+        if not match:
+            return str(name), ""
+        return match.group("base"), match.group("suffix") or ""
+
+    @staticmethod
+    def get_export_object_location(obj):
+        try:
+            return obj.matrix_world.translation.copy()
+        except Exception:
+            return mathutils.Vector((0.0, 0.0, 0.0))
+
+    @staticmethod
+    def get_nearest_atomic_object(obj, atomic_objects):
+        if not atomic_objects:
+            return None
+
+        obj_location = dff_exporter.get_export_object_location(obj)
+        nearest_object = None
+        nearest_distance = None
+
+        for atomic in atomic_objects:
+            distance = (obj_location - dff_exporter.get_export_object_location(atomic)).length_squared
+            if nearest_distance is None or distance < nearest_distance:
+                nearest_object = atomic
+                nearest_distance = distance
+
+        return nearest_object
+
+    @staticmethod
+    def normalize_export_name_key(name):
+        name = str(name or "")
+        name = os.path.basename(name)
+        name = re.sub(r"\.(dff|col)$", "", name, flags=re.IGNORECASE)
+        name = dff_exporter.strip_dff_export_suffix(name)
+        name = re.sub(r"\.(dff|col)$", "", name, flags=re.IGNORECASE)
+        name = re.sub(r"\s+", "", name)
+        return name.lower()
+
+    @staticmethod
+    def get_object_model_key(obj):
+        if obj is None:
+            return ""
+
+        for prop_name, field_name in (
+            ("dff_map", "model_name"),
+            ("dff_map", "ide_model_name"),
+            ("ide", "model_name"),
+        ):
+            props = getattr(obj, prop_name, None)
+            if props is None:
+                continue
+            try:
+                value = getattr(props, field_name, "")
+            except Exception:
+                value = ""
+            if value:
+                return dff_exporter.normalize_export_name_key(value)
+
+        for key in ("DFF_Name", "IDE_Model_Name", "model_name", "Model_Name"):
+            try:
+                value = obj.get(key, "")
+            except Exception:
+                value = ""
+            if value:
+                return dff_exporter.normalize_export_name_key(value)
+
+        return dff_exporter.normalize_export_name_key(obj.name)
+
+    @staticmethod
+    def get_collection_model_key(collection):
+        if collection is None:
+            return ""
+
+        dff_key = dff_exporter.get_dff_collection_key(collection.name)
+        if dff_key is not None:
+            return dff_exporter.normalize_export_name_key(dff_key[0])
+
+        return dff_exporter.normalize_export_name_key(collection.name)
+
+    @staticmethod
+    def is_object_in_collection(obj, collection):
+        if obj is None or collection is None:
+            return False
+        try:
+            return obj.name in collection.objects.keys()
+        except Exception:
+            return obj in collection.objects[:]
+
+    @staticmethod
+    def object_has_atomic_parent_in_collection(obj, collection):
+        parent = getattr(obj, "parent", None)
+        while parent is not None:
+            if dff_exporter.is_object_in_collection(parent, collection) and dff_exporter.is_atomic_export_object(parent):
+                return True
+            parent = getattr(parent, "parent", None)
+        return False
+
+    @staticmethod
+    def is_descendant_of_object(obj, root):
+        parent = getattr(obj, "parent", None)
+        while parent is not None:
+            if parent == root:
+                return True
+            parent = getattr(parent, "parent", None)
+        return False
+
+    @staticmethod
+    def get_collection_atomic_objects(collection, selected_only=False):
+        self = dff_exporter
+        atomic_objects = []
+
+        for obj in collection.objects:
+            if not self.is_atomic_export_object(obj):
+                continue
+            if selected_only and not self.is_selected(obj):
+                continue
+            atomic_objects.append(obj)
+
+        return atomic_objects
+
+    @staticmethod
+    def get_collection_root_atomic_objects(collection, selected_only=False):
+        self = dff_exporter
+        root_objects = []
+
+        for obj in self.get_collection_atomic_objects(collection, selected_only):
+            if self.object_has_atomic_parent_in_collection(obj, collection):
+                continue
+            root_objects.append(obj)
+
+        return root_objects
+
+    @staticmethod
+    def get_primary_collection_for_export_objects(objects):
+        self = dff_exporter
+
+        atomic_objects = [obj for obj in objects if self.is_atomic_export_object(obj)]
+        if not atomic_objects:
+            return None
+
+        candidates = []
+        seen = set()
+
+        for obj in atomic_objects:
+            for collection in getattr(obj, "users_collection", []):
+                if collection is None or self.is_collision_collection(collection):
+                    continue
+
+                key = collection.as_pointer()
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                score = 0
+                if self.get_dff_collection_key(collection.name) is not None:
+                    score -= 100
+                if self.get_collection_model_key(collection) == self.get_object_model_key(obj):
+                    score -= 50
+                if self.collection_has_exportable_objects(collection):
+                    score -= 10
+
+                candidates.append((score, collection.name.lower(), collection))
+
+        if not candidates:
+            return None
+
+        return sorted(candidates, key=lambda item: (item[0], item[1]))[0][2]
+
+    @staticmethod
+    def get_root_atomic_objects_from_export_objects(objects):
+        self = dff_exporter
+        object_set = set(objects)
+        root_objects = []
+
+        for obj in objects:
+            if not self.is_atomic_export_object(obj):
+                continue
+
+            parent = getattr(obj, "parent", None)
+            has_export_parent = False
+            while parent is not None:
+                if parent in object_set and self.is_atomic_export_object(parent):
+                    has_export_parent = True
+                    break
+                parent = getattr(parent, "parent", None)
+
+            if not has_export_parent:
+                root_objects.append(obj)
+
+        return root_objects
+
+    @staticmethod
+    def get_collision_objects_for_export_objects(collection, objects):
+        self = dff_exporter
+
+        if collection is None:
+            return []
+
+        roots = self.get_root_atomic_objects_from_export_objects(objects)
+        if not roots:
+            return []
+
+        collision_objects = []
+        seen = set()
+
+        for root in roots:
+            assigned_objects = self.get_collision_objects_for_atomic(collection, root)
+            if not assigned_objects:
+                continue
+
+            for obj in assigned_objects:
+                key = obj.as_pointer()
+                if key in seen:
+                    continue
+                seen.add(key)
+                collision_objects.append(obj)
+
+        return collision_objects
+
+    @staticmethod
+    def collection_needs_instance_split(collection):
+        self = dff_exporter
+        root_objects = self.get_collection_root_atomic_objects(collection, False)
+
+        if len(root_objects) <= 1:
+            return False
+
+        by_model_key = defaultdict(list)
+        for obj in root_objects:
+            by_model_key[self.get_object_model_key(obj)].append(obj)
+
+        if any(len(objects) > 1 for objects in by_model_key.values()):
+            return True
+
+        collection_key = self.get_collection_model_key(collection)
+        if collection_key and len(by_model_key.get(collection_key, [])) > 1:
+            return True
+
+        return False
+
+    @staticmethod
+    def get_collision_objects_for_atomic(collection, atomic_object):
+        self = dff_exporter
+        collision_collection = self.get_matching_collision_collection(collection)
+        if collision_collection is None:
+            return None
+
+        collision_objects = []
+        for obj in collision_collection.objects:
+            if getattr(getattr(obj, "dff", None), "type", None) in {"COL", "SHA"}:
+                collision_objects.append(obj)
+
+        if not collision_objects:
+            return []
+
+        root_atomic_objects = self.get_collection_root_atomic_objects(collection, False)
+        if not root_atomic_objects:
+            root_atomic_objects = [obj for obj in collection.objects if self.is_atomic_export_object(obj)]
+
+        assigned_objects = []
+        for collision_object in collision_objects:
+            nearest_object = self.get_nearest_atomic_object(collision_object, root_atomic_objects)
+            if nearest_object == atomic_object:
+                assigned_objects.append(collision_object)
+
+        return assigned_objects
+
+    @staticmethod
+    def get_effect_objects_for_atomic(collection, atomic_object, all_root_atomic_objects):
+        self = dff_exporter
+        assigned_objects = []
+
+        for obj in collection.objects:
+            if not self.is_2dfx_export_object(obj):
+                continue
+
+            if self.is_descendant_of_object(obj, atomic_object):
+                assigned_objects.append(obj)
+                continue
+
+            nearest_object = self.get_nearest_atomic_object(obj, all_root_atomic_objects)
+            if nearest_object == atomic_object:
+                assigned_objects.append(obj)
+
+        return assigned_objects
+
+    @staticmethod
+    def get_atomic_descendants_for_export(collection, atomic_object):
+        self = dff_exporter
+        objects = [atomic_object]
+
+        for obj in collection.objects:
+            if obj == atomic_object:
+                continue
+            if not self.is_atomic_export_object(obj):
+                continue
+            if self.is_descendant_of_object(obj, atomic_object):
+                objects.append(obj)
+
+        return objects
+
+    @staticmethod
+    def get_atomic_export_file_name(atomic_object):
+        self = dff_exporter
+
+        for prop_name, field_name in (
+            ("dff_map", "model_name"),
+            ("dff_map", "ide_model_name"),
+            ("ide", "model_name"),
+        ):
+            props = getattr(atomic_object, prop_name, None)
+            if props is None:
+                continue
+            try:
+                value = getattr(props, field_name, "")
+            except Exception:
+                value = ""
+            if value:
+                return self.clean_export_collection_name(clear_extension(os.path.basename(str(value))))
+
+        for key in ("DFF_Name", "IDE_Model_Name", "model_name", "Model_Name"):
+            try:
+                value = atomic_object.get(key, "")
+            except Exception:
+                value = ""
+            if value:
+                return self.clean_export_collection_name(clear_extension(os.path.basename(str(value))))
+
+        base_name, suffix = self.split_blender_suffix(atomic_object.name)
+        return self.clean_export_collection_name(clear_extension(base_name))
+
+    @staticmethod
+    def choose_master_atomic_object(objects):
+        self = dff_exporter
+
+        def sort_key(obj):
+            base_name, suffix = self.split_blender_suffix(obj.name)
+            suffix_index = 0
+            if suffix:
+                try:
+                    suffix_index = int(suffix[1:]) + 1
+                except Exception:
+                    suffix_index = 999999
+            return (suffix_index, base_name.lower(), obj.name.lower())
+
+        return sorted(objects, key=sort_key)[0]
+
+    @staticmethod
+    def get_collection_export_groups(collection):
+        self = dff_exporter
+
+        if not self.collection_needs_instance_split(collection):
+            objects = self.get_collection_export_objects(collection)
+            if not objects:
+                return []
+            collision_objects = self.get_collision_objects_for_export_objects(collection, objects)
+            return [(self.clean_export_collection_name(collection.name), objects, collision_objects)]
+
+        all_root_objects = self.get_collection_root_atomic_objects(collection, False)
+        if not all_root_objects:
+            return []
+
+        selected_root_objects = self.get_collection_root_atomic_objects(collection, self.selected)
+        if self.selected and not selected_root_objects:
+            return []
+
+        export_model_keys = set()
+        if self.selected:
+            for atomic_object in selected_root_objects:
+                export_model_keys.add(self.get_object_model_key(atomic_object))
+        else:
+            for atomic_object in all_root_objects:
+                export_model_keys.add(self.get_object_model_key(atomic_object))
+
+        root_objects_by_model = defaultdict(list)
+        for atomic_object in all_root_objects:
+            model_key = self.get_object_model_key(atomic_object)
+            if model_key in export_model_keys:
+                root_objects_by_model[model_key].append(atomic_object)
+
+        groups = []
+        used_names = set()
+
+        for model_key in sorted(root_objects_by_model):
+            model_objects = root_objects_by_model[model_key]
+            if not model_objects:
+                continue
+
+            master_object = self.choose_master_atomic_object(model_objects)
+            export_name = self.get_atomic_export_file_name(master_object)
+            export_name_key = export_name.lower()
+
+            if export_name_key in used_names:
+                continue
+            used_names.add(export_name_key)
+
+            export_objects = self.get_atomic_descendants_for_export(collection, master_object)
+            export_objects.extend(self.get_effect_objects_for_atomic(collection, master_object, all_root_objects))
+            export_objects = sorted(set(export_objects), key=self.calculate_parent_depth)
+
+            collision_objects = self.get_collision_objects_for_atomic(collection, master_object)
+            groups.append((export_name, export_objects, collision_objects))
+
+        return groups
+
+    @staticmethod
+    def clean_export_collection_name(name):
+        name = dff_exporter.strip_dff_export_suffix(name)
+        if not name:
+            name = 'unnamed'
+        return name + '.dff'
+
+    @staticmethod
+    def get_export_file_key(export_name):
+        return dff_exporter.normalize_export_name_key(export_name)
+
+    @staticmethod
+    def get_export_group_sort_key(collection, export_name, objects):
+        suffix_index = dff_exporter.get_duplicate_suffix_index(collection.name if collection is not None else export_name)
+
+        for obj in objects:
+            if dff_exporter.is_atomic_export_object(obj):
+                suffix_index = min(suffix_index, dff_exporter.get_duplicate_suffix_index(obj.name))
+
+        return (
+            dff_exporter.get_export_file_key(export_name),
+            suffix_index,
+            collection.name.lower() if collection is not None else '',
+            str(export_name).lower(),
+        )
+
+    @staticmethod
+    def reset_export_state():
+        self = dff_exporter
+        self.frame_objects = {}
+        self.bones = {}
+        self.parent_queue = {}
+
+    @staticmethod
     def export_dff(filename):
         self = dff_exporter
 
         self.file_name = filename
-        
-        objects = {}
-        
-        # Export collections
-        if bpy.app.version < (2, 80, 0):
-            collections = [bpy.data]
 
-        else:
-            root_collection = bpy.context.scene.collection
-            collections = root_collection.children.values() + [root_collection]
-            
-        for collection in collections:
-            for obj in collection.objects:
-                    
-                if not self.selected or obj.select_get():
-                    objects[obj] = self.calculate_parent_depth(obj)
+        if self.mass_export:
+            if not self.path:
+                self.path = os.path.dirname(filename)
+            if not self.path:
+                self.path = os.getcwd()
+            os.makedirs(self.path, exist_ok=True)
 
-            if self.mass_export:
-                objects = sorted(objects, key=objects.get)
-                self.export_objects(objects,
-                                    collection.name)
-                objects     = {}
-                self.frames = {}
-                self.bones  = {}
+            export_candidates = []
+            for collection in self.get_mass_export_collections():
+                export_groups = self.get_collection_export_groups(collection)
+
+                for export_name, objects, collision_objects in export_groups:
+                    if not objects:
+                        continue
+
+                    export_candidates.append((
+                        self.get_export_group_sort_key(collection, export_name, objects),
+                        collection,
+                        export_name,
+                        objects,
+                        collision_objects,
+                    ))
+
+            exported_count = 0
+            exported_model_keys = set()
+
+            for sort_key, collection, export_name, objects, collision_objects in sorted(export_candidates, key=lambda item: item[0]):
+                export_key = self.get_export_file_key(export_name)
+                if not export_key:
+                    continue
+
+                if export_key in exported_model_keys:
+                    print('DemonFF mass export: skipped duplicate model instance %s from collection %s' % (export_name, collection.name))
+                    continue
+
+                exported_model_keys.add(export_key)
+
                 self.collection = collection
+                self.collision_objects = collision_objects
+                self.reset_export_state()
+                self.export_objects(objects, self.clean_export_collection_name(export_name))
+                exported_count += 1
 
-        if not self.mass_export:
-                
-            objects = sorted(objects, key=objects.get)
-            self.export_objects(objects)
+            self.collision_objects = None
+
+            if exported_count == 0:
+                raise DffExportException('Mass export found no DFF object collections to export.')
+
+            return
+
+        objects = self.get_single_export_objects()
+        self.collection = self.get_primary_collection_for_export_objects(objects)
+        self.collision_objects = self.get_collision_objects_for_export_objects(self.collection, objects)
+
+        self.reset_export_state()
+        self.export_objects(objects)
+
+        self.collision_objects = None
+
                 
 #######################################################
 def export_dff(options):
@@ -1127,8 +1895,7 @@ def export_dff(options):
     dff_exporter.truncate_frame_names = options.get('truncate_frame_names', False)
     dff_exporter.mass_export = options['mass_export']
     dff_exporter.preserve_positions = options['preserve_positions']
-    dff_exporter.preserve_rotations = options['preserve_rotations']
-    dff_exporter.path = options['directory']
+    dff_exporter.path = options.get('directory') or os.path.dirname(os.path.normpath(options['file_name']))
     dff_exporter.version = options['version']
     dff_exporter.export_coll = options['export_coll']
     dff_exporter.coll_ext_type = options.get('coll_ext_type', 39056122)

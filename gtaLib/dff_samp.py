@@ -105,6 +105,7 @@ types = {
     "Frame List"              : 14,
     "Geometry"                : 15,
     "Clump"                   : 16,
+    "Light"                   : 18,
     "Atomic"                  : 20,
     "Texture Native"          : 21,
     "Texture Dictionary"      : 22,
@@ -617,6 +618,36 @@ class Atomic:
         data = b''
         data += pack("<4I", self.frame, self.geometry, self.flags, self.unk)
         return data
+
+
+#######################################################
+class Light:
+
+    __slots__ = [
+        'frame',
+        'radius',
+        'color',
+        'minus_cos_angle',
+        'flags'
+    ]
+
+    def __init__(self):
+        self.frame = 0
+        self.radius = 200.0
+        self.color = (1.0, 1.0, 1.0)
+        self.minus_cos_angle = 0.0
+        self.flags = 0x00800003
+
+    def to_mem(self):
+        return pack(
+            "<5fI",
+            float(self.radius),
+            float(self.color[0]),
+            float(self.color[1]),
+            float(self.color[2]),
+            float(self.minus_cos_angle),
+            int(self.flags)
+        )
 
 
 #######################################################
@@ -1667,80 +1698,102 @@ class Extension2dfx:
     #######################################################
     def append_entry(self, entry):
         self.entries.append(entry)
+
     #######################################################
     def is_empty(self):
-        global entries
         return len(self.entries) == 0
 
     #######################################################
     @staticmethod
-    def from_mem(data, offset):
-
+    def from_mem(data, offset, size=None):
         self = Extension2dfx()
+
+        if offset < 0 or offset + 4 > len(data):
+            return self
+
+        end = len(data) if size is None else min(len(data), offset + size)
+        if offset + 4 > end:
+            return self
+
         entries_count = unpack_from("<I", data, offset)[0]
+        pos = offset + 4
 
-        pos = 4 + offset
+        max_entries = max(0, (end - pos) // 20)
+        if entries_count > max_entries:
+            print("Invalid 2DFX extension: %d entries cannot fit in %d bytes" % (entries_count, end - offset))
+            return self
+
+        entries_funcs = {
+            0: Light2dfx,
+            1: Particle2dfx,
+            3: PedAttractor2dfx,
+            4: SunGlare2dfx,
+            6: EnterExit2dfx,
+            7: RoadSign2dfx,
+            8: TriggerPoint2dfx,
+            9: CoverPoint2dfx,
+            10: Escalator2DFX,
+        }
+
         for i in range(entries_count):
+            if pos + 20 > end:
+                print("Invalid 2DFX extension: entry header outside chunk")
+                break
 
-            # Stores classes for each effect
-            entries_funcs = {
-                0: Light2dfx,
-                1: Particle2dfx,
-                3: PedAttractor2dfx,
-                4: SunGlare2dfx,
-                6: EnterExit2dfx,
-                7: RoadSign2dfx,
-                8: TriggerPoint2dfx,
-                9: CoverPoint2dfx,
-                10: Escalator2DFX,
-            }
-            
-            
             loc = Sections.read(Vector, data, pos)
-            entry_type, size = unpack_from("<II", data, pos + 12)
-
+            entry_type, entry_size = unpack_from("<II", data, pos + 12)
             pos += 20
-            if entry_type in entries_funcs:
-                self.append_entry(
-                    entries_funcs[entry_type].from_mem(loc, data, pos, size)
-                )
+
+            if entry_size > end - pos:
+                print("Invalid 2DFX extension: entry %d size %d exceeds chunk" % (i, entry_size))
+                break
+
+            entry_class = entries_funcs.get(entry_type)
+            if entry_class is not None:
+                try:
+                    self.append_entry(entry_class.from_mem(loc, data, pos, entry_size))
+                except Exception as error:
+                    print("Invalid 2DFX entry %d type %d: %s" % (i, entry_type, error))
             else:
                 print("Unimplemented Effect: %d" % (entry_type))
 
-            pos += size
+            pos += entry_size
 
         return self
+
+    #######################################################
+    @staticmethod
+    def clean_entry_payload(entry, entry_data):
+        if len(entry_data) >= 16 and hasattr(entry, 'effect_id'):
+            try:
+                embedded_effect_id = unpack_from('<I', entry_data, 12)[0]
+                if embedded_effect_id == int(entry.effect_id):
+                    return entry_data[16:]
+            except Exception:
+                pass
+
+        return entry_data
 
     #######################################################
     def to_mem(self):
-
-        # Write only if there are entries
-        if len(self.entries) == 0:
+        if self.is_empty():
             return b''
-        
-        # Entries length
+
         data = pack("<I", len(self.entries))
 
-        # Entries
         for entry in self.entries:
-            entry_data = entry.to_mem()
-
-            # For escalators, effect_id is already written inside entry.to_mem()
-            if hasattr(entry, 'effect_id') and entry.effect_id == 10:
-                data += entry_data
-            else:
-
-                data += entry_data
+            entry_data = self.clean_entry_payload(entry, entry.to_mem())
+            data += Sections.write(Vector, entry.loc)
+            data += pack("<II", int(entry.effect_id), len(entry_data))
+            data += entry_data
 
         return Sections.write_chunk(data, types['2d Effect'])
 
-            
     #######################################################
     def __add__(self, other):
-        self.entries += other.entries # concatinate entries
+        self.entries += other.entries
         return self
 
-#######################################################
 class DeltaMorph:
 
     #######################################################
@@ -2063,8 +2116,100 @@ class Geometry:
         return self
 
     #######################################################
+    def make_default_material(self):
+        material = Material()
+        material.color = RGBA._make((255, 255, 255, 255))
+        material.surface_properties = GeomSurfPro._make((1.0, 1.0, 1.0))
+        return material
+
+    #######################################################
+    def ensure_materials_for_export(self):
+        if not self.materials:
+            self.materials.append(self.make_default_material())
+
+        for material in self.materials:
+            if material.color is None:
+                material.color = RGBA._make((255, 255, 255, 255))
+
+            if material.surface_properties is None:
+                material.surface_properties = GeomSurfPro._make((1.0, 1.0, 1.0))
+
+            if material.textures is None:
+                material.textures = []
+
+            if material.plugins is None:
+                material.plugins = {}
+
+        vertex_count = len(self.vertices)
+        max_material_index = len(self.materials) - 1
+        fixed_triangles = []
+        dropped_triangles = 0
+        fixed_materials = 0
+
+        for triangle in self.triangles:
+            try:
+                a = int(triangle.a)
+                b = int(triangle.b)
+                c = int(triangle.c)
+            except Exception:
+                dropped_triangles += 1
+                continue
+
+            if vertex_count <= 0:
+                dropped_triangles += 1
+                continue
+
+            if a < 0 or b < 0 or c < 0 or a >= vertex_count or b >= vertex_count or c >= vertex_count:
+                dropped_triangles += 1
+                continue
+
+            if a == b or b == c or a == c:
+                dropped_triangles += 1
+                continue
+
+            try:
+                material_index = int(triangle.material)
+            except Exception:
+                material_index = 0
+
+            if material_index < 0 or material_index > max_material_index:
+                material_index = 0
+                fixed_materials += 1
+
+            fixed_triangles.append(Triangle._make((
+                b,
+                a,
+                material_index,
+                c,
+            )))
+
+        if dropped_triangles:
+            print("DemonFF SA-MP DFF writer: dropped %d invalid triangle(s) before writing geometry." % dropped_triangles)
+        if fixed_materials:
+            print("DemonFF SA-MP DFF writer: fixed %d triangle material index(es) before writing geometry." % fixed_materials)
+
+        self.triangles = fixed_triangles
+
+        def fix_sequence_length(values, filler):
+            if len(values) > vertex_count:
+                del values[vertex_count:]
+            while len(values) < vertex_count:
+                values.append(filler())
+
+        for uv_layer in self.uv_layers:
+            fix_sequence_length(uv_layer, lambda: TexCoords(0.0, 0.0))
+
+        if self.prelit_colors:
+            fix_sequence_length(self.prelit_colors, lambda: RGBA._make((255, 255, 255, 255)))
+
+        if self.normals:
+            fix_sequence_length(self.normals, lambda: Vector._make((0.0, 0.0, 1.0)))
+
+    #######################################################
     def material_list_to_mem(self):
         # TODO: Support instance materials
+
+        self.ensure_materials_for_export()
 
         data = b''
         
@@ -2082,6 +2227,8 @@ class Geometry:
 
     #######################################################
     def write_bin_split(self):
+
+        self.ensure_materials_for_export()
 
         data = b''
 
@@ -2138,6 +2285,8 @@ class Geometry:
         
     #######################################################
     def to_mem(self, extra_extensions = []):
+
+        self.ensure_materials_for_export()
 
         # Set flags
         flags = rpGEOMETRYPOSITIONS
@@ -2680,7 +2829,8 @@ class dff:
                         elif chunk.type == types["2d Effect"]:
                             self.ext_2dfx += Extension2dfx.from_mem(
                                 self.data,
-                                self._read(chunk.size)
+                                self._read(chunk.size),
+                                chunk.size
                             )
                             
                         elif chunk.type == types["Bin Mesh PLG"]: 
@@ -2744,7 +2894,8 @@ class dff:
                 
                 # 2d Effect
                 elif chunk.type == types["2d Effect"]:  
-                    self.read_2dfx(chunk)
+                    self.ext_2dfx += Extension2dfx.from_mem(self.data, self.pos, chunk.size)
+                    self.pos += chunk.size
 
                 # ATOMIC
                 elif chunk.type == types["Atomic"]:  
@@ -2846,10 +2997,10 @@ class dff:
 
             # Append 2dfx to extra extensions in the last geometry
             extra_extensions = []
-            if index == len(self.geometry_list):
+            if index == len(self.geometry_list) - 1 and not self.ext_2dfx.is_empty():
                 extra_extensions.append(self.ext_2dfx)
             
-            data += geometry.to_mem()
+            data += geometry.to_mem(extra_extensions)
         
         return Sections.write_chunk(data, types["Geometry List"])
     #######################################################
@@ -2969,6 +3120,17 @@ class dff:
             return Sections.write_chunk(data, types["Atomic"])
 
     #######################################################
+    def write_light(self, light):
+
+        data = Sections.write_chunk(pack("<I", light.frame), types["Struct"])
+
+        light_data = Sections.write_chunk(light.to_mem(), types["Struct"])
+        light_data += Sections.write_chunk(b'', types["Extension"])
+
+        data += Sections.write_chunk(light_data, types["Light"])
+        return data
+
+    #######################################################
     def write_uv_dict(self):
 
         if len(self.uvanim_dict) < 1:
@@ -3000,6 +3162,9 @@ class dff:
         for atomic in self.atomic_list:
             data += self.write_atomic(atomic)
 
+        for light in self.light_list:
+            data += self.write_light(light)
+
         for coll_data in self.collisions:
             _data = Sections.write_chunk(coll_data, types["Collision Model"])
             data += Sections.write_chunk(_data, types["Extension"])
@@ -3022,8 +3187,8 @@ class dff:
     #######################################################
     def write_file(self, filename, version):
 
+        content = self.write_memory(version)
         with open(filename, mode='wb') as file:
-            content = self.write_memory(version)
             file.write(content)
             
     #######################################################
@@ -3498,7 +3663,8 @@ class dff_samp:
                         elif chunk.type == types["2d Effect"]:
                             self.ext_2dfx += Extension2dfx.from_mem(
                                 self.data,
-                                self._read(chunk.size)
+                                self._read(chunk.size),
+                                chunk.size
                             )
                             
                         elif chunk.type == types["Bin Mesh PLG"]: 
@@ -3660,10 +3826,10 @@ class dff_samp:
 
             # Append 2dfx to extra extensions in the last geometry
             extra_extensions = []
-            if index == len(self.geometry_list):
+            if index == len(self.geometry_list) - 1 and not self.ext_2dfx.is_empty():
                 extra_extensions.append(self.ext_2dfx)
             
-            data += geometry.to_mem()
+            data += geometry.to_mem(extra_extensions)
         
         return Sections.write_chunk(data, types["Geometry List"])
 
@@ -3693,6 +3859,17 @@ class dff_samp:
         
         data += Sections.write_chunk(ext_data, types["Extension"])
         return Sections.write_chunk(data, types["Atomic"])
+
+    #######################################################
+    def write_light(self, light):
+
+        data = Sections.write_chunk(pack("<I", light.frame), types["Struct"])
+
+        light_data = Sections.write_chunk(light.to_mem(), types["Struct"])
+        light_data += Sections.write_chunk(b'', types["Extension"])
+
+        data += Sections.write_chunk(light_data, types["Light"])
+        return data
 
     #######################################################
     def write_uv_dict(self):
@@ -3726,6 +3903,9 @@ class dff_samp:
         for atomic in self.atomic_list:
             data += self.write_atomic(atomic)
 
+        for light in self.light_list:
+            data += self.write_light(light)
+
         for coll_data in self.collisions:
             _data = Sections.write_chunk(coll_data, types["Collision Model"])
             data += Sections.write_chunk(_data, types["Extension"])
@@ -3748,8 +3928,8 @@ class dff_samp:
     #######################################################
     def write_file(self, filename, version):
 
+        content = self.write_memory(version)
         with open(filename, mode='wb') as file:
-            content = self.write_memory(version)
             file.write(content)
             
     #######################################################

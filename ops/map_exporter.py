@@ -19,6 +19,8 @@
 
 import bpy
 import os
+import re
+import mathutils
 
 from ..data import map_data
 from ..ops.importer_common import game_version
@@ -146,6 +148,19 @@ def get_object_interior(obj, default=0):
     return get_custom_prop(obj, "Interior", default)
 
 #######################################################
+def get_stream_world_and_interior(obj, default_world=-1, default_interior=-1):
+    interior = get_object_interior(obj, default_interior)
+
+    # The third field in VCS text IPL inst lines is a VCS interior/area value.
+    # It is not a SA-MP/open.mp virtual world.  For converted exterior maps,
+    # exporting it into CreateDynamicObject's world/interior slots hides objects
+    # from players in world 0/interior 0.
+    if getattr(pwn_exporter, "force_all_worlds_interiors", True):
+        return -1, -1
+
+    return default_world, interior
+
+#######################################################
 def get_object_lod(obj, default=-1):
     props = get_map_props(obj)
     if props and props.lod not in (None, 0):
@@ -203,6 +218,25 @@ def get_object_ide_section(obj):
 def object_is_lod(obj):
     name = obj.name.lower()
     return name.startswith("lod") or ".colmesh" in name or get_dff_type(obj) == 'COL'
+
+#######################################################
+def object_is_2dfx_pawn_helper(obj):
+    names = [
+        obj.name,
+        clean_map_name(obj.name),
+        get_object_model_name(obj),
+        get_pawn_model_name(obj),
+    ]
+
+    for name in names:
+        if not name:
+            continue
+
+        clean_name = str(name).lower().split('.')[0]
+        if clean_name.startswith("2dfx_"):
+            return True
+
+    return get_dff_type(obj) == '2DFX'
 
 #######################################################
 def get_transform_source(obj):
@@ -645,8 +679,15 @@ class ExportToPawnOperator(bpy.types.Operator):
                 max_id = -40000  # Maximum ID
 
                 name_mapping = {}
+                written_addsimplemodels = {}
+                addsimplemodel_written = 0
+                addsimplemodel_skipped = 0
+                addsimplemodel_conflicts = 0
+
                 for obj in objects:
                     if self.skip_lod and (obj.name.startswith("LOD") or ".ColMesh" in obj.name):
+                        continue
+                    if object_is_2dfx_pawn_helper(obj):
                         continue
 
                     if current_id <= max_id:
@@ -678,7 +719,8 @@ class ExportToPawnOperator(bpy.types.Operator):
                             current_id -= 1
                         object_id = name_mapping[base_name]
 
-                    interior = get_object_interior(obj, -1)
+                    world_id = -1
+                    interior = -1
                     stream_distance = self.stream_distance
                     draw_distance = self.draw_distance
 
@@ -686,24 +728,47 @@ class ExportToPawnOperator(bpy.types.Operator):
                     txd_name = get_object_txd_name(obj)
 
                     line = f"CreateDynamicObject({object_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
-                           f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
+                           f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {world_id}, {interior}, -1, {stream_distance:.2f}, {draw_distance:.2f});  // {obj.name}\n"
                     f.write(line)
                     print(f"Exporting {obj.name} with ID {object_id}")
 
-                    artconfig_line = f"AddSimpleModel(-1, {baseid}, {object_id}, \"{model_directory}/{dff_name}.dff\", \"{model_directory}/{txd_name}.txd\");  // {obj.name}\n"
-                    artconfig.write(artconfig_line)
-                    print(f"Writing to artconfig: {artconfig_line.strip()}")
+                    dff_path = f"{model_directory}/{dff_name}.dff"
+                    txd_path = f"{model_directory}/{txd_name}.txd"
+                    model_key = str(object_id).strip().lower()
+                    model_paths = (dff_path.lower(), txd_path.lower())
+                    existing_paths = written_addsimplemodels.get(model_key)
+
+                    if existing_paths is None:
+                        written_addsimplemodels[model_key] = model_paths
+                        artconfig_line = f"AddSimpleModel(-1, {baseid}, {object_id}, \"{dff_path}\", \"{txd_path}\");  // {dff_name}\\n"
+                        artconfig.write(artconfig_line)
+                        addsimplemodel_written += 1
+                        print(f"Writing to artconfig: {artconfig_line.strip()}")
+                    elif existing_paths == model_paths:
+                        addsimplemodel_skipped += 1
+                        print(f"DemonFF Pawn export: skipped duplicate AddSimpleModel for model ID {object_id} ({dff_path}, {txd_path}) from {obj.name}.")
+                    else:
+                        addsimplemodel_skipped += 1
+                        addsimplemodel_conflicts += 1
+                        print(
+                            f"DemonFF Pawn export warning: skipped conflicting duplicate AddSimpleModel for model ID {object_id} from {obj.name}. "
+                            f"Already wrote ({existing_paths[0]}, {existing_paths[1]}), new request was ({dff_path.lower()}, {txd_path.lower()})."
+                        )
 
                     lod_value = get_object_lod(obj, None)
                     if lod_value is not None and str(lod_value) != '-1':
                         lod_index = lod_value
                         lod_line = f"CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, " \
-                                   f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {interior}, 0, -1, {stream_distance:.2f}, {draw_distance:.2f});  // LOD for {obj.name}\n"
+                                   f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, {world_id}, {interior}, -1, {stream_distance:.2f}, {draw_distance:.2f});  // LOD for {obj.name}\n"
                         f.write(lod_line)
                         print(f"Exporting LOD for {obj.name} with LODIndex {lod_index}")
 
                 print(f"Exported Pawn script to {file_path}")
                 print(f"Exported artconfig to {artconfig_path}")
+                print(
+                    f"DemonFF Pawn export verify: objects={len(objects)}, AddSimpleModel_written={addsimplemodel_written}, "
+                    f"AddSimpleModel_duplicates_skipped={addsimplemodel_skipped}, AddSimpleModel_conflicts={addsimplemodel_conflicts}."
+                )
 
         selected_objects = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
         if not selected_objects:
@@ -852,6 +917,293 @@ def export_ide(options):
     total += len(getattr(ide_exporter_module.ide_exporter, "anim_objects", []))
     ide_exporter.total_definitions_num = total
 
+
+#######################################################
+def strip_pawn_comments(text):
+    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+    lines = []
+    for line in text.splitlines():
+        comment = ""
+        if "//" in line:
+            line, comment = line.split("//", 1)
+            comment = comment.strip()
+        lines.append((line, comment))
+    return lines
+
+#######################################################
+def split_pawn_args(args_text):
+    args = []
+    current = []
+    in_string = False
+    escape = False
+
+    for char in args_text:
+        if in_string:
+            current.append(char)
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            current.append(char)
+            continue
+
+        if char == ',':
+            args.append(''.join(current).strip())
+            current = []
+            continue
+
+        current.append(char)
+
+    if current or args_text.strip():
+        args.append(''.join(current).strip())
+
+    return args
+
+#######################################################
+def clean_pawn_string(value):
+    value = str(value).strip()
+    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        value = value[1:-1]
+    return value.replace('\\\\', '\\').replace('\\"', '"')
+
+#######################################################
+def pawn_to_int(value, default=0):
+    try:
+        return int(str(value).strip(), 0)
+    except Exception:
+        try:
+            return int(float(str(value).strip()))
+        except Exception:
+            return default
+
+#######################################################
+def pawn_to_float(value, default=0.0):
+    try:
+        return float(str(value).strip())
+    except Exception:
+        return default
+
+#######################################################
+def clean_pawn_model_name(path_value):
+    name = os.path.basename(clean_pawn_string(path_value).replace('\\', '/'))
+    return os.path.splitext(name)[0]
+
+#######################################################
+def parse_pawn_script(filename):
+    with open(filename, 'r', encoding='latin-1', errors='ignore') as handle:
+        raw_text = handle.read()
+
+    simple_models = {}
+    created_objects = []
+    lines = strip_pawn_comments(raw_text)
+    statement = ""
+    statement_comment = ""
+
+    for line, comment in lines:
+        if not line.strip() and not statement:
+            continue
+
+        statement += line + "\n"
+        if comment and not statement_comment:
+            statement_comment = comment
+
+        if ';' not in line:
+            continue
+
+        pieces = statement.split(';')
+        for piece in pieces[:-1]:
+            stmt = piece.strip()
+            if not stmt:
+                continue
+
+            add_match = re.search(r"AddSimpleModel\s*\((.*)\)", stmt, flags=re.IGNORECASE | re.DOTALL)
+            if add_match:
+                args = split_pawn_args(add_match.group(1))
+                if len(args) >= 5:
+                    virtual_world = pawn_to_int(args[0], -1)
+                    base_id = pawn_to_int(args[1], 19379)
+                    model_id = pawn_to_int(args[2], 0)
+                    dff_path = clean_pawn_string(args[3])
+                    txd_path = clean_pawn_string(args[4])
+                    simple_models[model_id] = {
+                        'virtual_world': virtual_world,
+                        'base_id': base_id,
+                        'model_id': model_id,
+                        'dff_path': dff_path,
+                        'txd_path': txd_path,
+                        'model_name': clean_pawn_model_name(dff_path),
+                        'txd_name': clean_pawn_model_name(txd_path),
+                        'comment': statement_comment,
+                    }
+                continue
+
+            create_match = re.search(r"(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*)?(CreateDynamicObject|CreateObject)\s*\((.*)\)", stmt, flags=re.IGNORECASE | re.DOTALL)
+            if create_match:
+                args = split_pawn_args(create_match.group(2))
+                if len(args) >= 7:
+                    model_id = pawn_to_int(args[0], 0)
+                    created_objects.append({
+                        'function': create_match.group(1),
+                        'model_id': model_id,
+                        'x': pawn_to_float(args[1]),
+                        'y': pawn_to_float(args[2]),
+                        'z': pawn_to_float(args[3]),
+                        'rx': pawn_to_float(args[4]),
+                        'ry': pawn_to_float(args[5]),
+                        'rz': pawn_to_float(args[6]),
+                        'world_id': pawn_to_int(args[7], -1) if len(args) > 7 else -1,
+                        'interior_id': pawn_to_int(args[8], -1) if len(args) > 8 else -1,
+                        'player_id': pawn_to_int(args[9], -1) if len(args) > 9 else -1,
+                        'stream_distance': pawn_to_float(args[10], 300.0) if len(args) > 10 else 300.0,
+                        'draw_distance': pawn_to_float(args[11], 300.0) if len(args) > 11 else 300.0,
+                        'comment': statement_comment,
+                    })
+
+        statement = pieces[-1]
+        statement_comment = ""
+
+    return simple_models, created_objects
+
+#######################################################
+def ensure_collection(name):
+    collection = bpy.data.collections.get(name)
+    if collection is None:
+        collection = bpy.data.collections.new(name)
+        bpy.context.scene.collection.children.link(collection)
+    return collection
+
+#######################################################
+def link_object_to_collection(obj, collection):
+    if obj.name not in collection.objects:
+        collection.objects.link(obj)
+
+    for source_collection in list(obj.users_collection):
+        if source_collection != collection:
+            try:
+                source_collection.objects.unlink(obj)
+            except Exception:
+                pass
+
+#######################################################
+def make_pawn_placeholder_mesh(name):
+    mesh = bpy.data.meshes.new(name + '_mesh')
+    verts = [
+        (-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
+        (-0.5, -0.5, 0.5), (0.5, -0.5, 0.5), (0.5, 0.5, 0.5), (-0.5, 0.5, 0.5),
+    ]
+    faces = [
+        (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
+        (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0),
+    ]
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    return obj
+
+#######################################################
+def set_pawn_import_props(obj, created, model_info):
+    model_id = created['model_id']
+    model_name = model_info.get('model_name') if model_info else str(model_id)
+    txd_name = model_info.get('txd_name') if model_info else 'default_txd'
+    dff_path = model_info.get('dff_path') if model_info else ''
+    txd_path = model_info.get('txd_path') if model_info else ''
+    base_id = model_info.get('base_id') if model_info else 19379
+
+    obj['Pawn_Model_ID'] = model_id
+    obj['Pawn_Function'] = created.get('function', 'CreateDynamicObject')
+    obj['Pawn_World_ID'] = created.get('world_id', -1)
+    obj['Pawn_Interior_ID'] = created.get('interior_id', -1)
+    obj['Pawn_Player_ID'] = created.get('player_id', -1)
+    obj['Pawn_Stream_Distance'] = created.get('stream_distance', 300.0)
+    obj['Pawn_Draw_Distance'] = created.get('draw_distance', 300.0)
+    obj['Pawn_Comment'] = created.get('comment', '')
+    obj['Pawn_DFF_Path'] = dff_path
+    obj['Pawn_TXD_Path'] = txd_path
+    obj['SAMP_ID'] = model_id
+    obj['IDE_ID'] = base_id
+    obj['DFF_Name'] = model_name
+    obj['TXD_Name'] = txd_name
+
+    if hasattr(obj, 'dff'):
+        obj.dff.type = 'OBJ'
+
+    if hasattr(obj, 'dff_map'):
+        obj.dff_map.object_id = int(base_id) if str(base_id).lstrip('-').isdigit() else 0
+        obj.dff_map.model_name = str(model_name)
+        obj.dff_map.interior = int(created.get('interior_id', -1)) if str(created.get('interior_id', -1)).lstrip('-').isdigit() else -1
+        obj.dff_map.lod = -1
+        obj.dff_map.ide_object_id = int(base_id) if str(base_id).lstrip('-').isdigit() else 0
+        obj.dff_map.ide_model_name = str(model_name)
+        obj.dff_map.ide_txd_name = str(txd_name)
+        obj.dff_map.pawn_model_name = str(model_name)
+        obj.dff_map.pawn_txd_name = str(txd_name)
+
+#######################################################
+class pwn_importer:
+    total_objects_num = 0
+    total_models_num = 0
+    missing_model_info_num = 0
+
+    @staticmethod
+    def import_pawn(filename, collection_name='Pawn Import', clear_existing=False):
+        simple_models, created_objects = parse_pawn_script(filename)
+        collection = ensure_collection(collection_name or 'Pawn Import')
+
+        if clear_existing:
+            for obj in list(collection.objects):
+                bpy.data.objects.remove(obj, do_unlink=True)
+
+        imported = 0
+        missing_model_info = 0
+
+        for index, created in enumerate(created_objects):
+            model_info = simple_models.get(created['model_id'])
+            if model_info is None:
+                missing_model_info += 1
+
+            model_name = model_info.get('model_name') if model_info else str(created['model_id'])
+            obj_name = '%s_%03d' % (model_name, index)
+            obj = make_pawn_placeholder_mesh(obj_name)
+            obj.location = (created['x'], created['y'], created['z'])
+            obj.rotation_euler = (
+                created['rx'] * 3.141592653589793 / 180.0,
+                created['ry'] * 3.141592653589793 / 180.0,
+                created['rz'] * 3.141592653589793 / 180.0,
+            )
+            obj.rotation_mode = 'XYZ'
+            link_object_to_collection(obj, collection)
+            set_pawn_import_props(obj, created, model_info)
+            imported += 1
+
+        pwn_importer.total_objects_num = imported
+        pwn_importer.total_models_num = len(simple_models)
+        pwn_importer.missing_model_info_num = missing_model_info
+
+        print(
+            "DemonFF Pawn import verify: AddSimpleModel=%d, CreateDynamicObject=%d, imported_objects=%d, missing_AddSimpleModel_info=%d." % (
+                len(simple_models),
+                len(created_objects),
+                imported,
+                missing_model_info,
+            )
+        )
+
+        return imported
+
+#######################################################
+def import_pawn(options):
+    return pwn_importer.import_pawn(
+        options['file_name'],
+        options.get('collection_name', 'Pawn Import'),
+        options.get('clear_existing', False),
+    )
+
 #######################################################
 class pwn_exporter:
     only_selected = False
@@ -862,6 +1214,7 @@ class pwn_exporter:
     x_offset = 0.0
     y_offset = 0.0
     z_offset = 0.0
+    force_all_worlds_interiors = True
     total_objects_num = 0
 
     @staticmethod
@@ -873,6 +1226,8 @@ class pwn_exporter:
             if pwn_exporter.only_selected and not obj.select_get():
                 continue
             if pwn_exporter.skip_lod and object_is_lod(obj):
+                continue
+            if object_is_2dfx_pawn_helper(obj):
                 continue
             objects.append(obj)
         return objects
@@ -904,7 +1259,10 @@ class pwn_exporter:
         base_model_id = 19379
         current_id = -1000
         name_mapping = {}
-        written_models = set()
+        written_models = {}
+        addsimplemodel_written = 0
+        addsimplemodel_skipped = 0
+        addsimplemodel_conflicts = 0
 
         with open(output_file, 'w', encoding='latin-1') as pawn_file, open(artconfig_path, 'w', encoding='latin-1') as artconfig_file:
             pawn_file.write("// Generated by DemonFF\n")
@@ -918,7 +1276,7 @@ class pwn_exporter:
                 position.y += self.y_offset
                 position.z += self.z_offset
                 rotation = quat_to_degrees(source.rotation_quaternion)
-                interior = get_object_interior(obj, -1)
+                world_id, interior = get_stream_world_and_interior(obj, -1, -1)
                 model_name = get_pawn_model_name(obj)
                 txd_name = get_pawn_txd_name(obj)
                 safe_model_dir = model_directory.strip('/')
@@ -928,14 +1286,41 @@ class pwn_exporter:
                 pawn_file.write(
                     f"    CreateDynamicObject({model_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
                     f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
-                    f"{interior}, 0, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // {obj.name}\n"
+                    f"{world_id}, {interior}, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // {obj.name}\n"
                 )
 
-                model_key = (model_id, dff_path.lower(), txd_path.lower())
-                if model_key not in written_models:
-                    written_models.add(model_key)
+                model_key = str(model_id).strip().lower()
+                model_paths = (dff_path.lower(), txd_path.lower())
+                existing_paths = written_models.get(model_key)
+
+                if existing_paths is None:
+                    written_models[model_key] = model_paths
                     artconfig_file.write(
-                        f"AddSimpleModel(-1, {base_model_id}, {model_id}, \"{dff_path}\", \"{txd_path}\");  // {model_name}\n"
+                        f"AddSimpleModel(-1, {base_model_id}, {model_id}, \"{dff_path}\", \"{txd_path}\");  // {model_name}\\n"
+                    )
+                    addsimplemodel_written += 1
+                elif existing_paths == model_paths:
+                    addsimplemodel_skipped += 1
+                    print(
+                        "DemonFF Pawn export: skipped duplicate AddSimpleModel for model ID %s (%s, %s) from %s." % (
+                            model_id,
+                            dff_path,
+                            txd_path,
+                            obj.name,
+                        )
+                    )
+                else:
+                    addsimplemodel_skipped += 1
+                    addsimplemodel_conflicts += 1
+                    print(
+                        "DemonFF Pawn export warning: skipped conflicting duplicate AddSimpleModel for model ID %s from %s. Already wrote (%s, %s), new request was (%s, %s)." % (
+                            model_id,
+                            obj.name,
+                            existing_paths[0],
+                            existing_paths[1],
+                            dff_path.lower(),
+                            txd_path.lower(),
+                        )
                     )
 
                 lod_index = get_object_lod(obj, None)
@@ -943,12 +1328,21 @@ class pwn_exporter:
                     pawn_file.write(
                         f"    CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
                         f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
-                        f"{interior}, 0, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // LOD for {obj.name}\n"
+                        f"{world_id}, {interior}, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // LOD for {obj.name}\n"
                     )
 
                 self.total_objects_num += 1
 
             pawn_file.write("    return 1;\n}\n")
+
+        print(
+            "DemonFF Pawn export verify: objects=%d, AddSimpleModel_written=%d, AddSimpleModel_duplicates_skipped=%d, AddSimpleModel_conflicts=%d." % (
+                self.total_objects_num,
+                addsimplemodel_written,
+                addsimplemodel_skipped,
+                addsimplemodel_conflicts,
+            )
+        )
 
 #######################################################
 def export_pawn(options):
@@ -960,4 +1354,5 @@ def export_pawn(options):
     pwn_exporter.x_offset = options.get('x_offset', 0.0)
     pwn_exporter.y_offset = options.get('y_offset', 0.0)
     pwn_exporter.z_offset = options.get('z_offset', 0.0)
+    pwn_exporter.force_all_worlds_interiors = options.get('force_all_worlds_interiors', True)
     pwn_exporter.export_pawn(options['file_name'])

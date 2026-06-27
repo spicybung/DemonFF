@@ -22,6 +22,7 @@ import bpy
 import gpu
 import bmesh
 import struct
+import mathutils
 
 from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
     IMPORT_OT_txd, \
@@ -45,6 +46,128 @@ effectfile = ""
 textfile = ""
 
 
+
+def getSelectedMeshObjects(context):
+    return [obj for obj in context.selected_objects if obj.type == 'MESH' and obj.data]
+
+
+def getUniqueMeshData(objects):
+    meshes = []
+    seen = set()
+
+    for obj in objects:
+        mesh = obj.data
+        mesh_key = mesh.as_pointer()
+        if mesh_key in seen:
+            continue
+
+        seen.add(mesh_key)
+        meshes.append(mesh)
+
+    return meshes
+
+
+def recalculateMeshNormals(mesh, inward=False):
+    if not mesh.polygons:
+        return False
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        if not bm.faces:
+            return False
+
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+        if inward:
+            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+
+        bm.to_mesh(mesh)
+        mesh.update()
+        return True
+    finally:
+        bm.free()
+
+
+def clearCustomSplitNormals(mesh):
+    if not hasattr(mesh, "normals_split_custom_set"):
+        return
+
+    try:
+        mesh.normals_split_custom_set([(0.0, 0.0, 0.0)] * len(mesh.loops))
+    except Exception:
+        pass
+
+
+def makeMeshDoubleSidedFast(mesh):
+    if not mesh.polygons:
+        return False
+
+    if mesh.get("demonff_double_sided_backfaces", False):
+        return False
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.faces.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+
+        source_faces = [face for face in bm.faces if face.is_valid]
+        if not source_faces:
+            return False
+
+        bm.normal_update()
+        duplicated = bmesh.ops.duplicate(bm, geom=source_faces)
+        back_faces = [item for item in duplicated.get('geom', []) if isinstance(item, bmesh.types.BMFace)]
+
+        if not back_faces:
+            return False
+
+        bmesh.ops.reverse_faces(bm, faces=back_faces)
+        bm.normal_update()
+        bm.to_mesh(mesh)
+
+        clearCustomSplitNormals(mesh)
+        if hasattr(mesh, "use_auto_smooth"):
+            mesh.use_auto_smooth = False
+
+        mesh["demonff_double_sided_backfaces"] = True
+        mesh.update(calc_edges=True)
+        return True
+    finally:
+        bm.free()
+
+
+def optimizeMeshFast(mesh, merge_distance=0.0001):
+    if not mesh.vertices:
+        return False
+
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(mesh)
+        bm.verts.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.faces.ensure_lookup_table()
+
+        if bm.verts:
+            bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=merge_distance)
+
+        loose_geom = []
+        loose_geom.extend([edge for edge in bm.edges if not edge.link_faces])
+        loose_geom.extend([vert for vert in bm.verts if not vert.link_edges and not vert.link_faces])
+        if loose_geom:
+            bmesh.ops.delete(bm, geom=loose_geom, context='EDGES_FACES')
+
+        if bm.faces:
+            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+
+        bm.to_mesh(mesh)
+        mesh.update()
+        return True
+    finally:
+        bm.free()
+
+
 #######################################################
 class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
     bl_label = "DemonFF - Miscellaneous"
@@ -58,7 +181,7 @@ class OBJECT_PT_dff_misc_panel(bpy.types.Panel):
         layout.label(text="Mesh Operations:")
         layout.operator("object.join_similar_named_meshes", text="Join Similar Named Meshes")
         layout.operator("scene.duplicate_all_as_objects", text="Duplicate All as Objects")
-        layout.operator("object.optimize_mesh", text="Optimize Mesh(SLOW)")
+        layout.operator("object.optimize_mesh", text="Optimize Mesh")
         layout.operator("object.truncate_material_names", text='Truncate Material Names')
 
 
@@ -308,27 +431,20 @@ class OBJECT_PT_join_similar_meshes_panel(bpy.types.Panel):
 #######################################################
 class OBJECT_OT_optimize_mesh(bpy.types.Operator):
     bl_idname = "object.optimize_mesh"
-    bl_label = "Optimize Mesh(Slow)"
-    bl_description = "Fix and/or optimize broken mesh"
+    bl_label = "Optimize Mesh"
+    bl_description = "Fix and optimize selected mesh data without slow edit-mode operators"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        import bmesh
-        for obj in context.selected_objects:
-            if obj.type == 'MESH':
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.mode_set(mode='EDIT')
-                bpy.ops.mesh.select_all(action='SELECT')
+        objects = getSelectedMeshObjects(context)
+        meshes = getUniqueMeshData(objects)
+        optimized_count = 0
 
-                bm = bmesh.from_edit_mesh(obj.data)
-                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-                bmesh.update_edit_mesh(obj.data, loop_triangles=True)
+        for mesh in meshes:
+            if optimizeMeshFast(mesh):
+                optimized_count += 1
 
-                bpy.ops.mesh.remove_doubles(threshold=0.0001)
-                bpy.ops.mesh.delete_loose()
-                bpy.ops.mesh.normals_make_consistent(inside=False)
-                bpy.ops.object.mode_set(mode='OBJECT')
-        self.report({'INFO'}, "Optimized selected meshes")
+        self.report({'INFO'}, f"Optimized {optimized_count} unique mesh data-block(s) from {len(objects)} selected object(s).")
         return {'FINISHED'}
 #######################################################   
 class SCENE_OT_duplicate_all_as_objects(bpy.types.Operator):
@@ -349,7 +465,6 @@ class SCENE_OT_duplicate_all_as_objects(bpy.types.Operator):
             if obj.type != 'MESH' or not obj.users_collection:
                 continue
 
-            # Generate a unique name like bonerific.001 manually
             base = obj.name
             count = 1
             new_name = f"{base}.{str(count).zfill(3)}"
@@ -391,116 +506,61 @@ class SCENE_OT_duplicate_all_as_objects(bpy.types.Operator):
 
 #######################################################   
 class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
-    """Extrudes faces along their normals for all selected objects by 0.001523M"""
     bl_idname = "object.force_doubleside_mesh"
     bl_label = "Force Doubleside Mesh"
-    bl_description = "Extrude faces along normals for all selected objects by 0.001523M"
+    bl_description = "Duplicate selected mesh faces as reversed backfaces without offset/extrusion"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        for obj in context.selected_objects:
-            if obj.type == 'MESH':
+        objects = getSelectedMeshObjects(context)
+        meshes = getUniqueMeshData(objects)
+        changed_count = 0
 
-                bpy.context.view_layer.objects.active = obj
-                bpy.ops.object.mode_set(mode='EDIT')
+        for mesh in meshes:
+            if makeMeshDoubleSidedFast(mesh):
+                changed_count += 1
 
-                # Create a BMesh object from the mesh data
-                bm = bmesh.from_edit_mesh(obj.data)
-
-                # Extrude the faces
-                extrude_result = bmesh.ops.extrude_face_region(bm, geom=bm.faces)
-
-                # Collect new vertices created by the extrusion
-                new_verts = [v for v in extrude_result['geom'] if isinstance(v, bmesh.types.BMVert)]
-
-                
-                for face in bm.faces:
-                    normal = face.normal  # Get face normal
-                    for vert in new_verts:
-                        if vert in face.verts:  
-                            vert.co += normal * 0.001523
-
-                
-                bmesh.update_edit_mesh(obj.data)
-                bpy.ops.object.mode_set(mode='OBJECT')
-
-        self.report({'INFO'}, "Forced doubleside mesh for selected objects (extruded along normals by 0.001523M)")
+        if changed_count:
+            self.report({'INFO'}, f"Created double-sided backfaces on {changed_count} unique mesh data-block(s) from {len(objects)} selected object(s).")
+        else:
+            self.report({'INFO'}, "No mesh data-blocks needed double-sided backfaces.")
         return {'FINISHED'}
 #######################################################
 class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_outward"
     bl_label = "Recalculate Normals (Outward)"
-    bl_description = "Quickly fix normals of selected meshes to face outward"
+    bl_description = "Recalculate normals outward on selected unique mesh data-blocks"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        import bmesh
+        objects = getSelectedMeshObjects(context)
+        meshes = getUniqueMeshData(objects)
+        processed_count = 0
 
-        processed_meshes = []
+        for mesh in meshes:
+            if recalculateMeshNormals(mesh, inward=False):
+                processed_count += 1
 
-        print("Recalculating normals (outward) - please wait...")
-        self.report({'INFO'}, "Recalculating normals (outward) - please wait...")
-
-        for obj in context.selected_objects:
-            if obj.type == 'MESH':
-                mesh = obj.data
-
-                bm = bmesh.new()
-                bm.from_mesh(mesh)
-                bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-                bm.to_mesh(mesh)
-                bm.free()
-
-                processed_meshes.append(obj.name)
-
-        if processed_meshes:
-            report_msg = f"Normals recalculated outward for: {', '.join(processed_meshes)}"
-        else:
-            report_msg = "No mesh objects were processed."
-
-        self.report({'INFO'}, report_msg)
-        print(report_msg)
+        self.report({'INFO'}, f"Recalculated outward normals on {processed_count} unique mesh data-block(s) from {len(objects)} selected object(s).")
         return {'FINISHED'}
 
 #######################################################
 class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_inward"
     bl_label = "Recalculate Normals (Inward)"
-    bl_description = "Quickly fix normals of selected meshes to face inward"
+    bl_description = "Recalculate normals inward on selected unique mesh data-blocks"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        import bmesh
+        objects = getSelectedMeshObjects(context)
+        meshes = getUniqueMeshData(objects)
+        processed_count = 0
 
-        processed_meshes = []
+        for mesh in meshes:
+            if recalculateMeshNormals(mesh, inward=True):
+                processed_count += 1
 
-        print("Recalculating normals (inward) - please wait...")
-        self.report({'INFO'}, "Recalculating normals (inward) - please wait...")
-
-        for obj in context.selected_objects:
-            if obj.type != 'MESH':
-                continue
-
-            mesh = obj.data
-            bm = bmesh.new()
-            bm.from_mesh(mesh)
-
-            bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-
-            bmesh.ops.reverse_faces(bm, faces=bm.faces)
-
-            bm.to_mesh(mesh)
-            bm.free()
-
-            processed_meshes.append(obj.name)
-
-        if processed_meshes:
-            report_msg = f"Normals recalculated inward for: {', '.join(processed_meshes)}"
-        else:
-            report_msg = "No mesh objects were processed."
-
-        self.report({'INFO'}, report_msg)
-        print(report_msg)
+        self.report({'INFO'}, f"Recalculated inward normals on {processed_count} unique mesh data-block(s) from {len(objects)} selected object(s).")
         return {'FINISHED'}
 
 
@@ -508,7 +568,7 @@ class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
 class OBJECT_OT_set_collision_objects(bpy.types.Operator):
     bl_idname = "object.set_collision_objects"
     bl_label = "Set All As Collision Objects"
-    bl_description = "Set selected mesh objects to collision objects, skipping 2DFX objects"
+    bl_description = "Set selected mesh objects to collision objects, leaving 2DFX effect objects alone"
     bl_options = {'REGISTER', 'UNDO'}
 
     @staticmethod
@@ -1687,19 +1747,31 @@ class COLLECTION_OT_remove_empty_collections(bpy.types.Operator):
 class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
     bl_idname = "scene.duplicate_all_as_collision"
     bl_label = "Duplicate All as Collision"
-    bl_description = "Duplicate mesh objects as collision meshes, skipping 2DFX and LOD objects"
+    bl_description = "Duplicate real mesh objects as collision meshes, leaving 2DFX effect objects alone"
     bl_options = {'REGISTER', 'UNDO'}
 
     unique_models_only: bpy.props.BoolProperty(
         name="Skip repeated model instances",
-        description="Old fast mode. Only creates one collision duplicate for each model name. Leave off for map imports so repeated object instances get matching collisions",
-        default=False
+        description="Create only one generated collision mesh for repeated map instances of the same model. This is the safe default for exporting one master DFF per model",
+        default=True
     )
 
     copy_mesh_data: bpy.props.BoolProperty(
         name="Copy mesh data",
-        description="Copy mesh data once per source mesh. Disable for linked-data duplicates, but editing a collision mesh will also edit every object using that data",
+        description="Copy mesh data from the source object before making the collision duplicate",
         default=True
+    )
+
+    use_evaluated_mesh: bpy.props.BoolProperty(
+        name="Use evaluated mesh",
+        description="Apply Blender modifiers before making collision duplicates. This is slower and is off by default for imported DFF map pieces",
+        default=False
+    )
+
+    apply_transforms: bpy.props.BoolProperty(
+        name="Apply transforms to collision",
+        description="Bake the source object's world transform into the generated collision mesh and reset the collision object's transform. Leave this off for embedded SA-MP DFF collision so the exporter can use the same frame space as the rendered mesh",
+        default=False
     )
 
     clear_existing: bpy.props.BoolProperty(
@@ -1747,10 +1819,45 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
 
     @staticmethod
     def get_source_dff_collection(obj):
-        dff_collections = [collection for collection in obj.users_collection if SCENE_OT_duplicate_all_as_collision.is_dff_collection(collection)]
+        dff_collections = []
+        seen = set()
+
+        def add_collection(collection):
+            if collection is None:
+                return
+            key = collection.as_pointer()
+            if key in seen:
+                return
+            if SCENE_OT_duplicate_all_as_collision.is_dff_collection(collection):
+                seen.add(key)
+                dff_collections.append(collection)
+
+        for collection in getattr(obj, "users_collection", []):
+            parent = collection
+            guard = set()
+
+            while parent is not None:
+                key = parent.as_pointer()
+                if key in guard:
+                    break
+                guard.add(key)
+
+                add_collection(parent)
+
+                try:
+                    if parent == bpy.context.scene.collection:
+                        break
+                    next_parent = SCENE_OT_duplicate_all_as_collision.get_collection_parent(bpy.context.scene, parent)
+                    if next_parent is parent:
+                        break
+                    parent = next_parent
+                except Exception:
+                    break
+
         if dff_collections:
-            dff_collections.sort(key=lambda collection: len(collection.name))
+            dff_collections.sort(key=lambda collection: (len(collection.name), collection.name.lower()))
             return dff_collections[0]
+
         return None
 
     @staticmethod
@@ -1787,10 +1894,55 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
             if dff_key:
                 base, suffix = dff_key
                 clean_base = SCENE_OT_duplicate_all_as_collision.clean_model_name(base)
-                return f"{clean_base}.col.{clean_base}{suffix}"
+                return f"{clean_base}.col{suffix}"
 
         clean_model = SCENE_OT_duplicate_all_as_collision.clean_model_name(model_name)
-        return f"{clean_model}.col.{clean_model}"
+        return f"{clean_model}.col"
+
+    @staticmethod
+    def get_legacy_collision_collection_names(obj, model_name):
+        names = []
+        source_collection = SCENE_OT_duplicate_all_as_collision.get_source_dff_collection(obj)
+        clean_model = SCENE_OT_duplicate_all_as_collision.clean_model_name(model_name)
+
+        if source_collection:
+            dff_key = SCENE_OT_duplicate_all_as_collision.get_dff_collection_key(source_collection.name)
+            if dff_key:
+                base, suffix = dff_key
+                clean_base = SCENE_OT_duplicate_all_as_collision.clean_model_name(base)
+                names.append(f"{clean_base}.col.{clean_base}{suffix}")
+                names.append(f"{clean_base}.dff.col{suffix}")
+
+        names.append(f"{clean_model}.col.{clean_model}")
+        names.append(f"{clean_model}.dff.col")
+        return names
+
+    @staticmethod
+    def remove_collection_if_empty(parent_collection, collection):
+        if collection.objects or collection.children:
+            return False
+        if collection.name in parent_collection.children.keys():
+            parent_collection.children.unlink(collection)
+        bpy.data.collections.remove(collection)
+        return True
+
+    @staticmethod
+    def clear_legacy_generated_collections(parent_collection, keep_name, obj, model_name):
+        legacy_names = set(SCENE_OT_duplicate_all_as_collision.get_legacy_collision_collection_names(obj, model_name))
+
+        for child in list(parent_collection.children):
+            if child.name == keep_name:
+                continue
+            if child.name not in legacy_names:
+                continue
+            try:
+                generated = bool(child.get("demonff_collision_generated", False))
+            except Exception:
+                generated = False
+            if not generated and '.col.' not in child.name.lower():
+                continue
+            SCENE_OT_duplicate_all_as_collision.clear_generated_collection(child)
+            SCENE_OT_duplicate_all_as_collision.remove_collection_if_empty(parent_collection, child)
 
     @staticmethod
     def get_collision_parent_collection(scene, obj):
@@ -1877,82 +2029,435 @@ class SCENE_OT_duplicate_all_as_collision(bpy.types.Operator):
         for key in source_obj.keys():
             duplicate[key] = source_obj[key]
 
+    @staticmethod
+    def get_source_mesh_for_collision(context, source_obj, copy_mesh_data, use_evaluated_mesh):
+        if not copy_mesh_data:
+            return source_obj.data
+
+        if use_evaluated_mesh:
+            try:
+                depsgraph = context.evaluated_depsgraph_get()
+                evaluated_obj = source_obj.evaluated_get(depsgraph)
+                return bpy.data.meshes.new_from_object(evaluated_obj, depsgraph=depsgraph)
+            except Exception:
+                pass
+
+        return source_obj.data.copy()
+
+    @staticmethod
+    def apply_world_transform_to_collision_mesh(source_obj, mesh_data):
+        if mesh_data is None:
+            return
+
+        matrix = source_obj.matrix_world.copy()
+        if matrix == mathutils.Matrix.Identity(4):
+            return
+
+        mesh_data.transform(matrix)
+        mesh_data.update()
+
+    @staticmethod
+    def set_collision_duplicate_transform(source_obj, duplicate, apply_transforms):
+        if apply_transforms:
+            duplicate.matrix_world = mathutils.Matrix.Identity(4)
+            duplicate.location = (0.0, 0.0, 0.0)
+            duplicate.rotation_euler = (0.0, 0.0, 0.0)
+            duplicate.scale = (1.0, 1.0, 1.0)
+        else:
+            duplicate.matrix_world = source_obj.matrix_world.copy()
+
+    @staticmethod
+    def stamp_collision_transform(source_obj, duplicate, apply_transforms):
+        duplicate["demonff_collision_transform_applied"] = bool(apply_transforms)
+        try:
+            duplicate["demonff_collision_source_matrix_world"] = [list(row) for row in source_obj.matrix_world]
+        except Exception:
+            pass
+
+    @staticmethod
+    def stamp_collision_source(source_obj, duplicate, col_collection, model_name):
+        source_collection = SCENE_OT_duplicate_all_as_collision.get_source_dff_collection(source_obj)
+        source_collection_name = source_collection.name if source_collection else ""
+        source_model_key = SCENE_OT_duplicate_all_as_collision.clean_model_name(model_name).lower()
+        source_object_name = source_obj.name
+
+        duplicate["demonff_collision_generated"] = True
+        duplicate["demonff_collision_source_object"] = source_object_name
+        duplicate["demonff_collision_source_object_key"] = SCENE_OT_duplicate_all_as_collision.normalize_model_key(source_object_name)
+        duplicate["demonff_collision_source_mesh_key"] = SCENE_OT_duplicate_all_as_collision.get_mesh_data_key(source_obj)
+        duplicate["demonff_collision_source_model"] = source_model_key
+        duplicate["demonff_collision_source_collection"] = source_collection_name
+
+        col_collection["demonff_collision_generated"] = True
+        col_collection["demonff_collision_source_model"] = source_model_key
+        if source_collection_name:
+            col_collection["demonff_collision_source_collection"] = source_collection_name
+
+    @staticmethod
+    def organize_direct_collision_parent(parent_collection):
+        children = list(parent_collection.children)
+        if not children:
+            return False
+
+        dff_items = []
+        col_items = []
+        other_items = []
+
+        for index, child in enumerate(children):
+            dff_key = COLLECTION_OT_organize_scene_collection.get_dff_key(child.name)
+            col_key = COLLECTION_OT_organize_scene_collection.get_col_key(child.name)
+
+            if dff_key is not None:
+                dff_items.append({"collection": child, "key": dff_key, "index": index})
+            elif col_key is not None:
+                col_items.append({"collection": child, "key": col_key, "index": index, "used": False})
+            else:
+                other_items.append({"collection": child, "index": index})
+
+        if not dff_items and not col_items:
+            return False
+
+        ordered_children = []
+
+        for dff_item in sorted(dff_items, key=lambda item: item["index"]):
+            dff_base, dff_suffix = dff_item["key"]
+
+            exact_matches = [
+                item for item in col_items
+                if not item["used"] and item["key"] == (dff_base, dff_suffix)
+            ]
+
+            if exact_matches:
+                for item in sorted(exact_matches, key=lambda item: item["index"]):
+                    ordered_children.append(item["collection"])
+                    item["used"] = True
+            else:
+                base_matches = [
+                    item for item in col_items
+                    if not item["used"] and item["key"][0] == dff_base
+                ]
+                if base_matches:
+                    item = sorted(base_matches, key=lambda item: item["index"])[0]
+                    ordered_children.append(item["collection"])
+                    item["used"] = True
+
+            ordered_children.append(dff_item["collection"])
+
+        remaining_cols = [item for item in col_items if not item["used"]]
+        for item in sorted(remaining_cols, key=lambda item: item["index"]):
+            ordered_children.append(item["collection"])
+
+        for item in sorted(other_items, key=lambda item: item["index"]):
+            ordered_children.append(item["collection"])
+
+        if [child.name for child in ordered_children] == [child.name for child in children]:
+            return False
+
+        for child in children:
+            COLLECTION_OT_organize_scene_collection.unlink_child(parent_collection, child)
+
+        for child in ordered_children:
+            COLLECTION_OT_organize_scene_collection.link_child(parent_collection, child)
+
+        return True
+
+    @staticmethod
+    def normalize_model_key(name):
+        name = SCENE_OT_duplicate_all_as_collision.clean_model_name(name)
+        name = re.sub(r"\s+", "", name)
+        return name.lower()
+
+    @staticmethod
+    def get_mesh_data_key(obj):
+        data = getattr(obj, "data", None)
+        if data is None:
+            return ""
+
+        name = getattr(data, "name", "")
+        name = SCENE_OT_duplicate_all_as_collision.clean_model_name(name)
+        name = re.sub(r"\s+", "", name)
+        return name.lower()
+
+    @staticmethod
+    def get_collision_piece_key(obj):
+        mesh_key = SCENE_OT_duplicate_all_as_collision.get_mesh_data_key(obj)
+
+        data = getattr(obj, "data", None)
+        try:
+            vertex_count = len(data.vertices)
+        except Exception:
+            vertex_count = 0
+        try:
+            face_count = len(data.polygons)
+        except Exception:
+            face_count = 0
+
+        return (mesh_key, vertex_count, face_count)
+
+    @staticmethod
+    def filter_repeated_source_objects(source_objects):
+        kept_objects = []
+        used_piece_keys = set()
+        skipped_count = 0
+
+        for obj in source_objects:
+            piece_key = SCENE_OT_duplicate_all_as_collision.get_collision_piece_key(obj)
+            if piece_key in used_piece_keys:
+                skipped_count += 1
+                continue
+            used_piece_keys.add(piece_key)
+            kept_objects.append(obj)
+
+        return kept_objects, skipped_count
+
+    @staticmethod
+    def get_group_sort_index(scene, source_collection, first_object):
+        if source_collection is None:
+            try:
+                return list(scene.objects).index(first_object)
+            except Exception:
+                return 999999
+
+        parent = SCENE_OT_duplicate_all_as_collision.get_collection_parent(scene, source_collection)
+        try:
+            return list(parent.children).index(source_collection)
+        except Exception:
+            return 999999
+
+    @staticmethod
+    def get_collection_duplicate_index(collection):
+        if collection is None:
+            return 0
+
+        dff_key = SCENE_OT_duplicate_all_as_collision.get_dff_collection_key(collection.name)
+        if not dff_key:
+            return 0
+
+        suffix = dff_key[1]
+        if not suffix:
+            return 0
+
+        try:
+            return int(suffix[1:]) + 1
+        except Exception:
+            return 999999
+
+    @staticmethod
+    def choose_unique_model_source_groups(groups):
+        by_model = {}
+
+        for group in groups:
+            model_name = SCENE_OT_duplicate_all_as_collision.get_source_group_model_name(group)
+            model_key = SCENE_OT_duplicate_all_as_collision.normalize_model_key(model_name)
+            if not model_key:
+                continue
+
+            source_collection = group.get("source_collection")
+            priority = (
+                SCENE_OT_duplicate_all_as_collision.get_collection_duplicate_index(source_collection),
+                group.get("sort_index", 999999),
+                source_collection.name.lower() if source_collection is not None else "",
+            )
+
+            entry = by_model.get(model_key)
+            if entry is None:
+                by_model[model_key] = {
+                    "model_name": model_name,
+                    "chosen_group": group,
+                    "chosen_priority": priority,
+                    "total_objects": len(group.get("objects") or []),
+                }
+                continue
+
+            entry["total_objects"] += len(group.get("objects") or [])
+            if priority < entry["chosen_priority"]:
+                entry["chosen_group"] = group
+                entry["chosen_priority"] = priority
+                entry["model_name"] = model_name
+
+        unique_groups = []
+        skipped_count = 0
+
+        for model_key, entry in by_model.items():
+            chosen_group = dict(entry["chosen_group"])
+            chosen_objects = list(chosen_group.get("objects") or [])
+            skipped_count += max(0, entry["total_objects"] - len(chosen_objects))
+            chosen_group["objects"] = chosen_objects
+            chosen_group["canonical_model_name"] = entry["model_name"]
+            unique_groups.append(chosen_group)
+
+        return sorted(unique_groups, key=lambda group: group.get("sort_index", 999999)), skipped_count
+
+    @staticmethod
+    def get_source_group_model_name(group):
+        source_collection = group.get("source_collection")
+        if source_collection is not None:
+            dff_key = SCENE_OT_duplicate_all_as_collision.get_dff_collection_key(source_collection.name)
+            if dff_key:
+                return SCENE_OT_duplicate_all_as_collision.clean_model_name(dff_key[0])
+
+        canonical_model_name = group.get("canonical_model_name", "")
+        if canonical_model_name:
+            return SCENE_OT_duplicate_all_as_collision.clean_model_name(canonical_model_name)
+
+        objects = group.get("objects") or []
+        if objects:
+            return SCENE_OT_duplicate_all_as_collision.get_source_model_name(objects[0])
+
+        return "unnamed"
+
+    @staticmethod
+    def get_collision_source_groups(context):
+        groups = {}
+        loose_index = 0
+
+        for obj in list(context.scene.objects):
+            if obj.type != 'MESH' or obj.data is None:
+                continue
+
+            if SCENE_OT_duplicate_all_as_collision.is_collision_object(obj):
+                continue
+
+            if SCENE_OT_duplicate_all_as_collision.is_2dfx_object(obj):
+                continue
+
+            source_collection = SCENE_OT_duplicate_all_as_collision.get_source_dff_collection(obj)
+
+            if source_collection is not None:
+                key = ("collection", source_collection.as_pointer())
+                if key not in groups:
+                    groups[key] = {
+                        "source_collection": source_collection,
+                        "objects": [],
+                        "sort_index": SCENE_OT_duplicate_all_as_collision.get_group_sort_index(context.scene, source_collection, obj),
+                    }
+            else:
+                model_name = SCENE_OT_duplicate_all_as_collision.get_source_model_name(obj)
+                key = ("loose", SCENE_OT_duplicate_all_as_collision.normalize_model_key(model_name), loose_index)
+                loose_index += 1
+                groups[key] = {
+                    "source_collection": None,
+                    "objects": [],
+                    "sort_index": SCENE_OT_duplicate_all_as_collision.get_group_sort_index(context.scene, None, obj),
+                }
+
+            groups[key]["objects"].append(obj)
+
+        return sorted(groups.values(), key=lambda group: group["sort_index"])
+
     def execute(self, context):
-        mesh_cache = {}
         cleared_collections = set()
-        created_model_names = set()
+        created_model_keys = set()
         created_count = 0
         skipped_repeated_count = 0
         skipped_lod_count = 0
         skipped_collision_count = 0
         skipped_2dfx_count = 0
         skipped_non_mesh_count = 0
+        touched_parent_collections = []
 
-        source_objects = list(context.scene.objects)
-
-        for obj in source_objects:
+        for obj in list(context.scene.objects):
             if obj.type != 'MESH' or obj.data is None:
                 skipped_non_mesh_count += 1
-                continue
-
-            if self.is_collision_object(obj):
+            elif self.is_collision_object(obj):
                 skipped_collision_count += 1
-                continue
-
-            if self.is_2dfx_object(obj):
+            elif self.is_2dfx_object(obj):
                 skipped_2dfx_count += 1
+
+        groups = self.get_collision_source_groups(context)
+        if self.unique_models_only:
+            groups, skipped_group_instance_count = self.choose_unique_model_source_groups(groups)
+            skipped_repeated_count += skipped_group_instance_count
+
+        for group in groups:
+            source_objects = [obj for obj in group["objects"] if obj is not None and obj.name in bpy.data.objects]
+            if not source_objects:
                 continue
 
-            model_name = self.get_source_model_name(obj)
+            if self.unique_models_only:
+                source_objects, repeated_inside_group_count = self.filter_repeated_source_objects(source_objects)
+                skipped_repeated_count += repeated_inside_group_count
+                if not source_objects:
+                    continue
 
-            if self.skip_lod_objects and (self.is_lod_name(model_name) or self.is_lod_name(obj.name)):
-                skipped_lod_count += 1
+            model_name = self.get_source_group_model_name(group)
+            model_key = self.normalize_model_key(model_name)
+
+            if self.skip_lod_objects and self.is_lod_name(model_name):
+                skipped_lod_count += len(source_objects)
                 continue
 
-            if self.unique_models_only and model_name in created_model_names:
-                skipped_repeated_count += 1
+            if self.unique_models_only and model_key in created_model_keys:
+                skipped_repeated_count += len(source_objects)
                 continue
 
-            created_model_names.add(model_name)
+            created_model_keys.add(model_key)
 
-            parent_collection = self.get_collision_parent_collection(context.scene, obj)
-            col_collection_name = self.build_collision_collection_name(obj, model_name)
+            first_object = source_objects[0]
+            parent_collection = self.get_collision_parent_collection(context.scene, first_object)
+            if parent_collection not in touched_parent_collections:
+                touched_parent_collections.append(parent_collection)
+
+            if self.unique_models_only:
+                col_collection_name = f"{self.clean_model_name(model_name)}.col"
+            else:
+                col_collection_name = self.build_collision_collection_name(first_object, model_name)
+
+            if self.clear_existing:
+                self.clear_legacy_generated_collections(parent_collection, col_collection_name, first_object, model_name)
+
             col_collection = self.ensure_collection(parent_collection, col_collection_name)
 
             if self.clear_existing and col_collection.name not in cleared_collections:
                 self.clear_generated_collection(col_collection)
                 cleared_collections.add(col_collection.name)
 
-            if self.copy_mesh_data:
-                mesh_key = obj.data.name_full
-                mesh_data = mesh_cache.get(mesh_key)
-                if mesh_data is None:
-                    mesh_data = obj.data.copy()
-                    mesh_data.name = f"{self.clean_model_name(model_name)}_col_mesh"
-                    mesh_cache[mesh_key] = mesh_data
-            else:
-                mesh_data = obj.data
+            for source_obj in source_objects:
+                if self.skip_lod_objects and self.is_lod_name(source_obj.name):
+                    skipped_lod_count += 1
+                    continue
 
-            col_object_name = f"{col_collection.name}.ColMesh"
-            duplicate = bpy.data.objects.new(col_object_name, mesh_data)
-            duplicate.matrix_world = obj.matrix_world.copy()
-            duplicate.hide_select = obj.hide_select
-            duplicate.show_name = obj.show_name
+                mesh_data = self.get_source_mesh_for_collision(context, source_obj, self.copy_mesh_data, self.use_evaluated_mesh)
 
-            self.copy_custom_properties(obj, duplicate)
-            self.copy_dff_collision_settings(obj, duplicate)
+                transform_applied = False
+                if self.copy_mesh_data:
+                    mesh_data.name = f"{self.clean_model_name(source_obj.name)}_col_mesh"
+                    if self.apply_transforms:
+                        self.apply_world_transform_to_collision_mesh(source_obj, mesh_data)
+                        transform_applied = True
 
-            col_collection.objects.link(duplicate)
-            created_count += 1
+                clean_object_name = self.clean_model_name(source_obj.name)
+                if self.normalize_model_key(clean_object_name) == model_key:
+                    col_object_name = f"{col_collection.name}.ColMesh"
+                else:
+                    col_object_name = f"{col_collection.name}.{clean_object_name}.ColMesh"
+
+                duplicate = bpy.data.objects.new(col_object_name, mesh_data)
+                self.set_collision_duplicate_transform(source_obj, duplicate, transform_applied)
+                duplicate.hide_select = source_obj.hide_select
+                duplicate.show_name = source_obj.show_name
+
+                self.copy_custom_properties(source_obj, duplicate)
+                self.copy_dff_collision_settings(source_obj, duplicate)
+                self.stamp_collision_source(source_obj, duplicate, col_collection, model_name)
+                self.stamp_collision_transform(source_obj, duplicate, transform_applied)
+
+                col_collection.objects.link(duplicate)
+                created_count += 1
 
         try:
-            COLLECTION_OT_organize_scene_collection.organize_collection(context.scene.collection)
+            organized_count = 0
+            for parent_collection in touched_parent_collections:
+                if self.organize_direct_collision_parent(parent_collection):
+                    organized_count += 1
+            if organized_count:
+                print("DemonFF duplicate collision: organized .col/.dff order in %d parent collection(s)." % organized_count)
         except Exception as error:
             print("Could not organize .col/.dff collections after collision duplicate:", error)
 
         self.report(
             {'INFO'},
-            "Created {0} collision duplicate(s). Skipped {1} repeated model(s), {2} LOD(s), {3} collision object(s), {4} 2DFX object(s).".format(
+            "Created {0} collision duplicate(s). Skipped {1} repeated object(s), {2} LOD object(s), {3} existing collision object(s), {4} 2DFX object(s) for collision-only duplication.".format(
                 created_count,
                 skipped_repeated_count,
                 skipped_lod_count,

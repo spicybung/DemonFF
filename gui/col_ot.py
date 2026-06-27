@@ -78,6 +78,12 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         default=False
     )
 
+    preserve_positions: bpy.props.BoolProperty(
+        name="Preserve Collision Positions",
+        description="Export collision vertices using object/source transforms instead of forcing them to local origin",
+        default=True
+    )
+
     
 
     #######################################################
@@ -87,6 +93,7 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
         layout.prop(self, "export_version")
         layout.prop(self, "only_selected")
         layout.prop(self, "mass_export")
+        layout.prop(self, "preserve_positions")
         return None
 
     #######################################################
@@ -98,6 +105,7 @@ class EXPORT_OT_col(bpy.types.Operator, ExportHelper):
             "memory": False,
             "only_selected": self.only_selected,
             "mass_export": self.mass_export,
+            "preserve_positions": self.preserve_positions,
         }
 
         if self.mass_export:

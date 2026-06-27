@@ -218,6 +218,31 @@ class Map_Import_Operator(bpy.types.Operator):
 
             if hasattr(ide_data, "drawDistance"):
                 obj.ide.draw_distance = str(ide_data.drawDistance)
+
+    #######################################################
+    def stamp_2dfx_source_properties(self, obj, inst):
+        ide_data = get_instance_model_data(inst, self._object_data)
+        if ide_data is None:
+            return
+
+        model_name = getattr(ide_data, "modelName", obj.get("DFF_Name", ""))
+        txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
+
+        obj["demonff_2dfx_source_dff"] = "%s.dff" % model_name
+        obj["demonff_2dfx_source_model"] = str(model_name)
+        obj["demonff_2dfx_source_model_key"] = str(model_name)
+        obj["DFF_Name"] = str(model_name)
+        obj["TXD_Name"] = str(txd_name)
+        obj["IDE_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
+
+    #######################################################
+    def copy_object_id_properties(self, source_obj, target_obj):
+        for key in source_obj.keys():
+            try:
+                target_obj[key] = source_obj[key]
+            except Exception:
+                pass
+
             if hasattr(ide_data, "drawDistance1"):
                 obj.ide.draw_distance1 = str(ide_data.drawDistance1)
             if hasattr(ide_data, "drawDistance2"):
@@ -355,6 +380,9 @@ class Map_Import_Operator(bpy.types.Operator):
                 for prop in obj.dff.keys():
                     new_obj.dff[prop] = obj.dff[prop]
 
+                self.copy_object_id_properties(obj, new_obj)
+                self.stamp_2dfx_source_properties(new_obj, inst)
+
                 if '{}.dff'.format(model) in bpy.data.collections:
                     bpy.data.collections['{}.dff'.format(model)].objects.link(
                         new_obj
@@ -401,6 +429,8 @@ class Map_Import_Operator(bpy.types.Operator):
             # Set root object as 2DFX parent
             if root_objects:
                 for obj in collection_objects:
+                    if obj.dff.type == "2DFX":
+                        self.stamp_2dfx_source_properties(obj, inst)
                     # Skip Road Signs
                     if obj.dff.type == "2DFX" and obj.dff.ext_2dfx.effect != '7':
                         obj.parent = root_objects[0]
@@ -872,6 +902,9 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
                 for prop in obj.dff.keys():
                     new_obj.dff[prop] = obj.dff[prop]
 
+                self.copy_object_id_properties(obj, new_obj)
+                self.stamp_2dfx_source_properties(new_obj, inst)
+
                 if '{}.dff'.format(model) in bpy.data.collections:
                     bpy.data.collections['{}.dff'.format(model)].objects.link(
                         new_obj
@@ -918,6 +951,8 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
             # Set root object as 2DFX parent
             if root_objects:
                 for obj in collection_objects:
+                    if obj.dff.type == "2DFX":
+                        self.stamp_2dfx_source_properties(obj, inst)
                     # Skip Road Signs
                     if obj.dff.type == "2DFX" and obj.dff.ext_2dfx.effect != '7':
                         obj.parent = root_objects[0]

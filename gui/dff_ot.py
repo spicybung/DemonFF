@@ -69,7 +69,8 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             ('39056127', "SA-MP", "SA-MP collision extension type")
         ),
         name="Collision Chunk",
-        default='39056122'
+        default='39056122',
+        options={'HIDDEN'}
     )
     
     export_frame_names: bpy.props.BoolProperty(
@@ -95,10 +96,16 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         default         = True
     )
 
-    preserve_rotations     : bpy.props.BoolProperty(
-        name            = "Preserve Rotations",
-        description     = "Don't set object rotations to (0,0,0)",
-        default         = True
+    force_collision_to_dff_transform: bpy.props.BoolProperty(
+        name="Force Collision To DFF Transform",
+        description="Export embedded collision through the same position, rotation, and scale frame as the source DFF object",
+        default=True
+    )
+
+    preserve_collision_positions: bpy.props.BoolProperty(
+        name="Preserve Collision Positions",
+        description="Export embedded collision using object/source transforms instead of forcing collision vertices to local origin",
+        default=True
     )
     
     reset_positions: bpy.props.BoolProperty(
@@ -171,13 +178,19 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             row.label(text="Mass Export:")
 
             row = box.row()
-            row.prop(self, "reset_positions")
+            row.prop(self, "preserve_positions")
+
+            row = box.row()
+            row.prop(self, "preserve_collision_positions")
+
+            row = box.row()
+            row.prop(self, "force_collision_to_dff_transform")
 
         layout.prop(self, "export_all_normals")
         layout.prop(self, "only_selected")
         layout.prop(self, "export_coll")
-        if self.export_coll and self.export_format == 'DEFAULT':
-            layout.prop(self, "coll_ext_type")
+        if self.export_coll and not self.mass_export:
+            layout.prop(self, "preserve_collision_positions")
         layout.prop(self, "export_frame_names")
         layout.prop(self, "truncate_frame_names")
         layout.prop(self, "export_tristrips")
@@ -212,12 +225,27 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             objects_to_export = bpy.context.selected_objects if self.only_selected else bpy.context.scene.objects
 
             
-            # Force normals for all meshes if enabled
+            # Force normals for all meshes if enabled.
+            # Map exports can contain many instances sharing one Mesh data-block,
+            # so only touch each Mesh once.
             if self.export_all_normals:
+                processed_meshes = set()
+
                 for obj in objects_to_export:
-                    if obj.type == 'MESH' and obj.data:
-                        mesh = obj.data
+                    if obj.type != 'MESH' or not obj.data:
+                        continue
+
+                    mesh = obj.data
+                    mesh_key = mesh.as_pointer()
+                    if mesh_key in processed_meshes:
+                        continue
+
+                    processed_meshes.add(mesh_key)
+
+                    if hasattr(mesh, "use_auto_smooth"):
                         mesh.use_auto_smooth = True
+
+                    if hasattr(mesh, "calc_normals_split"):
                         mesh.calc_normals_split()
 
             export_options = {
@@ -226,10 +254,11 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
                 "selected": self.only_selected,
                 "mass_export": self.mass_export,
                 "preserve_positions" : self.preserve_positions,
-                "preserve_rotations" : self.preserve_rotations,
+                "force_collision_to_dff_transform": self.force_collision_to_dff_transform,
                 "version": self.get_selected_rw_version(),
                 "export_coll": self.export_coll,
-                "coll_ext_type": int(self.coll_ext_type),
+                "preserve_collision_positions": self.preserve_collision_positions,
+                "coll_ext_type": 39056122,
                 "export_frame_names": self.export_frame_names,
                 "export_tristrips": self.export_tristrips,
                 "objects": objects_to_export,

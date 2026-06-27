@@ -817,9 +817,9 @@ class dff_importer:
 
             self.objects[index] = obj
 
-            # Set a collision model used for export
-            obj["gta_coll"] = self.dff.collisions
-                
+            # Collision chunks are imported below as hidden .col collections.
+            # Do not store collision objects in ID properties; Blender only allows simple ID values.
+
             if frame.user_data is not None:
                 obj["dff_user_data"] = frame.user_data.to_mem()[12:]
 
@@ -871,8 +871,15 @@ class dff_importer:
                 print("⚠️ Skipping 2DFX import due to invalid entry.")
                 return
 
+        source_dff = os.path.basename(self.file_name)
+        source_model = os.path.splitext(source_dff)[0]
+
         importer = ext_2dfx_importer(self.dff.ext_2dfx.entries)
         for obj in importer.get_objects():
+            obj["demonff_2dfx_source_dff"] = source_dff
+            obj["demonff_2dfx_source_model"] = source_model
+            obj["demonff_2dfx_source_model_key"] = source_model
+            obj["DFF_Name"] = source_model
             link_object(obj, self.current_collection)
 
     #######################################################
@@ -900,6 +907,66 @@ class dff_importer:
             obj.parent_type = 'BONE'
             obj.matrix_parent_inverse = mathutils.Matrix.Translation((0, -bone.length, 0))               
             
+    #######################################################
+    @staticmethod
+    def get_frame_local_matrix(frame):
+        self = dff_importer
+
+        matrix = mathutils.Matrix(
+            (
+                frame.rotation_matrix.right,
+                frame.rotation_matrix.up,
+                frame.rotation_matrix.at
+            )
+        )
+
+        return self.multiply_matrix(
+            mathutils.Matrix.Translation(frame.position),
+            matrix.transposed().to_4x4()
+        )
+
+    @staticmethod
+    def get_frame_world_matrix(frame_index, visited=None):
+        self = dff_importer
+
+        if visited is None:
+            visited = set()
+
+        if frame_index in visited:
+            return mathutils.Matrix.Identity(4)
+
+        if frame_index < 0 or frame_index >= len(self.dff.frame_list):
+            return mathutils.Matrix.Identity(4)
+
+        visited.add(frame_index)
+
+        frame = self.dff.frame_list[frame_index]
+        matrix = self.get_frame_local_matrix(frame)
+
+        if frame.parent != -1:
+            parent_matrix = self.get_frame_world_matrix(frame.parent, visited)
+            matrix = self.multiply_matrix(parent_matrix, matrix)
+
+        return matrix
+
+    @staticmethod
+    def get_embedded_collision_display_matrix():
+        self = dff_importer
+
+        # Do not read frame_object.matrix_world here. During import the Blender
+        # depsgraph can still report a stale identity/world matrix, especially
+        # before State.update_scene() runs. Build the exact DFF frame matrix from
+        # the file data instead, using the same rotation transpose path as
+        # import_frames(). That keeps embedded COL display in the same basis as
+        # the rendered atomic.
+        for atomic in self.dff.atomic_list:
+            try:
+                return self.get_frame_world_matrix(atomic.frame).copy()
+            except Exception:
+                pass
+
+        return mathutils.Matrix.Identity(4)
+
     #######################################################
     def import_dff(file_name):
         self = dff_importer
@@ -952,18 +1019,58 @@ class dff_importer:
         # Set imported version
         self.version = "0x%05x" % self.dff.rw_version
         
-        # Add collisions
-        for collision in self.dff.collisions:
+        # Add embedded collisions
+        #
+        # These are stored in the DFF extension chunk, but once imported they
+        # should behave like the generated sibling collision collections used by
+        # the exporter.  The old code hid every collision object with
+        # object.hide_set(True).  That made the collection look empty after the
+        # user unhid the .col collection in the outliner, because the objects
+        # inside it were still individually hidden.
+        file_base = os.path.splitext(os.path.basename(file_name))[0]
+        collision_display_matrix = self.get_embedded_collision_display_matrix()
+
+        for collision_index, collision in enumerate(self.dff.collisions):
             collision_data = collision.data if hasattr(collision, "data") else collision
-            col = import_col_mem(collision_data, os.path.basename(file_name), False)
+            col = import_col_mem(collision_data, file_base, False)
 
             if (2, 80, 0) <= bpy.app.version:
-                for collection in col:
-                    self.current_collection.children.link(collection)
+                for collection_index, collection in enumerate(col):
+                    if len(col) == 1 and len(self.dff.collisions) == 1:
+                        collision_name = "%s.col.%s" % (file_base, file_base)
+                    else:
+                        collision_name = "%s.col.%s.%03d" % (file_base, file_base, collision_index + collection_index)
 
-                    # Hide objects
+                    collection.name = collision_name
+
+                    # Keep embedded collision visible after import.
+                    # Hiding the collection here made the imported .col look broken,
+                    # because Blender shows the sibling collection in the outliner but
+                    # the actual collision mesh stays invisible until several viewport
+                    # restriction flags are manually cleared.
+                    collection.hide_viewport = False
+                    collection.hide_render = True
+
                     for object in collection.objects:
-                        hide_object(object)
+                        object.hide_set(False)
+                        object.hide_viewport = False
+                        object.hide_render = True
+                        object.show_wire = True
+                        object.show_in_front = True
+
+                        if object.name.endswith(".ColMesh"):
+                            object.name = collision_name + ".ColMesh"
+                        elif object.name.endswith(".ShadowMesh"):
+                            object.name = collision_name + ".ShadowMesh"
+
+                        try:
+                            object.matrix_world = collision_display_matrix.copy()
+                            object["demonff_collision_transform_applied"] = False
+                            object["demonff_collision_source_matrix_world"] = [list(row) for row in collision_display_matrix]
+                        except Exception:
+                            pass
+
+                    self.current_collection.children.link(collection)
 
         State.update_scene()
 

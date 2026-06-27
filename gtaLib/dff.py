@@ -1899,7 +1899,6 @@ class Extension2dfx:
 
     #######################################################
     def __init__(self):
-        global entries
         self.entries = []
 
     #######################################################
@@ -1908,75 +1907,99 @@ class Extension2dfx:
 
     #######################################################
     def is_empty(self):
-        global entries
         return len(self.entries) == 0
 
     #######################################################
     @staticmethod
-    def from_mem(data, offset):
-
+    def from_mem(data, offset, size=None):
         self = Extension2dfx()
+
+        if offset < 0 or offset + 4 > len(data):
+            return self
+
+        end = len(data) if size is None else min(len(data), offset + size)
+        if offset + 4 > end:
+            return self
+
         entries_count = unpack_from("<I", data, offset)[0]
+        pos = offset + 4
 
-        pos = 4 + offset
+        max_entries = max(0, (end - pos) // 20)
+        if entries_count > max_entries:
+            print("Invalid 2DFX extension: %d entries cannot fit in %d bytes" % (entries_count, end - offset))
+            return self
+
+        entries_funcs = {
+            0: Light2dfx,
+            1: Particle2dfx,
+            3: PedAttractor2dfx,
+            4: SunGlare2dfx,
+            6: EnterExit2dfx,
+            7: RoadSign2dfx,
+            8: TriggerPoint2dfx,
+            9: CoverPoint2dfx,
+            10: Escalator2DFX,
+        }
+
         for i in range(entries_count):
+            if pos + 20 > end:
+                print("Invalid 2DFX extension: entry header outside chunk")
+                break
 
-            # Stores classes for each effect
-            entries_funcs = {
-                0: Light2dfx,
-                1: Particle2dfx,
-                3: PedAttractor2dfx,
-                4: SunGlare2dfx,
-                6: EnterExit2dfx,
-                7: RoadSign2dfx,
-                8: TriggerPoint2dfx,
-                9: CoverPoint2dfx,
-                10: Escalator2DFX,
-            }
-            
             loc = Sections.read(Vector, data, pos)
-            entry_type, size = unpack_from("<II", data, pos + 12)
-
+            entry_type, entry_size = unpack_from("<II", data, pos + 12)
             pos += 20
-            if entry_type in entries_funcs:
-                self.append_entry(
-                    entries_funcs[entry_type].from_mem(loc, data, pos, size)
-                )
+
+            if entry_size > end - pos:
+                print("Invalid 2DFX extension: entry %d size %d exceeds chunk" % (i, entry_size))
+                break
+
+            entry_class = entries_funcs.get(entry_type)
+            if entry_class is not None:
+                try:
+                    self.append_entry(entry_class.from_mem(loc, data, pos, entry_size))
+                except Exception as error:
+                    print("Invalid 2DFX entry %d type %d: %s" % (i, entry_type, error))
             else:
                 print("Unimplemented Effect: %d" % (entry_type))
 
-            pos += size
+            pos += entry_size
 
         return self
 
     #######################################################
+    @staticmethod
+    def clean_entry_payload(entry, entry_data):
+        if len(entry_data) >= 16 and hasattr(entry, 'effect_id'):
+            try:
+                embedded_effect_id = unpack_from('<I', entry_data, 12)[0]
+                if embedded_effect_id == int(entry.effect_id):
+                    return entry_data[16:]
+            except Exception:
+                pass
+
+        return entry_data
+
+    #######################################################
     def to_mem(self):
-        # Write only if there are entries
-        if len(self.entries) == 0:
+        if self.is_empty():
             return b''
 
-        # Entries count (4 bytes)
         data = pack("<I", len(self.entries))
 
-        # Serialize each entry
         for entry in self.entries:
-            if isinstance(entry, (PedAttractor2dfx, Escalator2DFX)): # Avoid writing effectid after entry for these
-                entry_data = entry.to_mem()
-                data += entry_data
-
-            else:
-                entry_data = entry.to_mem() # Otherwise, write as normal only if effect_id =/= 3, 10
-                data += pack('<I', entry.effect_id)
-                data += entry_data
+            entry_data = self.clean_entry_payload(entry, entry.to_mem())
+            data += Sections.write(Vector, entry.loc)
+            data += pack("<II", int(entry.effect_id), len(entry_data))
+            data += entry_data
 
         return Sections.write_chunk(data, types['2d Effect'])
 
     #######################################################
     def __add__(self, other):
-        self.entries += other.entries # Concatinate 2DFX entries
+        self.entries += other.entries
         return self
 
-#######################################################
 class ExtensionColl:
 
     #######################################################
@@ -2964,7 +2987,8 @@ class dff:
                         elif chunk.type == types["2d Effect"]:
                             self.ext_2dfx += Extension2dfx.from_mem(
                                 self.data,
-                                self._read(chunk.size)
+                                self._read(chunk.size),
+                                chunk.size
                             )
 
 
@@ -3171,7 +3195,8 @@ class dff:
                 
                 # 2d Effect
                 elif chunk.type == types["2d Effect"]:  
-                    self.read_2dfx(chunk)
+                    self.ext_2dfx += Extension2dfx.from_mem(self.data, self.pos, chunk.size)
+                    self.pos += chunk.size
 
                 # ATOMIC
                 elif chunk.type == types["Atomic"]:  

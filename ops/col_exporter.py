@@ -19,6 +19,7 @@
 
 import bpy
 import os
+import re
 import math
 import bmesh
 import mathutils
@@ -33,82 +34,250 @@ class col_exporter:
     filename = "" # Whether it will return a bytes file (not write to a file), if no file name is specified
     version = None
     only_selected = False
+    objects = None
+    preserve_positions = True
+
+    #######################################################
+    def is_finite_number(value):
+        try:
+            return math.isfinite(float(value))
+        except (TypeError, ValueError, OverflowError):
+            return False
+
+    #######################################################
+    def is_finite_vector(values):
+        try:
+            return all(col_exporter.is_finite_number(value) for value in values)
+        except TypeError:
+            return False
+
+    #######################################################
+    def get_collision_surface(obj, face):
+        surface = [0, 0, 0, 0]
+        try:
+            if obj.data.materials and face.material_index < len(obj.data.materials):
+                mat = obj.data.materials[face.material_index]
+                surface[0] = mat.dff.col_mat_index
+                surface[1] = mat.dff.col_flags
+                surface[2] = mat.dff.col_brightness
+                surface[3] = mat.dff.col_light
+        except (IndexError, AttributeError):
+            pass
+        return surface
+
+    #######################################################
+    def get_stored_source_matrix(obj):
+        try:
+            rows = obj.get("demonff_collision_source_matrix_world")
+        except Exception:
+            rows = None
+
+        if not rows:
+            return None
+
+        try:
+            return mathutils.Matrix(rows)
+        except Exception:
+            return None
+
+    #######################################################
+    def matrix_is_identity(matrix):
+        try:
+            identity = mathutils.Matrix.Identity(4)
+            for row in range(4):
+                for column in range(4):
+                    if abs(matrix[row][column] - identity[row][column]) > 0.000001:
+                        return False
+            return True
+        except Exception:
+            return False
+
+    #######################################################
+    def get_local_mesh_bounds(obj):
+        if obj.type != 'MESH' or obj.data is None or not obj.data.vertices:
+            return None
+
+        minimum = mathutils.Vector((math.inf, math.inf, math.inf))
+        maximum = mathutils.Vector((-math.inf, -math.inf, -math.inf))
+
+        for vertex in obj.data.vertices:
+            co = vertex.co
+            minimum.x = min(minimum.x, co.x)
+            minimum.y = min(minimum.y, co.y)
+            minimum.z = min(minimum.z, co.z)
+            maximum.x = max(maximum.x, co.x)
+            maximum.y = max(maximum.y, co.y)
+            maximum.z = max(maximum.z, co.z)
+
+        return minimum, maximum
+
+    #######################################################
+    def mesh_data_looks_baked_to_source_space(obj, source_matrix):
+        bounds = col_exporter.get_local_mesh_bounds(obj)
+        if bounds is None or source_matrix is None:
+            return False
+
+        minimum, maximum = bounds
+        center = (minimum + maximum) * 0.5
+        extent = (maximum - minimum).length
+        source_position = source_matrix.to_translation()
+
+        if source_position.length <= 0.0001:
+            return False
+
+        distance = (center - source_position).length
+        threshold = max(1.0, extent * 0.25)
+        return distance <= threshold
+
+    #######################################################
+    def is_transform_baked(obj):
+        try:
+            baked = bool(obj.get("demonff_collision_transform_applied", False))
+        except Exception:
+            baked = False
+
+        if not baked:
+            return False
+
+        source_matrix = col_exporter.get_stored_source_matrix(obj)
+        if source_matrix is not None and not col_exporter.mesh_data_looks_baked_to_source_space(obj, source_matrix):
+            return False
+
+        return True
+
+    #######################################################
+    def get_export_matrix(obj):
+        if not col_exporter.preserve_positions:
+            return mathutils.Matrix.Identity(4)
+
+        if col_exporter.is_transform_baked(obj):
+            return mathutils.Matrix.Identity(4)
+
+        source_matrix = col_exporter.get_stored_source_matrix(obj)
+
+        try:
+            matrix = obj.matrix_world.copy()
+        except Exception:
+            matrix = None
+
+        if matrix is not None and not col_exporter.matrix_is_identity(matrix):
+            return matrix
+
+        if source_matrix is not None:
+            return source_matrix
+
+        if matrix is not None:
+            return matrix
+
+        return mathutils.Matrix.Identity(4)
+
+    #######################################################
+    def transform_point(obj, point):
+        return col_exporter.get_export_matrix(obj) @ point
 
     #######################################################
     def _process_mesh(obj, verts, faces, face_groups=None):
 
+        self = col_exporter
         mesh = obj.data
+        bm = None
+        free_bm = False
 
         if obj.mode == "EDIT":
             bm = bmesh.from_edit_mesh(mesh)
         else:
             bm = bmesh.new()
             bm.from_mesh(mesh)
+            free_bm = True
 
-        bmesh.ops.triangulate(bm, faces=bm.faces[:])
+        try:
+            bmesh.ops.triangulate(bm, faces=bm.faces[:])
+            bm.verts.ensure_lookup_table()
+            bm.faces.ensure_lookup_table()
 
-        vert_offset = len(verts)
-        
-        # Vertices
-        for vert in bm.verts:
-            verts.append((*vert.co,))
+            vertex_map = {}
+            valid_coords = {}
 
-        # Setup for Face Groups
-        layer = bm.faces.layers.int.get("face group")
-        start_idx = fg_idx = 0
-        fg_min = [256] * 3
-        fg_max = [-256] * 3
+            for vert in bm.verts:
+                transformed_coord = self.transform_point(obj, vert.co)
+                coord = (float(transformed_coord.x), float(transformed_coord.y), float(transformed_coord.z))
+                if not self.is_finite_vector(coord):
+                    self.skipped_invalid_vertices += 1
+                    continue
+                vertex_map[vert] = len(verts)
+                valid_coords[vert] = coord
+                verts.append(coord)
 
-        for i, face in enumerate(bm.faces):
+            layer = bm.faces.layers.int.get("face group")
+            group_data = {}
 
-            # Face Groups
-            if layer and col.Sections.version > 1:
-                lastface = i == len(bm.faces)-1
-                idx = face[layer]
+            for face in bm.faces:
+                face_verts = list(face.verts)
+                if len(face_verts) != 3:
+                    self.skipped_invalid_faces += 1
+                    continue
 
-                # Evaluate bounds if still the same face group index or this is the last face in the list
-                if idx == fg_idx or lastface:
-                    fg_min = [min(x, y) for x, y in zip(fg_min, face.verts[0].co)]
-                    fg_max = [max(x, y) for x, y in zip(fg_max, face.verts[0].co)]
-                    fg_min = [min(x, y) for x, y in zip(fg_min, face.verts[1].co)]
-                    fg_max = [max(x, y) for x, y in zip(fg_max, face.verts[1].co)]
-                    fg_min = [min(x, y) for x, y in zip(fg_min, face.verts[2].co)]
-                    fg_max = [max(x, y) for x, y in zip(fg_max, face.verts[2].co)]
+                if any(vert not in vertex_map for vert in face_verts):
+                    self.skipped_invalid_faces += 1
+                    continue
 
-                # Create the face group if the face group index changed or this is the last face in the list
-                if idx != fg_idx or lastface:
-                    end_idx = i if lastface else i-1
-                    face_groups.append(col.TFaceGroup._make([fg_min, fg_max, start_idx, end_idx]))
-                    fg_min = [256] * 3
-                    fg_max = [-256] * 3
-                    start_idx = i
-                fg_idx = idx
+                try:
+                    area = face.calc_area()
+                except ValueError:
+                    area = 0.0
 
-            bm.verts.index_update()
-            surface = [0, 0, 0, 0]
-            try:
-                mat = obj.data.materials[face.material_index]
-                surface[0] = mat.dff.col_mat_index
-                surface[1] = mat.dff.col_flags
-                surface[2] = mat.dff.col_brightness
-                surface[3] = mat.dff.col_light
+                if not self.is_finite_number(area) or area <= 0.000000001:
+                    self.skipped_invalid_faces += 1
+                    continue
 
-            except (IndexError, AttributeError):
-                pass
+                surface = self.get_collision_surface(obj, face)
 
-            if col.Sections.version == 1:
-                faces.append(col.TFace._make(
-                    [vert.index + vert_offset for vert in (face.verts[0], face.verts[2], face.verts[1])] + [
-                        col.TSurface(*surface)
-                    ]
-                ))
+                if col.Sections.version == 1:
+                    faces.append(col.TFace._make(
+                        [vertex_map[face_verts[0]], vertex_map[face_verts[2]], vertex_map[face_verts[1]]] + [
+                            col.TSurface(*surface)
+                        ]
+                    ))
+                else:
+                    faces.append(col.TFace._make(
+                        [vertex_map[face_verts[0]], vertex_map[face_verts[2]], vertex_map[face_verts[1]]] + [
+                            surface[0], surface[3]
+                        ]
+                    ))
 
-            else:
-                faces.append(col.TFace._make(
-                    [vert.index + vert_offset for vert in (face.verts[0], face.verts[2], face.verts[1])] + [
-                        surface[0], surface[3]
-                    ]
-                ))
+                if layer and face_groups is not None and col.Sections.version > 1:
+                    group_index = face[layer]
+                    output_index = len(faces) - 1
+                    coords = [valid_coords[vert] for vert in face_verts]
+
+                    if group_index not in group_data:
+                        group_data[group_index] = {
+                            "min": [coords[0][0], coords[0][1], coords[0][2]],
+                            "max": [coords[0][0], coords[0][1], coords[0][2]],
+                            "start": output_index,
+                            "end": output_index,
+                        }
+
+                    group = group_data[group_index]
+                    group["start"] = min(group["start"], output_index)
+                    group["end"] = max(group["end"], output_index)
+
+                    for coord in coords:
+                        group["min"] = [min(a, b) for a, b in zip(group["min"], coord)]
+                        group["max"] = [max(a, b) for a, b in zip(group["max"], coord)]
+
+            if face_groups is not None and group_data:
+                for group in sorted(group_data.values(), key=lambda item: item["start"]):
+                    face_groups.append(col.TFaceGroup._make([
+                        group["min"],
+                        group["max"],
+                        group["start"],
+                        group["end"],
+                    ]))
+
+        finally:
+            if free_bm and bm is not None:
+                bm.free()
 
     #######################################################
     def _update_bounds(obj):
@@ -138,17 +307,30 @@ class col_exporter:
             else:
                 dimensions = obj.scale
 
-        # And Meshes require their proper center to be calculated because their transform is identity
         else:
-            local_center = sum((mathutils.Vector(b) for b in obj.bound_box), mathutils.Vector()) / 8.0
-            center = obj.matrix_world @ local_center
+            coords = [self.transform_point(obj, mathutils.Vector(corner)) for corner in obj.bound_box]
+            if not coords:
+                return
+            lower_bounds = [min(coord[i] for coord in coords) for i in range(3)]
+            upper_bounds = [max(coord[i] for coord in coords) for i in range(3)]
+            center = [(lower_bounds[i] + upper_bounds[i]) / 2.0 for i in range(3)]
+            dimensions = [upper_bounds[i] - lower_bounds[i] for i in range(3)]
 
-        upper_bounds = [x + (y/2) for x, y in zip(center, dimensions)]
-        lower_bounds = [x - (y/2) for x, y in zip(center, dimensions)]
+        if not self.is_finite_vector(center) or not self.is_finite_vector(dimensions):
+            self.skipped_invalid_vertices += 1
+            return
+
+        if obj.type == 'EMPTY':
+            upper_bounds = [x + (y / 2) for x, y in zip(center, dimensions)]
+            lower_bounds = [x - (y / 2) for x, y in zip(center, dimensions)]
+
+        if not self.is_finite_vector(upper_bounds) or not self.is_finite_vector(lower_bounds):
+            self.skipped_invalid_vertices += 1
+            return
 
         self.coll.bounds = [
-            [max(x, y) for x,y in zip(self.coll.bounds[0], upper_bounds)],
-            [min(x, y) for x,y in zip(self.coll.bounds[1], lower_bounds)]
+            [max(x, y) for x, y in zip(self.coll.bounds[0], upper_bounds)],
+            [min(x, y) for x, y in zip(self.coll.bounds[1], lower_bounds)]
         ]
 
     #######################################################
@@ -163,10 +345,18 @@ class col_exporter:
         if self.coll.bounds is not None:
             rect_min = self.coll.bounds[0]
             rect_max = self.coll.bounds[1]
-            center = [(x + y) / 2 for x, y in zip(*self.coll.bounds)]
+
+            if not self.is_finite_vector(rect_min) or not self.is_finite_vector(rect_max):
+                rect_min = [0, 0, 0]
+                rect_max = [0, 0, 0]
+
+            center = [(x + y) / 2 for x, y in zip(rect_min, rect_max)]
             radius = (
                 mathutils.Vector(rect_min) - mathutils.Vector(rect_max)
             ).magnitude / 2
+
+            if not self.is_finite_number(radius):
+                radius = 0.0
 
         self.coll.bounds = col.TBounds(max = col.TVector(*rect_min),
                                        min = col.TVector(*rect_max),
@@ -180,8 +370,15 @@ class col_exporter:
     def _process_spheres(obj):
         self = col_exporter
         
-        radius = max(x * obj.empty_display_size for x in obj.scale)
-        centre = col.TVector(*obj.location)
+        matrix = self.get_export_matrix(obj)
+        scale = matrix.to_scale()
+        center = matrix.translation
+        radius = max(abs(x) * obj.empty_display_size for x in scale)
+        if not self.is_finite_number(radius) or not self.is_finite_vector(center):
+            self.skipped_invalid_vertices += 1
+            return
+
+        centre = col.TVector(*center)
         surface = col.TSurface(
             obj.dff.col_material,
             obj.dff.col_flags,
@@ -200,8 +397,18 @@ class col_exporter:
     def _process_boxes(obj):
         self = col_exporter
 
-        min = col.TVector(*(obj.location - obj.scale))
-        max = col.TVector(*(obj.location + obj.scale))
+        matrix = self.get_export_matrix(obj)
+        center = matrix.translation
+        scale = matrix.to_scale()
+        box_min = center - mathutils.Vector((abs(scale.x), abs(scale.y), abs(scale.z)))
+        box_max = center + mathutils.Vector((abs(scale.x), abs(scale.y), abs(scale.z)))
+
+        if not self.is_finite_vector(box_min) or not self.is_finite_vector(box_max):
+            self.skipped_invalid_vertices += 1
+            return
+
+        min = col.TVector(*box_min)
+        max = col.TVector(*box_max)
 
         surface = col.TSurface(
             obj.dff.col_material,
@@ -245,7 +452,7 @@ class col_exporter:
         self._update_bounds(obj)
 
     #######################################################
-    def export_col(collection, name):
+    def export_col(collection, name, objects=None):
         self = col_exporter
 
         col.Sections.init_sections(self.version)
@@ -253,6 +460,8 @@ class col_exporter:
         self.coll = col.ColModel()
         self.coll.version = self.version
         self.coll.model_name = os.path.basename(name)
+        self.skipped_invalid_vertices = 0
+        self.skipped_invalid_faces = 0
 
         bounds_found = False
 
@@ -262,13 +471,30 @@ class col_exporter:
             self.coll.bounds = [collection['bounds min'], collection['bounds max']]
 
         total_objects = 0
-        for obj in collection.objects:
+        object_source = objects if objects is not None else collection.objects
+        for obj in object_source:
             if obj.dff.type == 'COL' or obj.dff.type == 'SHA':
                 if not self.only_selected or obj.select_get():
                     self._process_obj(obj)
                     total_objects += 1
 
+        if self.skipped_invalid_vertices or self.skipped_invalid_faces:
+            print(
+                f"DemonFF collision export: skipped {self.skipped_invalid_vertices} invalid vertex entries "
+                f"and {self.skipped_invalid_faces} invalid/degenerate faces while exporting {name}"
+            )
+
         self._convert_bounds()
+
+        face_count = len(self.coll.mesh_faces)
+        shadow_face_count = len(self.coll.shadow_faces)
+        if face_count > 65535 or shadow_face_count > 65535:
+            raise RuntimeError(
+                "Embedded collision is too large for COL3: "
+                f"{face_count} mesh faces, {shadow_face_count} shadow faces. "
+                "This usually means the DFF exporter matched too many .col objects. "
+                "Use one master collision object or split/reduce the collision before embedding."
+            )
 
         if total_objects == 0 and (col_exporter.only_selected or not bounds_found):
             return b''
@@ -276,17 +502,185 @@ class col_exporter:
         return col.coll(self.coll).write_memory()
 
 #######################################################
+def split_blender_duplicate_suffix(name):
+    name = str(name or "")
+    if len(name) > 4 and name[-4] == "." and name[-3:].isdigit():
+        return name[:-4], name[-4:]
+    return name, ""
+
+#######################################################
+def get_duplicate_suffix_index(name):
+    base, suffix = split_blender_duplicate_suffix(name)
+    if not suffix:
+        return 0
+
+    try:
+        return int(suffix[1:]) + 1
+    except Exception:
+        return 999999
+
+#######################################################
+def strip_col_extension_and_duplicate_suffix(name):
+    name = os.path.basename(str(name or ""))
+
+    source_extensions = (
+        '.col',
+        '.dff',
+        '.txd',
+        '.ipl',
+        '.ide',
+    )
+
+    for i in range(4):
+        previous_name = name
+        name, suffix = split_blender_duplicate_suffix(name)
+
+        lower_name = name.lower()
+        for extension in source_extensions:
+            if lower_name.endswith(extension):
+                name = name[:-len(extension)]
+                break
+
+        if name == previous_name:
+            break
+
+    name = name.strip()
+
+    if not name:
+        name = 'unnamed'
+
+    return name
+
+#######################################################
 def get_col_collection_name(collection, parent_collection=None):
     name = collection.name
 
-    # Strip stuff like vehicles.col. from the name so that
-    # for example vehicles.col.infernus changes to just infernus
     if parent_collection and parent_collection != collection:
         prefix = parent_collection.name + "."
         if name.startswith(prefix):
             name = name[len(prefix):]
 
-    return name
+    if ".col." in name.lower():
+        match = re.search(r"\.col\.", name, re.IGNORECASE)
+        if match:
+            name = name[match.end():]
+
+    return strip_col_extension_and_duplicate_suffix(name)
+
+#######################################################
+def get_export_file_key(name):
+    name = strip_col_extension_and_duplicate_suffix(name)
+    name = re.sub(r"\s+", "", name)
+    return name.lower()
+
+#######################################################
+def collection_children(collection):
+    try:
+        return list(collection.children)
+    except Exception:
+        return []
+
+#######################################################
+def walk_collections(collection):
+    yield collection
+    for child in collection_children(collection):
+        yield from walk_collections(child)
+
+#######################################################
+def is_collision_export_object(obj):
+    try:
+        return obj.dff.type == 'COL' or obj.dff.type == 'SHA'
+    except Exception:
+        return False
+
+#######################################################
+def is_selected(obj):
+    try:
+        return obj.select_get()
+    except Exception:
+        return bool(getattr(obj, 'select', False))
+
+#######################################################
+def get_collection_collision_objects(collection, selected_only=False):
+    objects = []
+
+    for obj in collection.objects:
+        if not is_collision_export_object(obj):
+            continue
+
+        if selected_only and not is_selected(obj):
+            continue
+
+        objects.append(obj)
+
+    return objects
+
+#######################################################
+def get_mass_export_candidates(root_collection):
+    candidates = []
+    seen = set()
+
+    for collection in walk_collections(root_collection):
+        key = collection.as_pointer()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        objects = get_collection_collision_objects(collection, col_exporter.only_selected)
+        if not objects:
+            continue
+
+        name = get_col_collection_name(collection, root_collection)
+        candidates.append((
+            get_export_file_key(name),
+            get_duplicate_suffix_index(collection.name),
+            collection.name.lower(),
+            collection,
+            name,
+            objects,
+        ))
+
+    return candidates
+
+#######################################################
+def export_mass_col(options):
+    file_name = options.get('file_name') or ''
+    base_dir = options.get('directory') or os.path.dirname(file_name) or os.getcwd()
+    os.makedirs(base_dir, exist_ok=True)
+
+    scene_collection = bpy.context.scene.collection
+    root_collection = col_exporter.collection or scene_collection
+
+    output = b''
+    exported_keys = set()
+    exported_count = 0
+
+    for export_key, suffix_index, collection_name, collection, name, objects in sorted(get_mass_export_candidates(root_collection), key=lambda item: item[:3]):
+        if not export_key or export_key in exported_keys:
+            print('DemonFF collision mass export: skipped duplicate collision collection %s' % collection.name)
+            continue
+
+        chunk = col_exporter.export_col(collection, name, objects)
+        if not chunk:
+            print('DemonFF collision mass export: skipped empty collision collection %s' % collection.name)
+            continue
+
+        exported_keys.add(export_key)
+        export_path = os.path.join(base_dir, name + '.col')
+
+        with open(export_path, mode='wb') as file:
+            file.write(chunk)
+
+        output += chunk
+        exported_count += 1
+
+    if exported_count == 0:
+        print('DemonFF collision mass export: found no selected collision objects to export.' if col_exporter.only_selected else 'DemonFF collision mass export: found no collision objects to export.')
+
+    if options.get('memory'):
+        return output
+
+    return None
 
 #######################################################
 def export_col(options):
@@ -294,18 +688,37 @@ def export_col(options):
     col_exporter.version = options['version']
     col_exporter.collection = options['collection']
     col_exporter.only_selected = options['only_selected']
+    col_exporter.objects = options.get('objects')
+    col_exporter.preserve_positions = options.get('preserve_positions', True)
+
+    if options.get('mass_export'):
+        return export_mass_col(options)
 
     file_name = options['file_name']
     output = b''
 
-    if not col_exporter.collection:
+    if col_exporter.objects is not None:
+        if not col_exporter.collection:
+            return b''
+
+        name = get_col_collection_name(col_exporter.collection)
+        output += col_exporter.export_col(col_exporter.collection, name, col_exporter.objects)
+
+    elif not col_exporter.collection:
         scene_collection = bpy.context.scene.collection
         root_collections = scene_collection.children.values() + [scene_collection]
-    else:
-        root_collections = [col_exporter.collection]
 
-    exported_collections = []
-    for root_collection in root_collections:
+        exported_collections = []
+        for root_collection in root_collections:
+            for c in root_collection.children.values() + [root_collection]:
+                if c not in exported_collections:
+                    name = get_col_collection_name(c, root_collection)
+                    output += col_exporter.export_col(c, name)
+                    exported_collections.append(c)
+
+    else:
+        root_collection = col_exporter.collection
+        exported_collections = []
         for c in root_collection.children.values() + [root_collection]:
             if c not in exported_collections:
                 name = get_col_collection_name(c, root_collection)

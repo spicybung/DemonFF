@@ -1183,6 +1183,40 @@ class SCENE_OT_import_ide(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
 
+class IMPORT_OT_pawn(bpy.types.Operator, ImportHelper):
+    bl_idname = "scene.pwn_import"
+    bl_label = "DemonFF Pawn Import"
+    bl_description = "Import AddSimpleModel and CreateDynamicObject lines from a Pawn script"
+    filename_ext = ".pwn"
+
+    filter_glob: bpy.props.StringProperty(default="*.pwn;*.inc", options={'HIDDEN'})
+    collection_name: bpy.props.StringProperty(name="Collection", default="Pawn Import")
+    clear_existing: bpy.props.BoolProperty(name="Clear Existing Collection", default=False)
+
+    def draw(self, context):
+        layout = self.layout
+        layout.prop(self, "collection_name")
+        layout.prop(self, "clear_existing")
+
+    def execute(self, context):
+        from ..ops import map_exporter
+        map_exporter.import_pawn({
+            "file_name": self.filepath,
+            "collection_name": self.collection_name,
+            "clear_existing": self.clear_existing,
+        })
+
+        if not map_exporter.pwn_importer.total_objects_num:
+            self.report({'ERROR'}, "No CreateDynamicObject lines found")
+            return {'CANCELLED'}
+
+        self.report({'INFO'}, "Imported %d Pawn object(s)" % map_exporter.pwn_importer.total_objects_num)
+        return {'FINISHED'}
+
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
 class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
     bl_idname = "scene.pwn_export"
     bl_label = "DemonFF Pawn Export"
@@ -1197,6 +1231,11 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
     x_offset: bpy.props.FloatProperty(name="X Offset", default=0.0)
     y_offset: bpy.props.FloatProperty(name="Y Offset", default=0.0)
     z_offset: bpy.props.FloatProperty(name="Z Offset", default=0.0)
+    force_all_worlds_interiors: bpy.props.BoolProperty(
+        name="Ignore IPL Interior/World",
+        default=True,
+        description="Write CreateDynamicObject world/interior as -1/-1 so VCS IPL interior values do not hide exterior map objects"
+    )
     filter_glob: bpy.props.StringProperty(default="*.pwn;*.inc", options={'HIDDEN'})
 
     def draw(self, context):
@@ -1209,6 +1248,7 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
         layout.prop(self, "x_offset")
         layout.prop(self, "y_offset")
         layout.prop(self, "z_offset")
+        layout.prop(self, "force_all_worlds_interiors")
 
     def execute(self, context):
         from ..ops import map_exporter
@@ -1222,6 +1262,7 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
             "x_offset": self.x_offset,
             "y_offset": self.y_offset,
             "z_offset": self.z_offset,
+            "force_all_worlds_interiors": self.force_all_worlds_interiors,
         })
 
         if not map_exporter.pwn_exporter.total_objects_num:
@@ -1236,14 +1277,19 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
         return {'RUNNING_MODAL'}
 
 class DemonFFNewPawnPanel(bpy.types.Panel):
-    bl_label = "DemonFF - Pawn Export"
-    bl_idname = "SCENE_PT_demonff_new_pawn"
+    bl_label = "DemonFF - Pawn I/O"
+    bl_idname = "SCENE_PT_demonff_pawn_io"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
     bl_context = "scene"
 
     def draw(self, context):
-        self.layout.operator("scene.pwn_export", text="Export PWN + artconfig")
+        layout = self.layout
+        col = layout.column(align=True)
+        col.operator("scene.pwn_import", text="Import PWN")
+        col.operator("scene.pwn_export", text="Export PWN + artconfig")
+        col.separator()
+        col.operator("object.remove_building_for_player", text="RemoveBuilding")
 
 #######################################################
 def register():
@@ -1257,6 +1303,7 @@ def register():
     bpy.utils.register_class(DFFMapObjectProps)
     bpy.utils.register_class(MapObjectPanel)
     bpy.utils.register_class(SCENE_OT_import_ide)
+    bpy.utils.register_class(IMPORT_OT_pawn)
     bpy.utils.register_class(EXPORT_OT_pawn)
     bpy.utils.register_class(DemonFFNewPawnPanel)
     bpy.utils.register_class(DEMONFF_UL_ide_paths)
@@ -1274,6 +1321,7 @@ def unregister():
     bpy.utils.unregister_class(DFFMapObjectProps)
     bpy.utils.unregister_class(MapObjectPanel)
     bpy.utils.unregister_class(SCENE_OT_import_ide)
+    bpy.utils.unregister_class(IMPORT_OT_pawn)
     bpy.utils.unregister_class(EXPORT_OT_pawn)
     bpy.utils.unregister_class(DemonFFNewPawnPanel)
     del bpy.types.Scene.dff.ide_paths
