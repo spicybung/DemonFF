@@ -1,0 +1,349 @@
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2026 spicybung
+
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import math
+
+from ..gtaLib import dff
+from ..gtaLib.dff import entries
+
+from mathutils import Vector
+
+
+#######################################################
+class ext_2dfx_exporter:
+
+    """ Helper class for 2dfx exporting """
+
+    #######################################################
+    def __init__(self, effects, location_overrides=None):
+        self.effects = effects
+        self.location_overrides = location_overrides if location_overrides is not None else {}
+
+    #######################################################
+    def get_object_key(self, obj):
+        try:
+            return obj.as_pointer()
+        except Exception:
+            return id(obj)
+
+    #######################################################
+    def get_location(self, obj):
+        key = self.get_object_key(obj)
+        if key in self.location_overrides:
+            return self.location_overrides[key]
+
+        try:
+            return obj.matrix_world.translation.copy()
+        except Exception:
+            return obj.location
+
+    #######################################################
+    def get_rotation(self, obj):
+        try:
+            return obj.matrix_world.to_euler('ZXY')
+        except Exception:
+            return obj.matrix_local.to_euler('ZXY')
+
+    #######################################################
+    def export_light(self, obj):
+        FL1, FL2 = dff.Light2dfx.Flags1, dff.Light2dfx.Flags2
+
+        light_data = getattr(obj, "data", None)
+        settings = getattr(light_data, "ext_2dfx", None)
+
+        if settings is None:
+            settings = getattr(getattr(obj, "dff", None), "ext_2dfx", None)
+
+        if settings is None:
+            print("DemonFF 2DFX export: skipped %s because it has no 2DFX light settings." % getattr(obj, "name", "<unnamed>"))
+            return None
+
+        entry = dff.Light2dfx(self.get_location(obj))
+
+        try:
+            if settings.export_view_vector:
+                entry.lookDirection = settings.view_vector
+        except Exception:
+            pass
+
+        try:
+            color = list(light_data.color)
+        except Exception:
+            color = [1.0, 1.0, 1.0]
+
+        try:
+            alpha = float(settings.alpha)
+        except Exception:
+            alpha = 1.0
+
+        entry.color = dff.RGBA._make(
+            list(max(0, min(255, int(255 * x))) for x in color[:3]) +
+            [max(0, min(255, int(255 * alpha)))]
+        )
+
+        entry.coronaFarClip = getattr(settings, "corona_far_clip", 100.0)
+        entry.pointlightRange = getattr(settings, "point_light_range", 0.0)
+        entry.coronaSize = getattr(settings, "corona_size", 1.0)
+        entry.shadowSize = getattr(settings, "shadow_size", 0.0)
+        entry.coronaShowMode = int(getattr(settings, "corona_show_mode", 0))
+        entry.coronaEnableReflection = int(getattr(settings, "corona_enable_reflection", False))
+        entry.coronaFlareType = getattr(settings, "corona_flare_type", 0)
+        entry.shadowColorMultiplier = getattr(settings, "shadow_color_multiplier", 0)
+        entry.coronaTexName = getattr(settings, "corona_tex_name", "coronastar")
+        entry.shadowTexName = getattr(settings, "shadow_tex_name", "shad_exp")
+        entry.shadowZDistance = getattr(settings, "shadow_z_distance", 0)
+
+        if getattr(settings, "flag1_corona_check_obstacles", False):
+            entry.set_flag(FL1.CORONA_CHECK_OBSTACLES.value)
+
+        entry.set_flag(getattr(settings, "flag1_fog_type", 0) << 1)
+
+        if getattr(settings, "flag1_without_corona", False):
+            entry.set_flag(FL1.WITHOUT_CORONA.value)
+
+        if getattr(settings, "flag1_corona_only_at_long_distance", False):
+            entry.set_flag(FL1.CORONA_ONLY_AT_LONG_DISTANCE.value)
+
+        if getattr(settings, "flag1_at_day", False):
+            entry.set_flag(FL1.AT_DAY.value)
+
+        if getattr(settings, "flag1_at_night", False):
+            entry.set_flag(FL1.AT_NIGHT.value)
+
+        if getattr(settings, "flag1_blinking1", False):
+            entry.set_flag(FL1.BLINKING1.value)
+
+        if getattr(settings, "flag2_corona_only_from_below", False):
+            entry.set_flag2(FL2.CORONA_ONLY_FROM_BELOW.value)
+
+        if getattr(settings, "flag2_blinking2", False):
+            entry.set_flag2(FL2.BLINKING2.value)
+
+        if getattr(settings, "flag2_udpdate_height_above_ground", False):
+            entry.set_flag2(FL2.UDPDATE_HEIGHT_ABOVE_GROUND.value)
+
+        if getattr(settings, "flag2_check_view_vector", False):
+            entry.set_flag2(FL2.CHECK_DIRECTION.value)
+
+        if getattr(settings, "flag2_blinking3", False):
+            entry.set_flag2(FL2.BLINKING3.value)
+
+        return entry
+
+    #######################################################
+    def export_particle(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.Particle2dfx(self.get_location(obj))
+        entry.effect = settings.val_str24_1
+
+        return entry
+    
+    #######################################################
+    def export_ped_attractor(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.PedAttractor2dfx(self.get_location(obj))
+
+        # Construct rotation matrix from the three direction vectors
+        queue = settings.queue_dir
+        use = settings.use_dir
+        forward = settings.forward_dir
+
+        entry.rotation_matrix = [
+            queue[0], queue[1], queue[2],
+            use[0], use[1], use[2],
+            forward[0], forward[1], forward[2],
+            0.0, 0.0, 0.0  # final row usually padding
+        ]
+
+        entry.attractor_type = settings.attractor_type
+        entry.external_script = settings.script_name[:8].ljust(8, '\x00')
+        entry.ped_existing_probability = settings.ped_probability
+
+        return entry
+
+
+    #######################################################
+    def export_sun_glare(self, obj):
+        entry = dff.SunGlare2dfx(self.get_location(obj))
+
+        return entry
+    
+    #######################################################
+    def export_enter_exit(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.EnterExit2dfx(self.get_location(obj))
+        entry.enter_angle = math.radians(settings.val_degree_1)
+        entry.approximation_radius_x = settings.val_float_1
+        entry.approximation_radius_y = settings.val_float_2
+        entry.exit_location = settings.val_vector_1
+        entry.exit_angle = settings.val_degree_2
+        entry.interior = settings.val_short_1
+        entry._flags1 = settings.val_byte_1
+        entry.sky_color = settings.val_byte_2
+        entry.interior_name = settings.val_str8_1
+        entry.time_on = settings.val_hour_1
+        entry.time_off = settings.val_hour_2
+        entry._flags2 = settings.val_byte_3
+        entry.unk = settings.val_byte_4
+
+        return entry
+
+    #######################################################
+    def export_road_sign(self, obj):
+        if obj.type != 'FONT':
+            return
+
+        lines = obj.data.body.split("\n")[:4]
+        if not lines:
+            return
+
+        lines_num = len(lines)
+        while len(lines) < 4:
+            lines.append("_" * 16)
+
+        max_chars_num = 2
+        for i, line in enumerate(lines):
+            if len(line) < 16:
+                line += (16 - len(line)) * "_"
+            line = line.replace(" ", "_")[:16]
+            lines[i] = line
+
+            line_chars_num = len(line.rstrip("_"))
+            if max_chars_num < line_chars_num:
+                max_chars_num = line_chars_num
+
+        max_chars_num = next((i for i in (2, 4, 8, 16) if max_chars_num <= i), max_chars_num)
+
+        settings = obj.data.ext_2dfx
+
+        flags = {1:1, 2:2, 3:3, 4:0}[lines_num]
+        flags |= {2:1, 4:2, 8:3, 16:0}[max_chars_num] << 2
+        flags |= int(settings.color) << 4
+
+        rotation = self.get_rotation(obj)
+
+        entry = dff.RoadSign2dfx(self.get_location(obj))
+
+        entry.rotation = Vector((
+            rotation.x * (180 / math.pi),
+            rotation.y * (180 / math.pi),
+            rotation.z * (180 / math.pi)
+        ))
+
+        entry.text1, entry.text2, \
+        entry.text3, entry.text4 = lines
+
+        entry.size = settings.size
+        entry.flags = flags
+
+        return entry
+
+    #######################################################
+    def export_trigger_point(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.TriggerPoint2dfx(self.get_location(obj))
+        entry.point_id = settings.val_int_1
+
+        return entry
+
+    #######################################################
+    def export_cover_point(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.CoverPoint2dfx(self.get_location(obj))
+        entry.cover_type = settings.val_int_1
+
+        if obj.rotation_mode in ('QUATERNION', 'AXIS_ANGLE'):
+            direction = obj.rotation_quaternion @ Vector((0.0, 1.0, 0.0))
+        else:
+            direction = obj.rotation_euler.to_quaternion() @ Vector((0.0, 1.0, 0.0))
+
+        direction.z = 0
+        direction.normalize()
+
+        entry.direction_x = direction.x
+        entry.direction_y = direction.y
+
+        return entry
+    
+    #######################################################
+    def export_escalator(self, obj):
+        settings = obj.dff.ext_2dfx
+
+        entry = dff.Escalator2DFX(self.get_location(obj)) #effect_id begins after position vector for escalators
+
+        # Vectors
+        entry.standart_pos = settings.standart_pos
+        entry.rotation = settings.standart_pos_rotation
+        entry.pitch = settings.standart_pos_pitch
+        entry.yaw = settings.standart_pos_yaw
+
+        entry.effect_id = 10
+
+        # Bottom
+        entry.bottom = settings.bottom_pos
+        entry.bottom_rotation = settings.bottom_rotation
+        entry.bottom_pitch = settings.bottom_pitch
+        entry.bottom_yaw = settings.bottom_yaw
+
+        # Top
+        entry.top = settings.top_pos
+        entry.top_rotation = settings.top_rotation
+        entry.top_pitch = settings.top_pitch
+        entry.top_yaw = settings.top_yaw
+
+        # End
+        entry.end = settings.end_pos
+        entry.end_rotation = settings.end_rotation
+        entry.end_pitch = settings.end_pitch
+        entry.end_yaw = settings.end_yaw
+
+        # Direction
+        entry.direction = int(settings.direction)
+
+        return entry
+
+    #######################################################
+    def export_objects(self, objects):
+
+        """ Export objects and fill 2dfx entries """
+
+        functions = {
+            0: self.export_light,
+            1: self.export_particle,
+            3: self.export_ped_attractor,
+            4: self.export_sun_glare,
+            6: self.export_enter_exit,
+            7: self.export_road_sign,
+            8: self.export_trigger_point,
+            9: self.export_cover_point,
+            10: self.export_escalator,
+        }
+
+        for obj in objects:
+            if obj.dff.type != '2DFX':
+                continue
+
+            entry = functions[int(obj.dff.ext_2dfx.effect)](obj)
+            if entry:
+                self.effects.append_entry(entry)

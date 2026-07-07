@@ -1,0 +1,244 @@
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2026 spicybung
+
+# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+import bpy
+from .gui import gui, pie_menus
+from .ops import map_importer, img_importer, ide_text_exporter, ipl_text_exporter
+
+from bpy.utils import register_class, unregister_class
+
+bl_info = {
+    "name": "DemonFF",
+    "author": "SpicyBung",
+    "version": (0, 5, 1),
+    "blender": (2, 80, 0),      # Tested and working on 3.x & 4.x
+    "category": "Import-Export",
+    "location": "File > Import/Export",
+    "description": "Importer and Exporter for GTA Formats"
+}
+
+# Class list to register
+_classes = [
+    gui.IMPORT_OT_dff_custom,
+    gui.EXPORT_OT_dff_custom,
+    gui.IMPORT_OT_mdl_custom,
+    gui.EXPORT_SCENE_OT_stories_mdl_ps2,
+    gui.IMPORT_OT_txd,
+    gui.IMPORT_OT_txd_samp,
+    gui.IMPORT_OT_col,
+    gui.EXPORT_OT_col,
+    gui.DFFFrameProps,
+    gui.DFFAtomicProps,
+    gui.DFF_UL_FrameItems,
+    gui.DFF_UL_AtomicItems,
+    gui.SCENE_PT_dffFrames,
+    gui.SCENE_PT_dffAtomics,
+    gui.SCENE_OT_dff_frame_move,
+    gui.SCENE_OT_dff_atomic_move,
+    gui.OBJECT_OT_set_collision_objects,
+    gui.MATERIAL_PT_dffMaterials,
+    gui.OBJECT_OT_dff_generate_bone_props,
+    gui.OBJECT_OT_dff_set_parent_bone,
+    gui.OBJECT_OT_dff_clear_parent_bone,
+    gui.OBJECT_PT_dffObjects,
+    gui.OBJECT_OT_join_similar_named_meshes,
+    gui.SCENE_OT_duplicate_all_as_objects,
+    gui.OBJECT_PT_dff_misc_panel,
+    gui.OBJECT_OT_force_doubleside_mesh,
+    gui.OBJECT_OT_recalculate_normals_outward,
+    gui.OBJECT_OT_recalculate_normals_inward,
+    gui.OBJECT_OT_optimize_mesh,
+    gui.COLLECTION_OT_nuke_matched,
+    gui.COLLECTION_OT_organize_scene_collection,
+    gui.COLLECTION_OT_remove_empty_collections,
+    gui.COLLECTION_PT_custom_cleanup_panel,
+    gui.OBJECT_OT_remove_frames,
+    gui.OBJECT_OT_truncate_material_names,
+    gui.OBJECT_OT_truncate_frame_names,
+    gui.EXT2DFXObjectProps,
+    gui.Light2DFXObjectProps,
+    gui.DFFMaterialProps,
+    gui.CULLObjectProps,
+    gui.GRGEObjectProps,
+    gui.ENEXObjectProps,
+    gui.DFFObjectProps,
+    gui.IDEObjectProps,
+    gui.IPLObjectProps,
+    gui.DFFMapObjectProps,
+    gui.MapObjectPanel,
+    img_importer.IMPORT_PT_img_panel,
+    img_importer.IMPORT_OT_img,
+    gui.TXDImportPanel,
+    gui.IDEPathItem,
+    gui.DEMONFF_UL_ide_paths,
+    gui.DFFSceneProps,
+    gui.MapImportPanel,
+    gui.AddIDEPathOperator,
+    gui.RemoveIDEPathOperator,
+    gui.DFF_MT_ImportChoice,
+    gui.DFF_MT_ExportChoice,
+    gui.DFF_MT_EditArmature,
+    gui.DFF_MT_Pose,
+    gui.SCENE_OT_dff_update,
+    gui.SCENE_OT_select_ipl_and_import,
+    gui.SCENE_OT_ipl_select,
+    gui.SCENE_OT_duplicate_all_as_collision,
+    gui.OBJECT_OT_import_col_info,
+    map_importer.Map_Import_Operator,
+    map_importer.Binary_Map_Import_Operator,
+    gui.SAMP_IDE_Import_Operator,
+    gui.Mass_IDE_Import_Operator,
+    gui.SCENE_OT_import_ide,
+    gui.RemoveBuildingForPlayerOperator,
+    gui.ExportToIPLOperator,
+    gui.ExportToIDEOperator,
+    gui.ExportToPawnOperator,
+    gui.IMPORT_OT_pawn,
+    gui.EXPORT_OT_pawn,
+    ide_text_exporter.EXPORT_OT_demonff_ide,
+    ipl_text_exporter.EXPORT_OT_demonff_ipl,
+    gui.DemonFFNewPawnPanel,
+    gui.DEMONFF_PT_DFF2DFX,
+    gui.SAEFFECTS_OT_AddLightInfo,
+    gui.SAEFFECTS_OT_AddParticleInfo,
+    gui.SAEFFECTS_OT_AddTextInfo,
+    gui.SAEFFECTS_OT_ExportInfo,
+    gui.SAEFFECTS_OT_ExportTextInfo,
+    gui.SAEFFECTS_OT_CreateLightsFromOmni,
+    gui.SAEFFECTS_OT_ViewLightInfo,
+    gui.SAEEFFECTS_OT_CreateLightsFromEntries,
+    gui.OBJECT_PT_SDFXLightInfoPanel,
+    gui.SAEEFFECTS_PT_Panel,
+    gui.IMPORT_OT_ifp,
+    gui.EXPORT_OT_ifp,
+    gui.MESSAGE_OT_missing_bones,
+    gui.DFF_MT_ToolWheel
+]
+
+
+# Register and unregister functions
+def safe_register_class(cls):
+    try:
+        register_class(cls)
+    except ValueError:
+        try:
+            unregister_class(cls)
+        except Exception:
+            pass
+        register_class(cls)
+
+
+def safe_unregister_class(cls):
+    try:
+        unregister_class(cls)
+    except Exception:
+        pass
+
+
+def remove_runtime_properties():
+    for owner, name in (
+        (bpy.types.Scene, "dff"),
+        (bpy.types.Scene, "saeffects_export_path"),
+        (bpy.types.Scene, "saeffects_text_export_path"),
+        (bpy.types.Object, "ide"),
+        (bpy.types.Object, "ipl"),
+        (bpy.types.Object, "dff_map"),
+    ):
+        if hasattr(owner, name):
+            try:
+                delattr(owner, name)
+            except Exception:
+                pass
+
+
+def append_menu_once(menu, func):
+    try:
+        menu.remove(func)
+    except Exception:
+        pass
+    menu.append(func)
+
+
+def remove_menu_once(menu, func):
+    try:
+        menu.remove(func)
+    except Exception:
+        pass
+
+
+def register():
+    remove_runtime_properties()
+
+    for cls in _classes:
+        safe_register_class(cls)
+
+    bpy.types.Scene.dff = bpy.props.PointerProperty(type=gui.DFFSceneProps)
+    bpy.types.Object.ide = bpy.props.PointerProperty(type=gui.IDEObjectProps)
+    bpy.types.Object.ipl = bpy.props.PointerProperty(type=gui.IPLObjectProps)
+    bpy.types.Object.dff_map = bpy.props.PointerProperty(type=gui.DFFMapObjectProps)
+
+    bpy.types.Scene.saeffects_export_path = bpy.props.StringProperty(
+        name="Binary",
+        description="Path to export the effects binary file",
+        subtype='FILE_PATH'
+    )
+    bpy.types.Scene.saeffects_text_export_path = bpy.props.StringProperty(
+        name="Text",
+        description="Path to export the effects text file",
+        subtype='FILE_PATH'
+    )
+
+    if (2, 80, 0) > bpy.app.version:
+        append_menu_once(bpy.types.INFO_MT_file_import, gui.import_dff_func)
+        append_menu_once(bpy.types.INFO_MT_file_export, gui.export_dff_func)
+    else:
+        append_menu_once(bpy.types.TOPBAR_MT_file_import, gui.import_dff_func)
+        append_menu_once(bpy.types.TOPBAR_MT_file_export, gui.export_dff_func)
+
+    try:
+        pie_menus.unregister_keymaps()
+    except Exception:
+        pass
+    try:
+        pie_menus.register_keymaps()
+    except Exception:
+        pass
+
+
+def unregister():
+    if (2, 80, 0) > bpy.app.version:
+        remove_menu_once(bpy.types.INFO_MT_file_import, gui.import_dff_func)
+        remove_menu_once(bpy.types.INFO_MT_file_export, gui.export_dff_func)
+    else:
+        remove_menu_once(bpy.types.TOPBAR_MT_file_import, gui.import_dff_func)
+        remove_menu_once(bpy.types.TOPBAR_MT_file_export, gui.export_dff_func)
+
+    try:
+        pie_menus.unregister_keymaps()
+    except Exception:
+        pass
+
+    remove_runtime_properties()
+
+    for cls in reversed(_classes):
+        safe_unregister_class(cls)
+
+
+if __name__ == "__main__":
+    register()
