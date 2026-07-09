@@ -1,0 +1,20 @@
+* text=auto eol=lf
+*.py text eol=lf
+*.txt text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+*.pwn text eol=lf
+*.inc text eol=lf
+
+*.dff binary
+*.txd binary
+*.col binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.blend binary
+*.zip binary

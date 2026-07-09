@@ -97,6 +97,26 @@ def first_good_value(*values, default=None):
     return default
 
 #######################################################
+def is_placeholder_txd_name(value):
+    clean_value = str(value or "").strip().lower()
+    if clean_value.endswith(".txd"):
+        clean_value = clean_value[:-4]
+    return clean_value in {"", "default", "default_txd", "none", "null"}
+
+#######################################################
+def first_good_txd_value(*values, default=None):
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, str):
+            if value.strip() == "":
+                continue
+            if is_placeholder_txd_name(value):
+                continue
+        return value
+    return default
+
+#######################################################
 def set_map_identity_props(obj, ide_id, model_name, txd_name, samp_id=None):
     obj["IDE_ID"] = ide_id
     obj["DFF_Name"] = model_name
@@ -133,10 +153,11 @@ def get_object_model_name(obj):
 def get_object_txd_name(obj):
     props = get_map_props(obj)
     if props:
-        return str(first_good_value(props.ide_txd_name, props.pawn_txd_name, default=None) or get_custom_prop(obj, "TXD_Name", "default_txd"))
-    if hasattr(obj, "ide") and obj.ide.txd_name:
+        return str(first_good_txd_value(props.ide_txd_name, props.pawn_txd_name, default=None) or get_custom_prop(obj, "TXD_Name", "default_txd"))
+    if hasattr(obj, "ide") and obj.ide.txd_name and not is_placeholder_txd_name(obj.ide.txd_name):
         return obj.ide.txd_name
-    return str(get_custom_prop(obj, "TXD_Name", "default_txd"))
+    custom_value = get_custom_prop(obj, "TXD_Name", "default_txd")
+    return str(custom_value if not is_placeholder_txd_name(custom_value) else "default_txd")
 
 #######################################################
 def get_pawn_model_name(obj):
@@ -148,7 +169,7 @@ def get_pawn_model_name(obj):
 #######################################################
 def get_pawn_txd_name(obj):
     props = get_map_props(obj)
-    if props and props.pawn_txd_name:
+    if props and props.pawn_txd_name and not is_placeholder_txd_name(props.pawn_txd_name):
         return props.pawn_txd_name
     return get_object_txd_name(obj)
 
@@ -329,6 +350,203 @@ def get_pawn_rotation(obj):
     position, rotation, scale = get_export_transform(obj)
     return euler_to_degrees(rotation.to_euler('XYZ'))
 
+
+#######################################################
+def normalize_map_lookup_name(value):
+    clean_value = str(value or "").strip().replace('\\', '/')
+    clean_value = os.path.basename(clean_value)
+    clean_value = os.path.splitext(clean_value)[0]
+    clean_value = clean_value.split('.')[0]
+    return clean_value.lower()
+
+#######################################################
+def normalize_export_asset_name(value, extension):
+    clean_value = str(value or "").strip().replace('\\', '/')
+    clean_value = os.path.basename(clean_value)
+    clean_value = clean_value.split('.')[0]
+
+    if extension and clean_value.lower().endswith(extension.lower()):
+        clean_value = clean_value[:-len(extension)]
+
+    return clean_value
+
+#######################################################
+def normalize_export_directory(value):
+    clean_value = str(value or "").strip().replace('\\', '/')
+    clean_value = clean_value.strip('/')
+    return clean_value
+
+#######################################################
+def make_artconfig_asset_path(directory, name, extension):
+    clean_directory = normalize_export_directory(directory)
+    clean_name = normalize_export_asset_name(name, extension)
+
+    if not clean_name:
+        clean_name = "default_txd" if extension.lower() == ".txd" else "model"
+
+    filename = clean_name + extension
+    return f"{clean_directory}/{filename}" if clean_directory else filename
+
+#######################################################
+def make_addsimplemodel_line(virtual_world, base_model_id, model_id, dff_directory, txd_directory, model_name, txd_name):
+    dff_path = make_artconfig_asset_path(dff_directory, model_name, ".dff")
+    txd_path = make_artconfig_asset_path(txd_directory, txd_name, ".txd")
+    comment_name = normalize_export_asset_name(model_name, ".dff")
+    return f"AddSimpleModel({virtual_world}, {base_model_id}, {model_id}, \"{dff_path}\", \"{txd_path}\");  // {comment_name}\n", dff_path, txd_path
+
+#######################################################
+
+#######################################################
+def parse_ide_model_records(filepath):
+    records = {}
+    section = None
+    supported_sections = {"objs", "tobj", "anim"}
+
+    if not filepath or not os.path.isfile(filepath):
+        return records
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+    except UnicodeDecodeError:
+        with open(filepath, 'r', encoding='latin-1', errors='replace') as file:
+            lines = file.readlines()
+
+    for line_number, line in enumerate(lines, 1):
+        line = line.split('#', 1)[0].strip()
+        if not line:
+            continue
+
+        lower_line = line.lower()
+        if lower_line in supported_sections:
+            section = lower_line
+            continue
+
+        if lower_line == "end":
+            section = None
+            continue
+
+        if section not in supported_sections:
+            continue
+
+        parts = [part.strip() for part in line.split(',')]
+        if len(parts) < 3:
+            continue
+
+        try:
+            object_id = int(parts[0], 0)
+        except Exception:
+            continue
+
+        model_name = parts[1]
+        txd_name = parts[2]
+        key = normalize_map_lookup_name(model_name)
+        if not key:
+            continue
+
+        records[key] = {
+            "object_id": object_id,
+            "model_name": model_name,
+            "txd_name": txd_name,
+            "section": section,
+            "filepath": filepath,
+            "line": line_number,
+        }
+
+    return records
+
+#######################################################
+def collect_scene_ide_filepaths(context, output_file=None):
+    paths = []
+    scene = getattr(context, 'scene', None)
+    scene_dff = getattr(scene, 'dff', None) if scene is not None else None
+
+    if scene_dff is not None and hasattr(scene_dff, 'ide_paths'):
+        for item in scene_dff.ide_paths:
+            path = getattr(item, 'name', '')
+            if path and path.lower().endswith('.ide'):
+                paths.append(bpy.path.abspath(path))
+
+    search_dirs = []
+    if output_file:
+        search_dirs.append(os.path.dirname(os.path.abspath(output_file)))
+    try:
+        if bpy.data.filepath:
+            search_dirs.append(os.path.dirname(os.path.abspath(bpy.data.filepath)))
+    except Exception:
+        pass
+
+    for directory in search_dirs:
+        if not directory or not os.path.isdir(directory):
+            continue
+        for filename in os.listdir(directory):
+            if filename.lower().endswith('.ide'):
+                paths.append(os.path.join(directory, filename))
+
+    unique_paths = []
+    seen = set()
+    for path in paths:
+        normalized = os.path.normcase(os.path.abspath(path))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        unique_paths.append(path)
+    return unique_paths
+
+#######################################################
+def collect_ide_txd_lookup(context, output_file=None):
+    lookup = {}
+    for filepath in collect_scene_ide_filepaths(context, output_file):
+        lookup.update(parse_ide_model_records(filepath))
+    return lookup
+
+#######################################################
+def apply_ide_record_to_object(obj, record, samp_id=None):
+    if obj is None or record is None:
+        return
+    set_map_identity_props(
+        obj,
+        record.get("object_id", 0),
+        record.get("model_name", clean_map_name(obj.name)),
+        record.get("txd_name", "default_txd"),
+        samp_id,
+    )
+
+#######################################################
+def resolve_export_txd_name(obj, ide_txd_lookup=None):
+    txd_name = get_pawn_txd_name(obj)
+    if not is_placeholder_txd_name(txd_name):
+        return normalize_export_asset_name(txd_name, ".txd")
+
+    lookup = ide_txd_lookup or {}
+    model_name = get_pawn_model_name(obj)
+
+    lookup_names = [
+        model_name,
+        obj.name,
+        clean_map_name(obj.name),
+    ]
+
+    parent = getattr(obj, 'parent', None)
+    if parent is not None:
+        lookup_names.extend([parent.name, clean_map_name(parent.name)])
+
+    record = None
+    for lookup_name in lookup_names:
+        record = lookup.get(normalize_map_lookup_name(lookup_name))
+        if record is not None:
+            break
+
+    if record is not None and not is_placeholder_txd_name(record.get("txd_name")):
+        apply_ide_record_to_object(get_metadata_source(obj), record, get_object_samp_id(obj))
+        return normalize_export_asset_name(record.get("txd_name"), ".txd")
+
+    custom_value = get_custom_prop(obj, "TXD_Name", None)
+    if not is_placeholder_txd_name(custom_value):
+        return normalize_export_asset_name(custom_value, ".txd")
+
+    return "default_txd"
+
 #######################################################
 def import_ide(filepaths, context):
     for filepath in filepaths:
@@ -351,28 +569,18 @@ def import_ide(filepaths, context):
                 continue
 
         obj_data = {}
-        in_obj_section = False
-
-        for line in lines:
-            line = line.strip()
-            if line.lower().startswith("objs"):
-                in_obj_section = True
-            elif line.lower().startswith("end"):
-                in_obj_section = False
-            elif in_obj_section and line and not line.startswith("#"):
-                parts = line.split(",")
-                if len(parts) > 3:
-                    obj_id = int(parts[0].strip())
-                    obj_name = parts[1].strip()
-                    txd_name = parts[2].strip()
-                    samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)  # Convert to SAMP 0.3DL/open.mp ID or keep positive
-                    obj_data[obj_name] = (samp_id, txd_name)
+        for key, record in parse_ide_model_records(filepath).items():
+            obj_id = record["object_id"]
+            obj_name = record["model_name"]
+            txd_name = record["txd_name"]
+            samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)
+            obj_data[key] = (samp_id, obj_name, txd_name, record)
 
         for obj in context.scene.objects:
-            base_name = obj.name.split('.')[0]
+            base_name = normalize_map_lookup_name(obj.name)
             if base_name in obj_data:
-                samp_id, txd_name = obj_data[base_name]
-                set_map_identity_props(obj, abs(int(samp_id)), base_name, txd_name, samp_id)
+                samp_id, obj_name, txd_name, record = obj_data[base_name]
+                set_map_identity_props(obj, abs(int(samp_id)), obj_name, txd_name, samp_id)
                 print(f"Assigned SAMP ID {samp_id} and TXD {txd_name} to {obj.name}")
             else:
                 print(f"No matching SAMP ID found for {obj.name}")
@@ -403,31 +611,20 @@ def mass_import_samp_ide(filepaths, context):
                 continue
 
         obj_data = {}
-        in_obj_section = False
-
-        # Read and parse the objs section of the .ide file
-        for line in lines:
-            line = line.strip()
-            if line.lower().startswith("objs"):
-                in_obj_section = True
-            elif line.lower().startswith("end"):
-                in_obj_section = False
-            elif in_obj_section and line and not line.startswith("#"):
-                parts = line.split(",")
-                if len(parts) > 3:
-                    obj_id = int(parts[0].strip())  # SAMP ID or Object ID
-                    obj_name = parts[1].strip()  # Model Name
-                    txd_name = parts[2].strip()  # TXD Name
-                    samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)  # Convert to SAMP 0.3DL/open.mp ID or keep positive
-                    obj_data[obj_name] = (samp_id, txd_name)
+        for key, record in parse_ide_model_records(filepath).items():
+            obj_id = record["object_id"]
+            obj_name = record["model_name"]
+            txd_name = record["txd_name"]
+            samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)
+            obj_data[key] = (samp_id, obj_name, txd_name, record)
 
         # Match objects in the scene with the IDE data and apply SAMP ID and TXD name
         for obj in context.scene.objects:
-            base_name = obj.name.split('.')[0]  # Get the base name of the object in the scene
-            if base_name in obj_data:  # If the object name matches one from the IDE file
-                samp_id, txd_name = obj_data[base_name]
-                samp_id = -abs(samp_id)  # Apply '-' to the second argument (modelid)
-                set_map_identity_props(obj, abs(int(samp_id)), base_name, txd_name, samp_id)
+            base_name = normalize_map_lookup_name(obj.name)
+            if base_name in obj_data:
+                samp_id, obj_name, txd_name, record = obj_data[base_name]
+                samp_id = -abs(samp_id)
+                set_map_identity_props(obj, abs(int(samp_id)), obj_name, txd_name, samp_id)
                 print(f"Assigned SAMP ID {samp_id} and TXD {txd_name} to {obj.name}")
             else:
                 print(f"No matching SAMP ID found for {obj.name}")
@@ -921,7 +1118,9 @@ class pwn_exporter:
         addsimplemodel_skipped = 0
         addsimplemodel_conflicts = 0
 
-        with open(output_file, 'w', encoding='latin-1') as pawn_file, open(artconfig_path, 'w', encoding='latin-1') as artconfig_file:
+        ide_txd_lookup = collect_ide_txd_lookup(bpy.context, output_file)
+
+        with open(output_file, 'w', encoding='latin-1', newline='\n') as pawn_file, open(artconfig_path, 'w', encoding='latin-1', newline='\n') as artconfig_file:
             pawn_file.write("// Generated by DemonFF\n")
             pawn_file.write("public OnGameModeInit()\n{\n")
 
@@ -933,12 +1132,19 @@ class pwn_exporter:
                 position.z += self.z_offset
                 rotation = get_pawn_rotation(obj)
                 world_id, interior = get_stream_world_and_interior(obj, -1, -1)
-                model_name = get_pawn_model_name(obj)
-                txd_name = get_pawn_txd_name(obj)
-                safe_model_dir = model_directory.strip('/')
-                safe_texture_dir = texture_directory.strip('/') if texture_directory.strip('/') else safe_model_dir
-                dff_path = f"{safe_model_dir}/{model_name}.dff" if safe_model_dir else f"{model_name}.dff"
-                txd_path = f"{safe_texture_dir}/{txd_name}.txd" if safe_texture_dir else f"{txd_name}.txd"
+                model_name = normalize_export_asset_name(get_pawn_model_name(obj), ".dff")
+                txd_name = normalize_export_asset_name(resolve_export_txd_name(obj, ide_txd_lookup), ".txd")
+                safe_model_dir = normalize_export_directory(model_directory)
+                safe_texture_dir = normalize_export_directory(texture_directory) or safe_model_dir
+                addsimplemodel_line, dff_path, txd_path = make_addsimplemodel_line(
+                    -1,
+                    base_model_id,
+                    model_id,
+                    safe_model_dir,
+                    safe_texture_dir,
+                    model_name,
+                    txd_name,
+                )
 
                 pawn_file.write(
                     f"    CreateDynamicObject({model_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
@@ -952,9 +1158,7 @@ class pwn_exporter:
 
                 if existing_paths is None:
                     written_models[model_key] = model_paths
-                    artconfig_file.write(
-                        f"AddSimpleModel(-1, {base_model_id}, {model_id}, \"{dff_path}\", \"{txd_path}\");  // {model_name}\\n"
-                    )
+                    artconfig_file.write(addsimplemodel_line)
                     addsimplemodel_written += 1
                 elif existing_paths == model_paths:
                     addsimplemodel_skipped += 1
