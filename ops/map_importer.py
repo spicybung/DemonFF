@@ -30,6 +30,104 @@ from .ipl.cull_importer import cull_importer
 from .ipl.grge_importer import grge_importer
 from .ipl.enex_importer import enex_importer
 
+
+#######################################################
+def import_text_ide_2dfx(importer, records, root_object, inst):
+    if not records or root_object is None:
+        return []
+
+    created = []
+    collection = importer.current_collection
+
+    for index, record in enumerate(records):
+        try:
+            red = max(0.0, min(1.0, float(record.red) / 255.0))
+            green = max(0.0, min(1.0, float(record.green) / 255.0))
+            blue = max(0.0, min(1.0, float(record.blue) / 255.0))
+            alpha = max(0.0, min(1.0, float(record.alpha) / 255.0))
+
+            effect_type = int(float(getattr(record, 'effectType', 0)))
+            light_data = None
+
+            if effect_type == 0:
+                light_data = bpy.data.lights.new(
+                    name="2dfx_light_%s_%d" % (record.id, index),
+                    type='POINT'
+                )
+                light_data.color = (red, green, blue)
+                light_data.energy = 10.0
+                light_data.shadow_soft_size = 0.25
+                obj = bpy.data.objects.new(light_data.name, light_data)
+            else:
+                obj = bpy.data.objects.new(
+                    "2dfx_effect_%s_%d_type_%d" % (record.id, index, effect_type),
+                    None
+                )
+                obj.empty_display_type = 'PLAIN_AXES'
+                obj.empty_display_size = 0.35
+
+            obj.dff.type = '2DFX'
+            obj.dff.ext_2dfx.effect = str(effect_type)
+            obj.location = (float(record.posX), float(record.posY), float(record.posZ))
+            obj.parent = root_object
+
+            obj["demonff_text_ide_2dfx"] = True
+            obj["demonff_2dfx_model_id"] = str(record.id)
+
+            source_model_name = str(root_object.get("DFF_Name", "")).strip()
+            if not source_model_name and hasattr(root_object, "dff_map"):
+                source_model_name = str(getattr(root_object.dff_map, "model_name", "")).strip()
+            if source_model_name:
+                obj["demonff_2dfx_source_dff"] = "%s.dff" % source_model_name
+                obj["demonff_2dfx_source_model"] = source_model_name
+                obj["demonff_2dfx_source_model_key"] = source_model_name
+                obj["DFF_Name"] = source_model_name
+
+            obj["demonff_2dfx_alpha"] = alpha
+            obj["demonff_2dfx_effect_type"] = str(getattr(record, 'effectType', 0))
+            obj["demonff_2dfx_source_ide"] = str(getattr(record, 'filename', ''))
+
+            for field_name in record._fields:
+                try:
+                    obj["demonff_2dfx_%s" % field_name] = str(getattr(record, field_name))
+                except Exception:
+                    pass
+
+            settings = getattr(light_data, 'ext_2dfx', None) if light_data is not None else None
+            if settings is not None:
+                settings.alpha = alpha
+                if hasattr(record, 'coronaTexName'):
+                    settings.corona_tex_name = str(record.coronaTexName).strip('"')
+                if hasattr(record, 'shadowTexName'):
+                    settings.shadow_tex_name = str(record.shadowTexName).strip('"')
+
+                numeric = []
+                for name in ('param1', 'param2', 'param3', 'param4', 'param5', 'param6', 'param7', 'param8', 'param9'):
+                    if hasattr(record, name):
+                        try:
+                            numeric.append(float(getattr(record, name)))
+                        except Exception:
+                            numeric.append(0.0)
+
+                if len(numeric) > 0:
+                    settings.corona_far_clip = numeric[0]
+                if len(numeric) > 1:
+                    settings.point_light_range = numeric[1]
+                if len(numeric) > 2:
+                    settings.corona_size = numeric[2]
+                if len(numeric) > 3:
+                    settings.shadow_size = numeric[3]
+
+            collection.objects.link(obj)
+            created.append(obj)
+        except Exception as error:
+            print("Could not import text IDE 2DFX for model %s: %s" % (getattr(record, 'id', '?'), error))
+
+    if created:
+        print("Imported %d text IDE 2DFX effect(s) for model %s" % (len(created), records[0].id))
+
+    return created
+
 #######################################################
 def get_instance_model_data(inst, object_data):
     inst_id = getattr(inst, "id", None)
@@ -172,6 +270,7 @@ class Map_Import_Operator(bpy.types.Operator):
 
     _object_instances = []
     _object_data = []
+    _effects_2dfx = {}
     _model_cache = {}
     _col_files_all = set()
     _col_files = []
@@ -186,7 +285,6 @@ class Map_Import_Operator(bpy.types.Operator):
     def draw(self, context):
         layout = self.layout
         layout.prop(context.scene.dff, "import_as_binary")
-        layout.prop(context.scene.dff, "ipl_version") 
     #######################################################
     def stamp_map_properties(self, obj, inst):
         ide_data = get_instance_model_data(inst, self._object_data)
@@ -197,8 +295,8 @@ class Map_Import_Operator(bpy.types.Operator):
         txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
 
         obj["IDE_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
-        obj["DFF_Name"] = model_name
-        obj["TXD_Name"] = txd_name
+        obj["DFF_Name"] = str(model_name)
+        obj["TXD_Name"] = str(txd_name)
 
         if hasattr(inst, "interior"):
             obj["Interior"] = int(inst.interior) if str(inst.interior).lstrip('-').isdigit() else inst.interior
@@ -218,31 +316,6 @@ class Map_Import_Operator(bpy.types.Operator):
 
             if hasattr(ide_data, "drawDistance"):
                 obj.ide.draw_distance = str(ide_data.drawDistance)
-
-    #######################################################
-    def stamp_2dfx_source_properties(self, obj, inst):
-        ide_data = get_instance_model_data(inst, self._object_data)
-        if ide_data is None:
-            return
-
-        model_name = getattr(ide_data, "modelName", obj.get("DFF_Name", ""))
-        txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
-
-        obj["demonff_2dfx_source_dff"] = "%s.dff" % model_name
-        obj["demonff_2dfx_source_model"] = str(model_name)
-        obj["demonff_2dfx_source_model_key"] = str(model_name)
-        obj["DFF_Name"] = str(model_name)
-        obj["TXD_Name"] = str(txd_name)
-        obj["IDE_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
-
-    #######################################################
-    def copy_object_id_properties(self, source_obj, target_obj):
-        for key in source_obj.keys():
-            try:
-                target_obj[key] = source_obj[key]
-            except Exception:
-                pass
-
             if hasattr(ide_data, "drawDistance1"):
                 obj.ide.draw_distance1 = str(ide_data.drawDistance1)
             if hasattr(ide_data, "drawDistance2"):
@@ -280,7 +353,8 @@ class Map_Import_Operator(bpy.types.Operator):
                 props.ide_object_id = 0
             props.ide_model_name = str(model_name)
             props.ide_txd_name = str(txd_name)
-            props.ide_flags = int(getattr(ide_data, "flags", obj.get("IDE_Flags", 0))) if str(getattr(ide_data, "flags", obj.get("IDE_Flags", 0))).lstrip('-').isdigit() else 0
+            flags_value = getattr(ide_data, "flags", obj.get("IDE_Flags", 0))
+            props.ide_flags = int(flags_value) if str(flags_value).lstrip('-').isdigit() else 0
             if hasattr(ide_data, "drawDistance"):
                 props.ide_draw1 = float(ide_data.drawDistance)
             if hasattr(ide_data, "drawDistance1"):
@@ -298,6 +372,30 @@ class Map_Import_Operator(bpy.types.Operator):
                 props.pawn_model_name = str(model_name)
             if not props.pawn_txd_name:
                 props.pawn_txd_name = str(txd_name)
+
+    #######################################################
+    def stamp_2dfx_source_properties(self, obj, inst):
+        ide_data = get_instance_model_data(inst, self._object_data)
+        if ide_data is None:
+            return
+
+        model_name = getattr(ide_data, "modelName", obj.get("DFF_Name", ""))
+        txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
+
+        obj["demonff_2dfx_source_dff"] = "%s.dff" % model_name
+        obj["demonff_2dfx_source_model"] = str(model_name)
+        obj["demonff_2dfx_source_model_key"] = str(model_name)
+        obj["DFF_Name"] = str(model_name)
+        obj["TXD_Name"] = str(txd_name)
+        obj["IDE_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
+
+    #######################################################
+    def copy_object_id_properties(self, source_obj, target_obj):
+        for key in source_obj.keys():
+            try:
+                target_obj[key] = source_obj[key]
+            except Exception:
+                pass
 
     #######################################################
     def import_object(self, context):
@@ -374,8 +472,11 @@ class Map_Import_Operator(bpy.types.Operator):
                 new_obj.rotation_euler = obj.rotation_euler
                 new_obj.scale = obj.scale
 
-                if obj.parent:
+                if obj.parent and obj.parent in new_objects:
                     new_obj.parent = new_objects[obj.parent]
+                elif cached_objects:
+                    root_source = next((cached for cached in cached_objects if not cached.parent), cached_objects[0])
+                    new_obj.parent = new_objects[root_source]
 
                 for prop in obj.dff.keys():
                     new_obj.dff[prop] = obj.dff[prop]
@@ -426,13 +527,23 @@ class Map_Import_Operator(bpy.types.Operator):
                 )
                 self.stamp_map_properties(obj, inst)
 
+            text_effects = self._effects_2dfx.get(str(inst.id), [])
+            if root_objects and text_effects:
+                existing_text_effects = [
+                    obj for obj in collection_objects
+                    if bool(obj.get("demonff_text_ide_2dfx", False))
+                ]
+                if not existing_text_effects:
+                    collection_objects.extend(
+                        import_text_ide_2dfx(importer, text_effects, root_objects[0], inst)
+                    )
+
             # Set root object as 2DFX parent
             if root_objects:
                 for obj in collection_objects:
                     if obj.dff.type == "2DFX":
                         self.stamp_2dfx_source_properties(obj, inst)
-                    # Skip Road Signs
-                    if obj.dff.type == "2DFX" and obj.dff.ext_2dfx.effect != '7':
+                    if obj.dff.type == "2DFX":
                         obj.parent = root_objects[0]
 
             # Move dff collection to a top collection named for the file it came from
@@ -608,6 +719,7 @@ class Map_Import_Operator(bpy.types.Operator):
 
         self._object_instances = map_data['object_instances']
         self._object_data = map_data['object_data']
+        self._effects_2dfx = map_data.get('effects_2dfx', {})
 
         # Create collections to organize the scene between geometry and collision
         meshcollname = '%s Meshes' % self.settings.game_version_dropdown
@@ -687,6 +799,7 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
 
     _object_instances = []
     _object_data = []
+    _effects_2dfx = {}
     _model_cache = {}
     _col_files_all = set()
     _col_files = []
@@ -726,6 +839,7 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
 
         self._object_instances = map_data['object_instances']
         self._object_data = map_data['object_data']
+        self._effects_2dfx = map_data.get('effects_2dfx', {})
 
 
 
@@ -896,8 +1010,11 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
                 new_obj.rotation_euler = obj.rotation_euler
                 new_obj.scale = obj.scale
 
-                if obj.parent:
+                if obj.parent and obj.parent in new_objects:
                     new_obj.parent = new_objects[obj.parent]
+                elif cached_objects:
+                    root_source = next((cached for cached in cached_objects if not cached.parent), cached_objects[0])
+                    new_obj.parent = new_objects[root_source]
 
                 for prop in obj.dff.keys():
                     new_obj.dff[prop] = obj.dff[prop]
@@ -953,8 +1070,7 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
                 for obj in collection_objects:
                     if obj.dff.type == "2DFX":
                         self.stamp_2dfx_source_properties(obj, inst)
-                    # Skip Road Signs
-                    if obj.dff.type == "2DFX" and obj.dff.ext_2dfx.effect != '7':
+                    if obj.dff.type == "2DFX":
                         obj.parent = root_objects[0]
 
             # Move dff collection to a top collection named for the file it came from

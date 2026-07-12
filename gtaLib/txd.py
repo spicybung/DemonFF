@@ -19,7 +19,7 @@
 
 from enum import IntEnum
 from math import ceil
-from struct import unpack_from
+from struct import pack, unpack_from
 from collections import namedtuple
 
 from .dff import strlen
@@ -82,6 +82,23 @@ class DeviceType(IntEnum):
     DEVICE_GC   = 3 # probably
     DEVICE_PS2  = 6
     DEVICE_XBOX = 8
+
+#######################################################
+class ImageEncoder:
+
+    @staticmethod
+    def rgba_to_bgra8888(data):
+        if len(data) % 4 != 0:
+            raise ValueError("RGBA pixel data length must be divisible by four")
+
+        converted = bytearray(len(data))
+        for offset in range(0, len(data), 4):
+            converted[offset] = data[offset + 2]
+            converted[offset + 1] = data[offset + 1]
+            converted[offset + 2] = data[offset]
+            converted[offset + 3] = data[offset + 3]
+
+        return bytes(converted)
 
 #######################################################
 class ImageDecoder:
@@ -457,6 +474,74 @@ class TextureNative:
 
         # Raster Data
         self.pixels = []
+
+    #######################################################
+    @staticmethod
+    def encode_fixed_string(value, size=32):
+        encoded = str(value or "").encode("utf-8", errors="ignore")
+        encoded = encoded[:max(0, size - 1)]
+        return encoded.ljust(size, b"\0")
+
+    #######################################################
+    def get_platform_properties_byte(self):
+        properties = self.platform_properties
+        if self.platform_id == NativePlatformType.D3D8:
+            return int(getattr(properties, "dxt_type", 0)) & 0xFF
+
+        if self.platform_id == NativePlatformType.D3D9:
+            value = 0
+            if bool(getattr(properties, "alpha", False)):
+                value |= 0x01
+            if bool(getattr(properties, "cube_texture", False)):
+                value |= 0x02
+            if bool(getattr(properties, "auto_mipmaps", False)):
+                value |= 0x04
+            if bool(getattr(properties, "compressed", False)):
+                value |= 0x08
+            return value
+
+        return 0
+
+    #######################################################
+    def to_mem(self):
+        levels = list(self.pixels or [])
+        num_levels = max(1, int(self.num_levels or len(levels) or 1))
+
+        if len(levels) < num_levels:
+            levels.extend([b""] * (num_levels - len(levels)))
+        elif len(levels) > num_levels:
+            levels = levels[:num_levels]
+
+        data = pack(
+            "<IHH32s32sIIHHBBBB",
+            int(self.platform_id),
+            int(self.filter_mode) & 0xFFFF,
+            int(self.uv_addressing) & 0xFFFF,
+            self.encode_fixed_string(self.name),
+            self.encode_fixed_string(self.mask),
+            int(self.raster_format_flags),
+            int(self.d3d_format),
+            int(self.width) & 0xFFFF,
+            int(self.height) & 0xFFFF,
+            int(self.depth) & 0xFF,
+            num_levels & 0xFF,
+            int(self.raster_type) & 0xFF,
+            self.get_platform_properties_byte(),
+        )
+
+        data += bytes(self.palette or b"")
+
+        for pixels in levels:
+            pixels = bytes(pixels or b"")
+            data += pack("<I", len(pixels))
+            data += pixels
+
+        struct_chunk = Sections.write_chunk(data, types["Struct"])
+        extension_chunk = Sections.write_chunk(b"", types["Extension"])
+        return Sections.write_chunk(
+            struct_chunk + extension_chunk,
+            types["Texture Native"],
+        )
 
     #######################################################
     def to_rgba(self, level=0):
@@ -929,6 +1014,30 @@ class txd:
         with open(filename, mode='rb') as file:
             content = file.read()
             self.load_memory(content)
+
+    #######################################################
+    def write_memory(self, version):
+        Sections.set_library_id(int(version), 0xFFFF)
+
+        device_id = int(self.device_id)
+        dictionary_data = Sections.write(
+            TexDict,
+            (len(self.native_textures), device_id),
+            types["Struct"],
+        )
+
+        for texture in self.native_textures:
+            if not isinstance(texture, TextureNative):
+                raise TypeError("Only native textures can be written to a native TXD")
+            dictionary_data += texture.to_mem()
+
+        dictionary_data += Sections.write_chunk(b"", types["Extension"])
+        return Sections.write_chunk(dictionary_data, types["Texture Dictionary"])
+
+    #######################################################
+    def write_file(self, filename, version):
+        with open(filename, mode="wb") as file:
+            file.write(self.write_memory(version))
 
     #######################################################
     def __init__(self):

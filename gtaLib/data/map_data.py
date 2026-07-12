@@ -152,6 +152,22 @@ VC_structures['tobj_3'] =  namedtuple("IDE_TOBJ_VC_3",  "id modelName txdName me
 VC_structures['tobj_4'] =  namedtuple("IDE_TOBJ_VC_4",  "id modelName txdName meshCount drawDistance1 drawDistance2 drawDistance3 flags timeOn timeOff filename")
 VC_IDE_aliases['tobj'] = ('tobj_1', 'tobj_2', 'tobj_3', 'tobj_4')
 
+VC_structures['2dfx_light'] = namedtuple(
+    "IDE_2DFX_VC_LIGHT",
+    "id posX posY posZ red green blue alpha effectType coronaTexName shadowTexName "
+    "param1 param2 param3 param4 param5 param6 param7 param8 param9 filename"
+)
+VC_structures['2dfx_directional'] = namedtuple(
+    "IDE_2DFX_VC_DIRECTIONAL",
+    "id posX posY posZ red green blue alpha effectType param1 dirX dirY dirZ size filename"
+)
+VC_structures['2dfx_attractor'] = namedtuple(
+    "IDE_2DFX_VC_ATTRACTOR",
+    "id posX posY posZ red green blue alpha effectType attractorType dir1X dir1Y dir1Z dir2X dir2Y dir2Z filename"
+)
+VC_IDE_aliases['2dfx'] = ('2dfx_light', '2dfx_directional', '2dfx_attractor')
+
+
 SA_structures['tobj_1'] =  namedtuple("IDE_TOBJ_SA_1",  "id modelName txdName drawDistance flags timeOn timeOff filename")
 SA_structures['tobj_2'] =  namedtuple("IDE_TOBJ_SA_2",  "id modelName txdName meshCount drawDistance flags timeOn timeOff filename")
 SA_structures['tobj_3'] =  namedtuple("IDE_TOBJ_SA_3",  "id modelName txdName meshCount drawDistance1 drawDistance2 flags timeOn timeOff filename")
@@ -167,7 +183,7 @@ SA_structures['anim'] = namedtuple("IDE_ANIM_SA", "id modelName txdName animName
 # PEDS
 # Defines pedestrian objects (random NPC's)
 III_structures['peds'] = namedtuple("IDE_PEDS_3",  "id modelName txdName pedType behavior animGroup vehClass")
-VC_structures['peds'] =  namedtuple("IDE_PEDS_VC", "id modelName txdName pedType behavior animGroup vehClass animfile radio1 radio2")
+VC_structures['peds'] =  namedtuple("IDE_PEDS_VC", "id modelName txdName pedType behavior animGroup vehClass animfile radio1 radio2 filename")
 SA_structures['peds'] =  namedtuple("IDE_PEDS_SA", "id modelName txdName pedType behavior animGroup vehClass flags animfile radio1 radio2 voiceArchive voice1 voice2")
 
 # CARS
@@ -318,43 +334,21 @@ SA_IDE = (
 )
 
 LCS_IDE = (
-    'DATA/MAPS/interior/interior_savehouse.IDE',
-    'DATA/MAPS/generic/vegepart.IDE',
-    'DATA/MAPS/generic/barriers.IDE',
-    'DATA/MAPS/generic/dynamic.IDE',
-    'DATA/MAPS/generic/dynamic2.IDE',
-    'DATA/MAPS/generic/multiobj.IDE',
-    'DATA/MAPS/generic/procobj.IDE',
-    'DATA/MAPS/leveldes/levelxre.IDE',
-    'DATA/MAPS/leveldes/seabed.IDE',
-    'DATA/MAPS/generic/SALC.IDE',
-    'DATA/MAPS/Portland/most1.IDE',
-    'DATA/MAPS/Portland/mono.IDE',
-    'DATA/MAPS/Portland/making.IDE',
-    'DATA/MAPS/Portland/temppart.IDE',
-    'DATA/MAPS/Portland/industNE.IDE',
-    'DATA/MAPS/Portland/industNW.IDE',
-    'DATA/MAPS/Portland/industSE.IDE',
-    'DATA/MAPS/Portland/industSW.IDE',
-    'DATA/MAPS/Portland/indroads.IDE',
-    'DATA/MAPS/Portland/Portroads.IDE',
-    'DATA/MAPS/Staunton/comNbtm.IDE',
-    'DATA/MAPS/Staunton/comNtop.IDE',
-    'DATA/MAPS/Staunton/comse.IDE',
-    'DATA/MAPS/Staunton/comsw.IDE',
-    'DATA/MAPS/Staunton/comroad.IDE',
-    'DATA/MAPS/Staunton/comNroads.IDE',
-    'DATA/MAPS/Staunton/STAroads.IDE',
-    'DATA/MAPS/Ssv/subroads.IDE',
-    'DATA/MAPS/Ssv/SSVroads.IDE',
-    'DATA/MAPS/Ssv/landNE.IDE',
-    'DATA/MAPS/Ssv/landSW.IDE',
-    'DATA/MAPS/others/seafloor.IDE',
-    'DATA/MAPS/interior/interior_fastfood.IDE',
-    'DATA/MAPS/interior/interior_casinos.IDE',
-    'DATA/MAPS/Horse.IDE',
-    'DATA/MAPS/veh_mods/veh_mods.IDE',
-    'DATA/TXDCUT.IDE'
+    'DATA/DEFAULT.IDE',
+    'DATA/MAPS/commer.IDE',
+    'DATA/MAPS/comroad.IDE',
+    'DATA/MAPS/generic.IDE',
+    'DATA/MAPS/indroads.IDE',
+    'DATA/MAPS/indust.IDE',
+    'DATA/MAPS/subroads.IDE',
+    'DATA/MAPS/suburb.IDE',
+    'DATA/MAPS/temppart.IDE',
+    'DATA/MAPS/making.IDE',
+    'DATA/MAPS/overview.IDE',
+    'DATA/MAPS/fortstaunton.IDE',
+    'DATA/MAPS/fortdestroyed.IDE',
+    'DATA/MAPS/leedsbits.IDE',
+    'DATA/MAPS/leedsbits2.IDE'
 )
 
 VCS_IDE = (
@@ -671,30 +665,22 @@ SA_IPL = (
 )
 
 LCS_IPL = (
-    ('DATA/MAPS/interior/interior_savehouse.IPL', 'interior_savehouse', ''),
-    ('DATA/MAPS/Staunton/comNbtm.IPL',            'comNbtm', ''),
-    ('DATA/MAPS/Staunton/comse.IPL',              'comse', ''),
-    ('DATA/MAPS/Staunton/comsw.IPL',              'comsw', ''),
-    ('DATA/MAPS/Staunton/STAroads.IPL',           'STAroads', ''),
-    ('DATA/MAPS/Staunton/comNtop.IPL',            'comNtop', ''),
-    ('DATA/MAPS/Ssv/landNE.IPL',                  'landNE', ''),
-    ('DATA/MAPS/Ssv/landSW.IPL',                  'landSW', ''),
-    ('DATA/MAPS/Ssv/ssvtemp.IPL',                 'ssvtemp', ''),
-    ('DATA/MAPS/Ssv/SSVroads.IPL',                'SSVroads', ''),
-    ('DATA/MAPS/Portland/most1.IPL',              'most1', ''),
-    ('DATA/MAPS/Portland/industNE.IPL',           'industNE', ''),
-    ('DATA/MAPS/Portland/industNW.IPL',           'industNW', ''),
-    ('DATA/MAPS/Portland/industSE.IPL',           'industSE', ''),
-    ('DATA/MAPS/Portland/industSW.IPL',           'industSW', ''),
-    ('DATA/MAPS/Portland/Portroads.IPL',          'Portroads', ''),
-    ('DATA/MAPS/Portland/mono.IPL',               'mono', ''),
-    ('DATA/MAPS/Portland/overview.IPL',           'overview', ''),
-    ('DATA/MAPS/Portland/props.IPL',              'props', ''),
-    ('DATA/MAPS/others/seafloor.IPL',             'seafloor', ''),
-    ('DATA/MAPS/interior/interior_fastfood.IPL',  'interior_fastfood', ''),
-    ('DATA/MAPS/interior/interior_casinos.IPL',   'interior_casinos', ''),
-    ('DATA/MAPS/Ssv/XPEH.IPL',                    'XPEH', ''),
-    ('DATA/MAPS/paths.ipl',                        'paths', '')
+    ('DATA/MAPS/temppart.IPL',      'temppart', ''),
+    ('DATA/MAPS/suburb.IPL',        'suburb', ''),
+    ('DATA/MAPS/subroads.IPL',      'subroads', ''),
+    ('DATA/MAPS/indust.IPL',        'indust', ''),
+    ('DATA/MAPS/indroads.IPL',      'indroads', ''),
+    ('DATA/MAPS/commer.IPL',        'commer', ''),
+    ('DATA/MAPS/comroad.IPL',       'comroad', ''),
+    ('DATA/MAPS/fortstaunton.IPL',  'fort_staunton', ''),
+    ('DATA/MAPS/fortdestroyed.IPL', 'fort_destroyed', ''),
+    ('DATA/MAPS/making.IPL',        'making', ''),
+    ('DATA/MAPS/leedsbits.IPL',     'leedsbits', ''),
+    ('DATA/MAPS/leedsbits2.IPL',    'leedsbits2', ''),
+    ('DATA/MAPS/overview.IPL',      'overview', ''),
+    ('DATA/MAPS/props.IPL',         'props', ''),
+    ('DATA/MAPS/interiors.IPL',     'interiors', ''),
+    ('DATA/MAPS/cull.IPL',          'cull', '')
 )
 
 VCS_IPL = (
@@ -749,9 +735,9 @@ data = {
         'IPL_paths': SA_IPL,
     },
     game_version.LCS : {
-        'structures': SA_structures,
-        'IDE_aliases': SA_IDE_aliases,
-        'IPL_aliases': SA_IPL_aliases,
+        'structures': VC_structures,
+        'IDE_aliases': VC_IDE_aliases,
+        'IPL_aliases': VC_IPL_aliases,
         'IDE_paths': LCS_IDE,
         'IPL_paths': LCS_IPL,
     },

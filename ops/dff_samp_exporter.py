@@ -2946,6 +2946,7 @@ class dff_exporter:
             "explicit_2dfx_objects": sum(1 for obj in objects if self.is_2dfx_export_object(obj)),
             "resolved_2dfx_objects": len(effect_objects),
             "resolved_2dfx_lights": sum(1 for obj in effect_objects if self.is_2dfx_light_object(obj)),
+            "resolved_text_ide_2dfx_objects": sum(1 for obj in effect_objects if bool(obj.get("demonff_text_ide_2dfx", False))),
             "non_blender_light_2dfx_lights": sum(1 for obj in effect_objects if self.is_2dfx_light_object(obj) and getattr(obj, "type", None) != 'LIGHT'),
             "2dfx_entries": self.count_2dfx_entries(self.dff.ext_2dfx),
             "rw_light_structs": len(getattr(self.dff, "light_list", [])),
@@ -3151,13 +3152,25 @@ class dff_exporter:
         )
 
         if counts.get("resolved_2dfx_objects", 0) != counts.get("2dfx_entries", 0):
-            print(
-                "DemonFF SA-MP DFF export warning: %s resolved %d 2DFX object(s), but wrote %d 2DFX entrie(s)." % (
+            message = (
+                "DemonFF SA-MP DFF export refused %s: resolved %d 2DFX object(s), but serialized %d 2DFX entrie(s). "
+                "The DFF was not allowed to continue because exporting it would strip or duplicate 2DFX data."
+                % (
                     export_name,
                     counts.get("resolved_2dfx_objects", 0),
                     counts.get("2dfx_entries", 0),
                 )
             )
+            print(message)
+            raise DffExportException(message)
+
+        if counts.get("resolved_text_ide_2dfx_objects", 0) > 0 and counts.get("2dfx_entries", 0) == 0:
+            message = (
+                "DemonFF SA-MP DFF export refused %s: ReLCS text-IDE 2DFX objects were found, but no RenderWare 2DFX extension entries were written."
+                % export_name
+            )
+            print(message)
+            raise DffExportException(message)
 
         if counts.get("resolved_2dfx_lights", 0) != counts.get("rw_light_structs", 0):
             print(

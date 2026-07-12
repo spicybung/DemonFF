@@ -35,6 +35,7 @@ class MapData:
     cull_instances: list
     grge_instances: list
     enex_instances: list
+    effects_2dfx: dict
 
 #######################################################
 @dataclass
@@ -65,7 +66,11 @@ class SectionUtility:
         entries = []
 
         line = file_stream.readline().strip()
-        while line != "end":
+        while line.lower() != "end":
+
+            if not line or line.startswith("#"):
+                line = file_stream.readline().strip()
+                continue
 
             # Split line and trim individual elements
             line_params = [e.strip() for e in line.split(",")]
@@ -322,6 +327,45 @@ class MapDataUtility:
 
     ########################################################################
     @staticmethod
+    def detect_text_ipl_game(filename):
+        """Detect the text IPL inst layout from the first valid inst row."""
+        with open(filename, 'rb') as stream:
+            if stream.read(4) == b'bnry':
+                return map_data.game_version.SA
+
+        with open(filename, 'r', encoding='latin-1', errors='replace') as stream:
+            in_inst = False
+            for raw_line in stream:
+                line = raw_line.split('#', 1)[0].strip()
+                if not line:
+                    continue
+                lower = line.lower()
+                if lower == 'inst':
+                    in_inst = True
+                    continue
+                if lower == 'end':
+                    if in_inst:
+                        break
+                    continue
+                if not in_inst:
+                    continue
+
+                field_count = len([part.strip() for part in line.split(',')])
+                if field_count == 12:
+                    return map_data.game_version.III
+                if field_count == 13:
+                    return map_data.game_version.VC
+                if field_count == 11:
+                    return map_data.game_version.SA
+                raise ValueError(
+                    'Unsupported IPL inst row with %d fields in %s' %
+                    (field_count, filename)
+                )
+
+        raise ValueError('No valid inst rows found in IPL: %s' % filename)
+
+    ########################################################################
+    @staticmethod
     def load_map_data(game_id, game_root, ipl_section, is_custom_ipl):
         self = MapDataUtility
 
@@ -396,12 +440,24 @@ class MapDataUtility:
             data['IDE_aliases']
         )
 
-        # Load IPL
+        # Load IPL. Custom text IPLs are detected from their inst row layout
+        # independently from the selected game, so ReLCS/VC, III and SA/VCS
+        # placements do not need a manual format selector.
+        ipl_structures = data['structures']
+        ipl_aliases = data['IPL_aliases']
+        if is_custom_ipl:
+            custom_path = ipl_section if os.path.isabs(ipl_section) else os.path.join(game_root, ipl_section)
+            detected_game = self.detect_text_ipl_game(custom_path)
+            detected_data = map_data.data[detected_game]
+            ipl_structures = detected_data['structures']
+            ipl_aliases = detected_data['IPL_aliases']
+            print('MapDataUtility: auto-detected IPL layout:', detected_game)
+
         ipl = self.load_ipl_data(
             game_root,
             ipl_section,
-            data['structures'],
-            data['IPL_aliases']
+            ipl_structures,
+            ipl_aliases
         )
 
         # Extract relevant sections
@@ -410,6 +466,7 @@ class MapDataUtility:
         grge_instances = []
         enex_instances = []
         object_data = {}
+        effects_2dfx = {}
 
         # Get all insts into a flat list (array)
         # Can't be an ID keyed dictionary, because there's many ipl
@@ -461,6 +518,9 @@ class MapDataUtility:
             for entry in ide.get(section_name, []):
                 add_ide_entry(section_name, entry)
 
+        for entry in ide.get('2dfx', []):
+            effects_2dfx.setdefault(str(entry.id), []).append(entry)
+
         if duplicate_ide_ids:
             print('MapDataUtility: duplicate IDE IDs kept by model name:', ', '.join(sorted(duplicate_ide_ids)[:16]))
 
@@ -469,7 +529,8 @@ class MapDataUtility:
             object_data = object_data,
             cull_instances = cull_instances,
             grge_instances = grge_instances,
-            enex_instances = enex_instances
+            enex_instances = enex_instances,
+            effects_2dfx = effects_2dfx
         )
 
     ########################################################################
@@ -572,6 +633,7 @@ class MapDataUtility:
             'cull_instances': map_data_object.cull_instances,
             'grge_instances': map_data_object.grge_instances,
             'enex_instances': map_data_object.enex_instances,
+            'effects_2dfx': map_data_object.effects_2dfx,
         }
 
     ########################################################################

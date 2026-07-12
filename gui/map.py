@@ -44,8 +44,7 @@ class SCENE_OT_demonff_map_filebrowser(bpy.types.Operator, ImportHelper):
     #######################################################
     def draw(self, context):
         layout = self.layout
-        layout.prop(context.scene.dff, "ipl_version")       # GTA III, VC, SA
-        layout.prop(context.scene.dff, "import_as_binary")  # Faster processing?
+        layout.prop(context.scene.dff, "import_as_binary")
     #######################################################
     def execute(self, context):
         settings = context.scene.dff
@@ -731,6 +730,164 @@ def mass_import_samp_ide(filepaths, context):
 
     print("Mass SAMP IDE import completed")
 #######################################################
+class ImportIPLDataOperator(bpy.types.Operator, ImportHelper):
+    """Place already-imported models using a text IPL without loading DFF files"""
+    bl_idname = "object.demonff_import_ipl_data"
+    bl_label = "Import IPL Data"
+    bl_description = "Place copies of models already imported into the scene using IPL instance data"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    filename_ext = ".ipl"
+    filter_glob: StringProperty(default="*.ipl", options={'HIDDEN'})
+
+    def read_instances(self, filepath):
+        from ..gtaLib import map as map_utilities
+        detected_game = map_utilities.MapDataUtility.detect_text_ipl_game(filepath)
+        data = map_data.data[detected_game]
+        sections = map_utilities.MapDataUtility.read_file(
+            filepath, data['structures'], data['IPL_aliases']
+        )
+        return detected_game, sections.get('inst', [])
+
+    def source_collection_key(self, collection):
+        name = collection.name.lower()
+        if name.endswith('.dff'):
+            name = name[:-4]
+        return name.split('.')[0]
+
+    def build_source_collections(self):
+        result = {}
+        for collection in bpy.data.collections:
+            if not collection.objects:
+                continue
+            key = self.source_collection_key(collection)
+            result.setdefault(key, collection)
+
+            for obj in collection.objects:
+                candidates = [
+                    obj.get('DFF_Name', ''),
+                    getattr(getattr(obj, 'ide', None), 'model_name', ''),
+                    getattr(getattr(obj, 'dff_map', None), 'model_name', ''),
+                ]
+                for candidate in candidates:
+                    candidate = str(candidate).strip().lower()
+                    if candidate:
+                        result.setdefault(candidate, collection)
+        return result
+
+    def duplicate_collection_objects(self, source_collection, destination_collection, placement_name):
+        source_objects = list(source_collection.objects)
+        source_set = set(source_objects)
+        object_map = {}
+
+        for source in source_objects:
+            duplicate = source.copy()
+            if source.data is not None:
+                duplicate.data = source.data
+            duplicate.animation_data_clear()
+            destination_collection.objects.link(duplicate)
+            object_map[source] = duplicate
+
+        for source, duplicate in object_map.items():
+            if source.parent in source_set:
+                duplicate.parent = object_map[source.parent]
+                duplicate.matrix_parent_inverse = source.matrix_parent_inverse.copy()
+
+        roots = [object_map[source] for source in source_objects if source.parent not in source_set]
+        placement_root = bpy.data.objects.new(placement_name, None)
+        placement_root.empty_display_type = 'PLAIN_AXES'
+        destination_collection.objects.link(placement_root)
+
+        for root in roots:
+            root.parent = placement_root
+
+        return placement_root, list(object_map.values())
+
+    def stamp_placement_properties(self, root, duplicated_objects, inst):
+        model_name = str(getattr(inst, 'modelName', '')).strip()
+        object_id = str(getattr(inst, 'id', '0')).strip()
+        interior = str(getattr(inst, 'interior', '0')).strip()
+        lod = str(getattr(inst, 'lod', '-1')).strip()
+
+        for obj in [root] + duplicated_objects:
+            obj['IDE_ID'] = int(object_id) if object_id.lstrip('-').isdigit() else object_id
+            obj['DFF_Name'] = model_name
+            obj['Interior'] = int(interior) if interior.lstrip('-').isdigit() else interior
+            if hasattr(inst, 'lod'):
+                obj['LODIndex'] = int(lod) if lod.lstrip('-').isdigit() else lod
+
+            if hasattr(obj, 'ide'):
+                obj.ide.obj_id = object_id
+                obj.ide.model_name = model_name
+            if hasattr(obj, 'ipl'):
+                obj.ipl.interior = interior
+                if hasattr(inst, 'lod'):
+                    obj.ipl.lod = lod
+            if hasattr(obj, 'dff_map'):
+                obj.dff_map.ipl_section = 'inst'
+                obj.dff_map.object_id = int(object_id) if object_id.lstrip('-').isdigit() else 0
+                obj.dff_map.model_name = model_name
+                obj.dff_map.interior = int(interior) if interior.lstrip('-').isdigit() else 0
+                obj.dff_map.lod = int(lod) if lod.lstrip('-').isdigit() else -1
+
+    def apply_instance_transform(self, obj, inst):
+        obj.location = (float(inst.posX), float(inst.posY), float(inst.posZ))
+        obj.rotation_mode = 'QUATERNION'
+        obj.rotation_quaternion = (
+            -float(inst.rotW),
+            float(inst.rotX),
+            float(inst.rotY),
+            float(inst.rotZ),
+        )
+        if hasattr(inst, 'scaleX'):
+            obj.scale = (float(inst.scaleX), float(inst.scaleY), float(inst.scaleZ))
+
+    def execute(self, context):
+        try:
+            detected_game, instances = self.read_instances(self.filepath)
+        except Exception as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
+
+        sources = self.build_source_collections()
+        output_name = os.path.splitext(os.path.basename(self.filepath))[0] + ' IPL Placements'
+        output_collection = bpy.data.collections.new(output_name)
+        context.scene.collection.children.link(output_collection)
+
+        placed = 0
+        missing = {}
+        for index, inst in enumerate(instances):
+            model_name = str(getattr(inst, 'modelName', '')).strip()
+            key = model_name.lower()
+            source_collection = sources.get(key)
+            if source_collection is None:
+                missing[key] = missing.get(key, 0) + 1
+                continue
+
+            placement_name = '%s_%04d' % (model_name, index)
+            root, duplicated_objects = self.duplicate_collection_objects(
+                source_collection, output_collection, placement_name
+            )
+            self.apply_instance_transform(root, inst)
+            self.stamp_placement_properties(root, duplicated_objects, inst)
+            placed += 1
+
+        print('Import IPL Data: detected=%s entries=%d placed=%d missing=%d' % (
+            detected_game, len(instances), placed, len(instances) - placed
+        ))
+        if missing:
+            print('Import IPL Data: missing already-imported models:')
+            for name, count in sorted(missing.items()):
+                print('    %s: %d placement(s)' % (name or '<unnamed>', count))
+
+        self.report(
+            {'INFO'},
+            'IPL %s: placed %d of %d entries; %d missing models' %
+            (detected_game, placed, len(instances), len(instances) - placed)
+        )
+        return {'FINISHED'}
+
+#######################################################
 class SAMP_IDE_Import_Operator(bpy.types.Operator):
     """Import SAMP .IDE File"""
     bl_idname = "object.samp_ide_import"
@@ -867,6 +1024,9 @@ class MapImportPanel(bpy.types.Panel):
 
         row = layout.row()
         row.operator("object.export_to_ide", text="Export IDE")
+
+        row = layout.row()
+        row.operator("object.demonff_import_ipl_data", text="Import IPL Data")
 
         row = layout.row()
         row.operator("object.samp_mass_ide_import", text="Import IDE Data")
@@ -1283,7 +1443,7 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
         return {'RUNNING_MODAL'}
 
 class DemonFFNewPawnPanel(bpy.types.Panel):
-    bl_label = "DemonFF - Pawn I/O"
+    bl_label = "DemonFF - SAMP Pawn I/O"
     bl_idname = "SCENE_PT_demonff_pawn_io"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
@@ -1302,6 +1462,7 @@ def register():
     bpy.utils.register_class(DFFFrameProps)
     bpy.utils.register_class(DFFAtomicProps)
     bpy.utils.register_class(DFFSceneProps)
+    bpy.utils.register_class(ImportIPLDataOperator)
     bpy.utils.register_class(SAMP_IDE_Import_Operator)
     bpy.utils.register_class(Mass_IDE_Import_Operator)
     bpy.utils.register_class(MapImportPanel)
@@ -1320,6 +1481,7 @@ def unregister():
     bpy.utils.unregister_class(DFFFrameProps)
     bpy.utils.unregister_class(DFFAtomicProps)
     bpy.utils.unregister_class(DFFSceneProps)
+    bpy.utils.unregister_class(ImportIPLDataOperator)
     bpy.utils.unregister_class(SAMP_IDE_Import_Operator)
     bpy.utils.unregister_class(Mass_IDE_Import_Operator)
     bpy.utils.unregister_class(MapImportPanel)

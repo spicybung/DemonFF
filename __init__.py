@@ -26,7 +26,7 @@ from bpy.utils import register_class, unregister_class
 bl_info = {
     "name": "DemonFF",
     "author": "SpicyBung",
-    "version": (0, 5, 1),
+    "version": (0, 5, 2),
     "blender": (2, 80, 0),      # Tested and working on 3.x & 4.x
     "category": "Import-Export",
     "location": "File > Import/Export",
@@ -98,6 +98,7 @@ _classes = [
     gui.SCENE_OT_dff_update,
     gui.SCENE_OT_select_ipl_and_import,
     gui.SCENE_OT_ipl_select,
+    gui.ImportIPLDataOperator,
     gui.SCENE_OT_duplicate_all_as_collision,
     gui.OBJECT_OT_import_col_info,
     map_importer.Map_Import_Operator,
@@ -114,6 +115,12 @@ _classes = [
     ide_text_exporter.EXPORT_OT_demonff_ide,
     ipl_text_exporter.EXPORT_OT_demonff_ipl,
     gui.DemonFFNewPawnPanel,
+    gui.MTAResourceSettings,
+    gui.MTAObjectSettings,
+    gui.EXPORT_OT_mta_resource,
+    gui.IMPORT_OT_mta_resource,
+    gui.SCENE_PT_demonff_mta_io,
+    gui.OBJECT_PT_demonff_mta,
     gui.DEMONFF_PT_DFF2DFX,
     gui.SAEFFECTS_OT_AddLightInfo,
     gui.SAEFFECTS_OT_AddParticleInfo,
@@ -159,6 +166,8 @@ def remove_runtime_properties():
         (bpy.types.Object, "ide"),
         (bpy.types.Object, "ipl"),
         (bpy.types.Object, "dff_map"),
+        (bpy.types.Scene, "mta"),
+        (bpy.types.Object, "mta"),
     ):
         if hasattr(owner, name):
             try:
@@ -192,6 +201,8 @@ def register():
     bpy.types.Object.ide = bpy.props.PointerProperty(type=gui.IDEObjectProps)
     bpy.types.Object.ipl = bpy.props.PointerProperty(type=gui.IPLObjectProps)
     bpy.types.Object.dff_map = bpy.props.PointerProperty(type=gui.DFFMapObjectProps)
+    bpy.types.Scene.mta = bpy.props.PointerProperty(type=gui.MTAResourceSettings)
+    bpy.types.Object.mta = bpy.props.PointerProperty(type=gui.MTAObjectSettings)
 
     bpy.types.Scene.saeffects_export_path = bpy.props.StringProperty(
         name="Binary",

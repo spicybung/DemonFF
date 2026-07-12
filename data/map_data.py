@@ -165,7 +165,7 @@ SA_structures['anim'] = namedtuple("IDE_ANIM_SA", "id modelName textureName anim
 # PEDS
 # Defines pedestrian objects (random NPC's)
 III_structures['peds'] = namedtuple("IDE_PEDS_3",  "id modelName txdName pedType behavior animGroup vehClass")
-VC_structures['peds'] =  namedtuple("IDE_PEDS_VC", "id modelName txdName pedType behavior animGroup vehClass animfile radio1 radio2")
+VC_structures['peds'] =  namedtuple("IDE_PEDS_VC", "id modelName txdName pedType behavior animGroup vehClass animfile radio1 radio2 filename")
 SA_structures['peds'] =  namedtuple("IDE_PEDS_SA", "id modelName txdName pedType behavior animGroup vehClass flags animfile radio1 radio2 voiceArchive voice1 voice2")
 
 # CARS
@@ -396,15 +396,21 @@ MX_IDE = (
 
 # GTA LCS - this uses LCS PC Edition
 LCS_IDE = (
-    'DATA\\MAPS\\SUBURB.IDE',
-    'DATA\\MAPS\\SUBROADS.IDE',
-    'DATA\\MAPS\\COMMER.IDE',
-    'DATA\\MAPS\\COMROAD.IDE',
-    'DATA\\MAPS\\INDUST.IDE',
-    'DATA\\MAPS\\INDROADS.IDE',
-    'DATA\\MAPS\\FORTDESTROYED.IDE',
-    'DATA\\MAPS\\FORTSTAUNTON.IDE'
-
+    'DATA/DEFAULT.IDE',
+    'DATA/MAPS/commer.IDE',
+    'DATA/MAPS/comroad.IDE',
+    'DATA/MAPS/generic.IDE',
+    'DATA/MAPS/indroads.IDE',
+    'DATA/MAPS/indust.IDE',
+    'DATA/MAPS/subroads.IDE',
+    'DATA/MAPS/suburb.IDE',
+    'DATA/MAPS/temppart.IDE',
+    'DATA/MAPS/making.IDE',
+    'DATA/MAPS/overview.IDE',
+    'DATA/MAPS/fortstaunton.IDE',
+    'DATA/MAPS/fortdestroyed.IDE',
+    'DATA/MAPS/leedsbits.IDE',
+    'DATA/MAPS/leedsbits2.IDE'
 )
 
 # GTA VCS - this uses VCS PC Edition
@@ -703,15 +709,22 @@ MX_IPL = (
 
 # GTA LCS - uses LCS PC Edition
 LCS_IPL = (
-    ('DATA\\MAPS\\temppart.ipl',                     'temppart', ''),
-    ('DATA\\MAPS\\suburb.ipl',                       'suburb', ''),
-    ('DATA\\MAPS\\subroads.ipl',                     'subroads', ''),
-    ('DATA\\MAPS\\indust.ipl',                       'indust', ''),
-    ('DATA\\MAPS\\indroads.ipl',                     'indroads', ''),
-    ('DATA\\MAPS\\commer.ipl',                       'commer', ''),
-    ('DATA\\MAPS\\comroad.ipl',                      'comroad', ''),
-    ('DATA\\MAPS\\fortstaunton.ipl',                 'fort_staunton', ''),
-    ('DATA\\MAPS\\fortdestroyed.ipl',                'fort_destroyed', '')
+    ('DATA/MAPS/temppart.IPL',      'temppart', ''),
+    ('DATA/MAPS/suburb.IPL',        'suburb', ''),
+    ('DATA/MAPS/subroads.IPL',      'subroads', ''),
+    ('DATA/MAPS/indust.IPL',        'indust', ''),
+    ('DATA/MAPS/indroads.IPL',      'indroads', ''),
+    ('DATA/MAPS/commer.IPL',        'commer', ''),
+    ('DATA/MAPS/comroad.IPL',       'comroad', ''),
+    ('DATA/MAPS/fortstaunton.IPL',  'fort_staunton', ''),
+    ('DATA/MAPS/fortdestroyed.IPL', 'fort_destroyed', ''),
+    ('DATA/MAPS/making.IPL',        'making', ''),
+    ('DATA/MAPS/leedsbits.IPL',     'leedsbits', ''),
+    ('DATA/MAPS/leedsbits2.IPL',    'leedsbits2', ''),
+    ('DATA/MAPS/overview.IPL',      'overview', ''),
+    ('DATA/MAPS/props.IPL',         'props', ''),
+    ('DATA/MAPS/interiors.IPL',     'interiors', ''),
+    ('DATA/MAPS/cull.IPL',          'cull', '')
 )
 
 # GTA VCS - uses VCS PC Edition

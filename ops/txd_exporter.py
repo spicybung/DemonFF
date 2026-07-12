@@ -50,7 +50,10 @@ class txd_exporter:
         for h in range(height - 1, -1, -1):
             offset = h * width * 4
             row_pixels = pixels[offset:offset + width * 4]
-            rgba_data.extend(int(round(p * 0xff)) for p in row_pixels)
+            rgba_data.extend(
+                max(0, min(255, int(round(float(pixel) * 255.0))))
+                for pixel in row_pixels
+            )
 
         texture_native = txd.TextureNative()
         texture_native.platform_id = NativePlatformType.D3D9
@@ -121,7 +124,7 @@ class txd_exporter:
                     continue
 
                 for node in node_tree.nodes:
-                    if node.type == 'TEX_IMAGE':
+                    if node.type == 'TEX_IMAGE' and node.image is not None:
                         texture_name = clear_extension(node.label or node.image.name)
                         used_textures.add((texture_name, node.image))
 
@@ -212,7 +215,7 @@ class txd_exporter:
                 print(f"Exporting textures for object '{obj.name}' to {file_name}")
 
                 # Export textures used by this specific object only
-                self.export_txd([obj], file_name)
+                self.export_textures([obj], file_name)
                 selected_objects_num += 1
 
             print(f"Mass export completed for {selected_objects_num} objects")
