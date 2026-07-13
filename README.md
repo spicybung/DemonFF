@@ -75,10 +75,6 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 For detailed instructions and documentation, visit the [Wiki](https://github.com/spicybung/DemonFF/wiki)(Soon for DemonFF).
 
-## Contributing
-
-Contributions are welcome! If you have suggestions, bug reports, or want to contribute code, please check out the [Contributing Guidelines](CONTRIBUTING.md).
-
 ## License
 
 This project is licensed under the GPL 3.0 License - see the [LICENSE](LICENSE) file for details.
