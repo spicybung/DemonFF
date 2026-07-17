@@ -203,14 +203,15 @@ def get_object_interior(obj, default=0):
 def get_stream_world_and_interior(obj, default_world=-1, default_interior=-1):
     interior = get_object_interior(obj, default_interior)
 
-    # The third field in VCS text IPL inst lines is a VCS interior/area value.
-    # It is not a SA-MP/open.mp virtual world.  For converted exterior maps,
-    # exporting it into CreateDynamicObject's world/interior slots hides objects
-    # from players in world 0/interior 0.
+    # The third field in Stories/VC-derived text IPL rows is frequently an
+    # area value rather than a usable SA-MP virtual world. Optimize for SAMP
+    # stamps explicit Pawn world/interior metadata during import.
     if getattr(pwn_exporter, "force_all_worlds_interiors", True):
         return -1, -1
 
-    return default_world, interior
+    world = get_custom_prop(obj, "Pawn_World_ID", default_world)
+    pawn_interior = get_custom_prop(obj, "Pawn_Interior_ID", interior)
+    return world, pawn_interior
 
 #######################################################
 def get_object_lod(obj, default=-1):
@@ -1064,6 +1065,7 @@ class pwn_exporter:
     skip_lod = False
     stream_distance = 300.0
     draw_distance = 300.0
+    model_id_start = -1000
     x_offset = 0.0
     y_offset = 0.0
     z_offset = 0.0
@@ -1087,18 +1089,23 @@ class pwn_exporter:
 
     @staticmethod
     def get_or_create_model_id(obj, name_mapping, current_id):
-        samp_id = get_object_samp_id(obj)
-        if samp_id not in (None, ""):
-            try:
-                return int(samp_id), current_id
-            except Exception:
-                return samp_id, current_id
-
         key = get_pawn_model_name(obj).lower()
-        if key not in name_mapping:
-            name_mapping[key] = current_id
-            current_id -= 1
-        return name_mapping[key], current_id
+
+        if key in name_mapping:
+            return name_mapping[key], current_id
+
+        if current_id > -1000:
+            current_id = min(-1000, max(-30000, int(pwn_exporter.model_id_start)))
+
+        if current_id < -30000:
+            raise RuntimeError(
+                "No free SA-MP custom model IDs remain in the supported -1000 through -30000 range."
+            )
+
+        name_mapping[key] = current_id
+        assigned_id = current_id
+        current_id -= 1
+        return assigned_id, current_id
 
     @staticmethod
     def export_pawn(filename):
@@ -1111,7 +1118,7 @@ class pwn_exporter:
         model_directory = self.model_directory.strip().replace('\\', '/')
         texture_directory = self.texture_directory.strip().replace('\\', '/')
         base_model_id = 19379
-        current_id = -1000
+        current_id = min(-1000, max(-30000, int(self.model_id_start)))
         name_mapping = {}
         written_models = {}
         addsimplemodel_written = 0
@@ -1213,6 +1220,7 @@ def export_pawn(options):
     pwn_exporter.skip_lod = options.get('skip_lod', False)
     pwn_exporter.stream_distance = options.get('stream_distance', 300.0)
     pwn_exporter.draw_distance = options.get('draw_distance', 300.0)
+    pwn_exporter.model_id_start = min(-1000, max(-30000, int(options.get('model_id_start', -1000))))
     pwn_exporter.x_offset = options.get('x_offset', 0.0)
     pwn_exporter.y_offset = options.get('y_offset', 0.0)
     pwn_exporter.z_offset = options.get('z_offset', 0.0)

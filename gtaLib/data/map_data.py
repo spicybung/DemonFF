@@ -664,23 +664,29 @@ SA_IPL = (
     ('vegasw_stream9.ipl',           'vegasw_stream9', ''),
 )
 
+# GTA LCS - uses LCS PC Edition
+#
+# Runtime IPLs are loaded by gta_vc.dat. Auxiliary IPLs are retained because
+# they are useful source/reference data, but they are not merged into the
+# runtime world automatically.
 LCS_IPL = (
-    ('DATA/MAPS/temppart.IPL',      'temppart', ''),
-    ('DATA/MAPS/suburb.IPL',        'suburb', ''),
-    ('DATA/MAPS/subroads.IPL',      'subroads', ''),
-    ('DATA/MAPS/indust.IPL',        'indust', ''),
-    ('DATA/MAPS/indroads.IPL',      'indroads', ''),
-    ('DATA/MAPS/commer.IPL',        'commer', ''),
-    ('DATA/MAPS/comroad.IPL',       'comroad', ''),
-    ('DATA/MAPS/fortstaunton.IPL',  'fort_staunton', ''),
-    ('DATA/MAPS/fortdestroyed.IPL', 'fort_destroyed', ''),
-    ('DATA/MAPS/making.IPL',        'making', ''),
-    ('DATA/MAPS/leedsbits.IPL',     'leedsbits', ''),
-    ('DATA/MAPS/leedsbits2.IPL',    'leedsbits2', ''),
-    ('DATA/MAPS/overview.IPL',      'overview', ''),
-    ('DATA/MAPS/props.IPL',         'props', ''),
-    ('DATA/MAPS/interiors.IPL',     'interiors', ''),
-    ('DATA/MAPS/cull.IPL',          'cull', '')
+    ('DATA/MAPS/commer.IPL',         'commer',         'Runtime IPL loaded by gta_vc.dat'),
+    ('DATA/MAPS/suburb.IPL',         'suburb',         'Runtime IPL loaded by gta_vc.dat'),
+    ('DATA/MAPS/overview.IPL',       'overview',       'Runtime global IPL loaded by gta_vc.dat'),
+    ('DATA/MAPS/indust.IPL',         'indust',         'Runtime IPL loaded by gta_vc.dat'),
+    ('DATA/MAPS/interiors.IPL',      'interiors',      'Runtime interior IPL loaded by gta_vc.dat'),
+    ('DATA/MAPS/cull.IPL',           'cull',           'Runtime CULL IPL loaded by gta_vc.dat'),
+
+    ('DATA/MAPS/comroad.IPL',        'comroad',        'Auxiliary/source IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/indroads.IPL',       'indroads',       'Auxiliary/source IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/subroads.IPL',       'subroads',       'Auxiliary/source IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/temppart.IPL',       'temppart',       'Auxiliary/source IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/making.IPL',         'making',         'Auxiliary/source IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/fortstaunton.IPL',   'fortstaunton',   'Auxiliary/source IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/fortdestroyed.IPL',  'fortdestroyed',  'Auxiliary/source IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/leedsbits.IPL',      'leedsbits',      'Auxiliary/source and test IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/leedsbits2.IPL',     'leedsbits2',     'Auxiliary/source and test IPL; not loaded by gta_vc.dat'),
+    ('DATA/MAPS/props.IPL',          'props',          'Auxiliary/source IPL; not loaded by gta_vc.dat'),
 )
 
 VCS_IPL = (

@@ -341,6 +341,16 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         default     = True
     )
 
+    optimize_for_samp: bpy.props.BoolProperty(
+        name="Optimize for SAMP",
+        description=(
+            "Place ordinary exterior IPL sections in SA-MP world/interior 0. "
+            "Explicit interior IPL sections keep separate virtual worlds. "
+            "The original IPL interior/area value is preserved as metadata"
+        ),
+        default=False
+    )
+
     load_txd: bpy.props.BoolProperty(
         name        = "Load TXD files",
         default     = False
@@ -987,6 +997,7 @@ class MapImportPanel(bpy.types.Panel):
         if settings.load_txd and hasattr(settings, "txd_pack"):
             box.prop(settings, "txd_pack", text="Pack Images")
 
+        col.prop(settings, "optimize_for_samp", text="Optimize for SAMP")
         col.prop(settings, "skip_lod", text="Skip LOD Objects")
         col.prop(settings, "read_mat_split", text="Read Material Split")
         col.prop(settings, "create_backfaces", text="Create Backfaces")
@@ -1392,6 +1403,13 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
     skip_lod: bpy.props.BoolProperty(name="Skip LOD Objects", default=True)
     stream_distance: bpy.props.FloatProperty(name="Stream Distance", default=300.0)
     draw_distance: bpy.props.FloatProperty(name="Draw Distance", default=300.0)
+    model_id_start: bpy.props.IntProperty(
+        name="Model ID Start",
+        default=-1000,
+        min=-30000,
+        max=-1000,
+        description="First custom SA-MP model ID. IDs are allocated downward and can never be higher than -1000",
+    )
     x_offset: bpy.props.FloatProperty(name="X Offset", default=0.0)
     y_offset: bpy.props.FloatProperty(name="Y Offset", default=0.0)
     z_offset: bpy.props.FloatProperty(name="Z Offset", default=0.0)
@@ -1410,6 +1428,7 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
         layout.prop(self, "skip_lod")
         layout.prop(self, "stream_distance")
         layout.prop(self, "draw_distance")
+        layout.prop(self, "model_id_start")
         layout.prop(self, "x_offset")
         layout.prop(self, "y_offset")
         layout.prop(self, "z_offset")
@@ -1425,6 +1444,7 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
             "skip_lod": self.skip_lod,
             "stream_distance": self.stream_distance,
             "draw_distance": self.draw_distance,
+            "model_id_start": self.model_id_start,
             "x_offset": self.x_offset,
             "y_offset": self.y_offset,
             "z_offset": self.z_offset,
@@ -1455,7 +1475,7 @@ class DemonFFNewPawnPanel(bpy.types.Panel):
         col.operator("scene.pwn_import", text="Import PWN")
         col.operator("scene.pwn_export", text="Export PWN + artconfig")
         col.separator()
-        col.operator("object.remove_building_for_player", text="RemoveBuilding")
+        col.operator("object.remove_building_for_player", text="RemoveBuildingForPlayer")
 
 #######################################################
 def register():

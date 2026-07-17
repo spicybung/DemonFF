@@ -53,6 +53,7 @@ class dff_importer:
     create_backfaces   = False
     import_normals     = False
     group_materials    = False
+    defer_scene_update = False
     version            = ""
     warning            = ""
 
@@ -1094,7 +1095,8 @@ class dff_importer:
                     # instance appears to hide the same object twice.
                     unlink_collection_from_scene_root(collection)
 
-        State.update_scene()
+        if not self.defer_scene_update:
+            State.update_scene()
 
 
 
@@ -1114,6 +1116,9 @@ def import_dff(options):
     dff_importer.group_materials  = options['group_materials']
     dff_importer.import_normals   = options['import_normals']
     dff_importer.materials_naming = options['materials_naming']
+    dff_importer.defer_scene_update = bool(
+        options.get('defer_scene_update', False)
+    )
 
     dff_importer.import_dff(options['file_name'])
 
