@@ -19,7 +19,7 @@ class ExportToIPLOperator(bpy.types.Operator, ExportHelper):
     filter_glob: bpy.props.StringProperty(default="*.ipl", options={'HIDDEN'})
 
     def execute(self, context):
-        if not [obj for obj in context.selected_objects if map_exporter.object_is_exportable_map_instance(obj)]:
+        if not map_exporter.collect_ipl_export_objects(context, only_selected=True):
             self.report({'INFO'}, "No exportable map mesh selected")
             return {'CANCELLED'}
 

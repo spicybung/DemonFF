@@ -467,6 +467,7 @@ class MapDataUtility:
         enex_instances = []
         object_data = {}
         effects_2dfx = {}
+        ide_models_by_source_id = {}
 
         # Get all insts into a flat list (array)
         # Can't be an ID keyed dictionary, because there's many ipl
@@ -501,6 +502,7 @@ class MapDataUtility:
         def add_ide_entry(section_name, entry):
             entry_id = entry.id
             model_name = str(getattr(entry, 'modelName', '')).strip().lower()
+            source_name = str(getattr(entry, 'filename', '')).strip().lower()
 
             for key in (entry_id, str(entry_id)):
                 if key in object_data:
@@ -513,13 +515,42 @@ class MapDataUtility:
             if model_name:
                 object_data[(str(entry_id), model_name)] = entry
                 object_data[model_name] = entry
+                if source_name:
+                    ide_models_by_source_id[(source_name, str(entry_id))] = model_name
 
         for section_name in ('objs', 'tobj', 'anim'):
             for entry in ide.get(section_name, []):
                 add_ide_entry(section_name, entry)
 
+        # ReLCS stores 2DFX in external IDE text sections. The effect ID is the
+        # owning model ID, not a world-placement model to export to IPL/Pawn.
+        # Resolve against the object definition from the same source IDE first;
+        # converted map packs can reuse numeric IDs in unrelated IDE files.
+        unresolved_effects = []
+        effects_by_plain_id = {}
         for entry in ide.get('2dfx', []):
+            entry_id = str(entry.id)
+            source_name = str(getattr(entry, 'filename', '')).strip().lower()
+            model_name = ide_models_by_source_id.get((source_name, entry_id), '')
+
+            if model_name:
+                effects_2dfx.setdefault((entry_id, model_name), []).append(entry)
+                effects_by_plain_id.setdefault(entry_id, set()).add(model_name)
+            else:
+                unresolved_effects.append(entry)
+
+        # Compatibility fallback for ordinary map sets whose IDs have exactly
+        # one owner. Ambiguous IDs deliberately have no plain-ID alias.
+        for entry_id, model_names in effects_by_plain_id.items():
+            if len(model_names) == 1:
+                model_name = next(iter(model_names))
+                effects_2dfx[entry_id] = effects_2dfx[(entry_id, model_name)]
+
+        for entry in unresolved_effects:
             effects_2dfx.setdefault(str(entry.id), []).append(entry)
+
+        if unresolved_effects:
+            print('MapDataUtility: 2DFX entries without a same-IDE model owner:', len(unresolved_effects))
 
         if duplicate_ide_ids:
             print('MapDataUtility: duplicate IDE IDs kept by model name:', ', '.join(sorted(duplicate_ide_ids)[:16]))

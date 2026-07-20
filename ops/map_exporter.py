@@ -273,6 +273,61 @@ def object_is_lod(obj):
     return name.startswith("lod") or ".colmesh" in name or get_dff_type(obj) == 'COL'
 
 #######################################################
+def object_has_2dfx_role(obj):
+    current = obj
+    visited = set()
+
+    while current is not None:
+        try:
+            pointer = current.as_pointer()
+        except Exception:
+            pointer = id(current)
+
+        if pointer in visited:
+            break
+        visited.add(pointer)
+
+        try:
+            if current.dff.type == '2DFX':
+                return True
+        except Exception:
+            pass
+
+        try:
+            if bool(current.get("demonff_text_ide_2dfx", False)):
+                return True
+            if str(current.get("DemonFF_Entity_Role", "")).upper() == "2DFX":
+                return True
+        except Exception:
+            pass
+
+        current = getattr(current, 'parent', None)
+
+    return False
+
+#######################################################
+def object_has_explicit_map_placement(obj):
+    try:
+        if bool(obj.get("DemonFF_Map_Placement", False)):
+            return True
+    except Exception:
+        pass
+
+    try:
+        role = str(obj.get("DemonFF_Entity_Role", "")).upper()
+        if role == "MAP_INSTANCE":
+            return True
+        if role in {"2DFX", "DFF_COMPONENT"}:
+            return False
+    except Exception:
+        pass
+
+    try:
+        return "IDE_ID" in obj and "DFF_Name" in obj
+    except Exception:
+        return False
+
+#######################################################
 def object_is_primary_empty_child(obj):
     parent = getattr(obj, 'parent', None)
     if parent is None or getattr(parent, 'type', None) != 'EMPTY':
@@ -294,6 +349,26 @@ def object_is_primary_empty_child(obj):
 
 #######################################################
 def object_is_exportable_map_instance(obj):
+    if object_has_2dfx_role(obj):
+        return False
+
+    try:
+        entity_role = str(obj.get("DemonFF_Entity_Role", "")).upper()
+    except Exception:
+        entity_role = ""
+
+    if entity_role in {"2DFX", "DFF_COMPONENT"}:
+        return False
+
+    own_dff_type = ""
+    try:
+        own_dff_type = obj.dff.type
+    except Exception:
+        pass
+
+    if object_has_explicit_map_placement(obj):
+        return obj.type in {'MESH', 'EMPTY', 'ARMATURE'} and own_dff_type == 'OBJ'
+
     if obj.type != 'MESH':
         return False
 
@@ -310,7 +385,30 @@ def object_is_exportable_map_instance(obj):
     return True
 
 #######################################################
+def object_or_descendant_is_selected(obj):
+    try:
+        if obj.select_get():
+            return True
+    except Exception:
+        pass
+
+    descendants = list(getattr(obj, 'children', []))
+    while descendants:
+        child = descendants.pop()
+        try:
+            if child.select_get():
+                return True
+        except Exception:
+            pass
+        descendants.extend(getattr(child, 'children', []))
+
+    return False
+
+#######################################################
 def object_is_2dfx_pawn_helper(obj):
+    if object_has_2dfx_role(obj):
+        return True
+
     names = [
         obj.name,
         clean_map_name(obj.name),
@@ -636,7 +734,7 @@ def mass_import_samp_ide(filepaths, context):
 def collect_ipl_export_objects(context, only_selected=True):
     objects = []
     for obj in context.scene.objects:
-        if only_selected and not obj.select_get():
+        if only_selected and not object_or_descendant_is_selected(obj):
             continue
         if not object_is_exportable_map_instance(obj):
             continue
@@ -1075,15 +1173,26 @@ class pwn_exporter:
     @staticmethod
     def collect_objects(context):
         objects = []
+        seen_placements = set()
+
         for obj in context.scene.objects:
             if not object_is_exportable_map_instance(obj):
                 continue
-            if pwn_exporter.only_selected and not obj.select_get():
+            if pwn_exporter.only_selected and not object_or_descendant_is_selected(obj):
                 continue
             if pwn_exporter.skip_lod and object_is_lod(obj):
                 continue
             if object_is_2dfx_pawn_helper(obj):
                 continue
+
+            source_section = str(get_custom_prop(obj, "IPL_Source_Section", ""))
+            instance_index = get_custom_prop(obj, "IPL_Instance_Index", None)
+            if instance_index is not None:
+                placement_key = (source_section.lower(), str(instance_index))
+                if placement_key in seen_placements:
+                    continue
+                seen_placements.add(placement_key)
+
             objects.append(obj)
         return objects
 
@@ -1189,14 +1298,6 @@ class pwn_exporter:
                             dff_path.lower(),
                             txd_path.lower(),
                         )
-                    )
-
-                lod_index = get_object_lod(obj, None)
-                if lod_index not in (None, "", -1, "-1"):
-                    pawn_file.write(
-                        f"    CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
-                        f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
-                        f"{world_id}, {interior}, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // LOD for {obj.name}\n"
                     )
 
                 self.total_objects_num += 1

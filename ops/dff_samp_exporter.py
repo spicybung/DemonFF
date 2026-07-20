@@ -2766,18 +2766,29 @@ class dff_exporter:
     @staticmethod
     def get_2dfx_local_location(obj, root_objects):
         self = dff_exporter
-        nearest_object = self.get_nearest_atomic_object(obj, root_objects)
+        owner_object = None
+        parent = getattr(obj, "parent", None)
+        root_set = set(root_objects)
+
+        while parent is not None:
+            if parent in root_set:
+                owner_object = parent
+                break
+            parent = getattr(parent, "parent", None)
+
+        if owner_object is None:
+            owner_object = self.get_nearest_atomic_object(obj, root_objects)
 
         try:
             location = obj.matrix_world.translation.copy()
         except Exception:
             location = mathutils.Vector(obj.location)
 
-        if nearest_object is None:
+        if owner_object is None:
             return location
 
         try:
-            return nearest_object.matrix_world.inverted() @ location
+            return owner_object.matrix_world.inverted() @ location
         except Exception:
             return location
 
