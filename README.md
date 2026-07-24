@@ -82,11 +82,11 @@ This project is licensed under the GPL 3.0 License - see the [LICENSE](LICENSE) 
 ## Acknowledgments
 
 - Special thanks to the Blender community and contributors.
-- The GTA modding community.
+- The open.mp developer team(iAmir, Ksen, Hual, etc...), for their work in making a new SAMP and increasing its capabilities - creating the inspiration to do this
+- BeckzyBoi, as well as others from the SAMP/open.mp community for their testing & patience along with me.
 - The GTA Mods Wiki for being a huge considerate help in figuring things, such as data structures, out.
 - Kam, The_Hero, Goldfish, and more for their contributions to Grand Theft Auto & Renderware modding.
 - Parik27, Psycrow & many others for their work on DragonFF Blender Add-on, which without would have made this impossible.
-- Beckzy, as well as others from the SAMP/open.mp community for their testing & patience.
 - The SkR community, for their insipiration. 
 - Many other special people.
 
