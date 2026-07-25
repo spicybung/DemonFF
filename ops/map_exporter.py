@@ -281,6 +281,22 @@ def object_is_lod(obj):
     return name.startswith("lod") or ".colmesh" in name or get_dff_type(obj) == 'COL'
 
 #######################################################
+def object_is_synthetic_chunk(obj):
+    names = [
+        getattr(obj, 'name', ''),
+        get_object_model_name(obj),
+        get_pawn_model_name(obj),
+    ]
+
+    for name in names:
+        clean_name = clean_map_name(str(name or '')).strip()
+        clean_name = re.sub(r'\.\d+$', '', clean_name)
+        if clean_name.lower() == 'chunk':
+            return True
+
+    return False
+
+#######################################################
 def object_is_primary_empty_child(obj):
     parent = getattr(obj, 'parent', None)
     if parent is None or getattr(parent, 'type', None) != 'EMPTY':
@@ -2400,7 +2416,7 @@ class pwn_exporter:
     only_selected = False
     model_directory = ""
     texture_directory = ""
-    skip_lod = False
+    skip_lod = True
     stream_distance = 300.0
     draw_distance = 300.0
     model_id_start = -1000
@@ -2418,7 +2434,9 @@ class pwn_exporter:
                 continue
             if pwn_exporter.only_selected and not obj.select_get():
                 continue
-            if pwn_exporter.skip_lod and object_is_lod(obj):
+            if object_is_lod(obj):
+                continue
+            if object_is_synthetic_chunk(obj):
                 continue
             if object_is_2dfx_pawn_helper(obj):
                 continue
@@ -2537,13 +2555,6 @@ class pwn_exporter:
                         )
                     )
 
-                lod_index = get_object_lod(obj, None)
-                if lod_index not in (None, "", -1, "-1"):
-                    pawn_file.write(
-                        f"    CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
-                        f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
-                        f"{world_id}, {interior}, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // LOD for {obj.name}\n"
-                    )
 
                 self.total_objects_num += 1
 
@@ -2563,7 +2574,7 @@ def export_pawn(options):
     pwn_exporter.only_selected = options.get('only_selected', False)
     pwn_exporter.model_directory = options.get('model_directory', '')
     pwn_exporter.texture_directory = options.get('texture_directory', '')
-    pwn_exporter.skip_lod = options.get('skip_lod', False)
+    pwn_exporter.skip_lod = True
     pwn_exporter.stream_distance = options.get('stream_distance', 300.0)
     pwn_exporter.draw_distance = options.get('draw_distance', 300.0)
     pwn_exporter.model_id_start = min(-1000, max(-30000, int(options.get('model_id_start', -1000))))

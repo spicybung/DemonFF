@@ -1,0 +1,5 @@
+Copy the pawno directory from the SA-MP 0.3.DL server package here.
+
+Required executable:
+
+    pawncc.exe

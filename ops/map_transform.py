@@ -3,7 +3,7 @@ import math
 from mathutils import Euler, Matrix, Quaternion, Vector
 
 
-GTA_EULER_ORDER = 'YXZ'
+GTA_EULER_ORDER = 'XYZ'
 
 
 def normalized_quaternion(quaternion):
@@ -35,7 +35,7 @@ def blender_quaternion_to_ipl(quaternion):
 
 
 def gta_euler_degrees_to_quaternion(rot_x, rot_y, rot_z):
-    # CreateObject and CreateDynamicObject use GTA's Y-X-Z Euler order.
+    # CreateObject and CreateDynamicObject consume X, Y, Z Euler angles.
     return Euler(
         (
             math.radians(float(rot_x)),

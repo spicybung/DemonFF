@@ -1271,6 +1271,11 @@ class dff_exporter:
     def is_atomic_export_object(obj):
         if obj.type not in {'MESH', 'EMPTY', 'ARMATURE'}:
             return False
+
+        object_name = re.sub(r'\.\d+$', '', str(getattr(obj, 'name', '')).strip())
+        if object_name.lower() == 'chunk':
+            return False
+
         return dff_exporter.get_dff_type(obj) == 'OBJ'
 
     @staticmethod

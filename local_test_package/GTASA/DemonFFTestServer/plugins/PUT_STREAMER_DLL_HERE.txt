@@ -1,0 +1,7 @@
+Place the Windows SA-MP Streamer plugin here as:
+
+    streamer.dll
+
+Use the streamer.inc file from the same Streamer release in:
+
+    ..\pawno\include\streamer.inc

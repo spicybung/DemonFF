@@ -1451,7 +1451,6 @@ class IMPORT_OT_pawn(bpy.types.Operator, ImportHelper):
         asset_box.prop(context.scene.dff, "pawn_txd_root", text="TXD Folder")
         asset_box.prop(context.scene.dff, "pawn_recursive_search")
         asset_box.prop(context.scene.dff, "pawn_import_textures")
-        asset_box.prop(context.scene.dff, "pawn_import_collisions")
 
     @staticmethod
     def set_progress_text(context, message):
