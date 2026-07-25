@@ -19,14 +19,14 @@
 
 import bpy
 from .gui import gui, pie_menus
-from .ops import map_importer, img_importer, ide_text_exporter, ipl_text_exporter
+from .ops import map_importer, img_importer, ide_text_exporter, ipl_text_exporter, samp_test
 
 from bpy.utils import register_class, unregister_class
 
 bl_info = {
     "name": "DemonFF",
     "author": "SpicyBung",
-    "version": (0, 5, 4),
+    "version": (0, 5, 6),
     "blender": (2, 80, 0),      # Tested and working on 3.x & 4.x
     "category": "Import-Export",
     "location": "File > Import/Export",
@@ -135,7 +135,12 @@ _classes = [
     gui.IMPORT_OT_ifp,
     gui.EXPORT_OT_ifp,
     gui.MESSAGE_OT_missing_bones,
-    gui.DFF_MT_ToolWheel
+    gui.DFF_OT_import_from_pie,
+    gui.DFF_MT_ToolWheel,
+    gui.SCENE_OT_demonff_stop_test_server,
+    gui.SCENE_OT_demonff_test_selected_model,
+    gui.SCENE_OT_demonff_open_game_root,
+    gui.SCENE_OT_demonff_open_local_test_root
 ]
 
 
@@ -233,6 +238,8 @@ def register():
 
 
 def unregister():
+    samp_test.stop_server_process()
+
     if (2, 80, 0) > bpy.app.version:
         remove_menu_once(bpy.types.INFO_MT_file_import, gui.import_dff_func)
         remove_menu_once(bpy.types.INFO_MT_file_export, gui.export_dff_func)

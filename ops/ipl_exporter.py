@@ -29,6 +29,7 @@ from .map_exporter import (
     object_is_lod,
     object_is_exportable_map_instance,
 )
+from .map_transform import blender_quaternion_to_ipl
 
 
 class ipl_exporter:
@@ -63,10 +64,7 @@ class ipl_exporter:
         lod = get_object_lod(obj, -1)
         position, rotation, scale = get_export_transform(obj)
 
-        rot_w = -rotation.w
-        rot_x = rotation.x
-        rot_y = rotation.y
-        rot_z = rotation.z
+        rot_x, rot_y, rot_z, rot_w = blender_quaternion_to_ipl(rotation)
 
         if self.game_id == game_version.III:
             return (

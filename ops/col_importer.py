@@ -582,31 +582,42 @@ class col_importer:
             bm.verts.new(v)
 
         bm.verts.ensure_lookup_table()
-            
+
+        face_keys = set()
         for f in faces:
+            indices = (int(f.a), int(f.b), int(f.c))
+            if len(set(indices)) != 3:
+                continue
+            if min(indices) < 0 or max(indices) >= len(bm.verts):
+                continue
+
+            face_key = tuple(sorted(indices))
+            if face_key in face_keys:
+                continue
+            face_keys.add(face_key)
+
             try:
-                face = bm.faces.new(
-                    [
-                        bm.verts[f.a],
-                        bm.verts[f.b],
-                        bm.verts[f.c]
-                    ]
-                )
-                if hasattr(f, "surface"):
-                    surface = f.surface
-                else:
-                    surface = col.TSurface(f.material, 0, 1, f.light)
+                face = bm.faces.new([
+                    bm.verts[indices[0]],
+                    bm.verts[indices[1]],
+                    bm.verts[indices[2]],
+                ])
+            except ValueError:
+                continue
 
-                if surface not in materials:
-                    materials[surface] = len(materials)
-                
-                face.material_index = materials[surface]
+            if hasattr(f, "surface"):
+                surface = f.surface
+            else:
+                surface = col.TSurface(f.material, 0, 1, f.light)
 
-            except Exception as e:
-                print(e)
-                
-            bm.to_mesh(mesh)
-        
+            if surface not in materials:
+                materials[surface] = len(materials)
+
+            face.material_index = materials[surface]
+
+        bm.to_mesh(mesh)
+        bm.free()
+
         obj = bpy.data.objects.new(name, mesh)
         obj.dff.type = 'SHA' if shadow else 'COL'
         

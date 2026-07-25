@@ -213,6 +213,17 @@ class MTAResourceSettings(bpy.types.PropertyGroup):
     )
 
 
+    show_export_settings: bpy.props.BoolProperty(
+        name="Export Settings",
+        default=False,
+    )
+
+    show_import_settings: bpy.props.BoolProperty(
+        name="Import Settings",
+        default=False,
+    )
+
+
 class MTAObjectSettings(bpy.types.PropertyGroup):
     model_key: bpy.props.StringProperty(
         name="Model Key",
@@ -432,7 +443,7 @@ class IMPORT_OT_mta_resource(bpy.types.Operator, ImportHelper):
 
 
 class SCENE_PT_demonff_mta_io(bpy.types.Panel):
-    bl_label = "DemonFF - MTA Lua I/O"
+    bl_label = "DemonFF - MTA I/O"
     bl_idname = "SCENE_PT_demonff_mta_io"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -442,54 +453,89 @@ class SCENE_PT_demonff_mta_io(bpy.types.Panel):
         settings = context.scene.mta
         layout = self.layout
 
-        resource_box = layout.box()
-        resource_box.label(text="MTA Resource")
-        resource_box.prop(settings, "resource_name")
-        resource_box.prop(settings, "author")
-        resource_box.prop(settings, "description")
-        resource_box.prop(settings, "model_mode")
-        resource_box.prop(settings, "export_scope")
-        resource_box.prop(settings, "collision_mode")
+        actions = layout.row(align=True)
+        actions.scale_y = 1.2
+        actions.operator(
+            "scene.demonff_export_mta_resource",
+            text="Export Resource",
+            icon="EXPORT",
+        )
+        actions.operator(
+            "scene.demonff_import_mta_resource",
+            text="Import Resource",
+            icon="IMPORT",
+        )
 
-        asset_box = layout.box()
-        asset_box.label(text="Model Assets")
-        row = asset_box.row(align=True)
-        row.prop(settings, "export_dff")
-        row.prop(settings, "export_txd")
-        asset_box.prop(settings, "copy_existing_assets")
-        if settings.copy_existing_assets:
-            asset_box.prop(settings, "source_assets_directory")
-        asset_box.prop(settings, "default_parent_model_id")
-        if settings.model_mode == "REPLACE_EXISTING":
-            asset_box.prop(settings, "replacement_start_id")
-            asset_box.prop(settings, "write_model_ids_to_scene")
-            asset_box.prop(settings, "write_map_file")
-        asset_box.prop(settings, "truncate_frame_names")
+        export_box = layout.box()
+        export_icon = 'TRIA_DOWN' if settings.show_export_settings else 'TRIA_RIGHT'
+        export_box.prop(
+            settings,
+            "show_export_settings",
+            text="Export Settings",
+            icon=export_icon,
+            emboss=False,
+        )
 
-        placement_box = layout.box()
-        placement_box.label(text="Placements")
-        placement_box.prop(settings, "export_placements")
-        placement_box.prop(settings, "default_interior")
-        placement_box.prop(settings, "use_map_interior")
-        placement_box.prop(settings, "default_dimension")
-        placement_box.prop(settings, "default_lod_distance")
-        placement_box.prop(settings, "skip_lod")
+        if settings.show_export_settings:
+            resource_column = export_box.column(align=True)
+            resource_column.prop(settings, "resource_name", text="Resource Name")
+            resource_column.prop(settings, "author")
+            resource_column.prop(settings, "description")
+            resource_column.prop(settings, "model_mode", text="Model Method")
+            resource_column.prop(settings, "export_scope", text="Export")
+            resource_column.prop(settings, "collision_mode")
 
-        output_box = layout.box()
-        output_box.label(text="Output")
-        output_box.prop(settings, "clean_output")
-        output_box.prop(settings, "fail_on_missing_models")
-        output_box.prop(settings, "create_zip")
-        output_box.operator("scene.demonff_export_mta_resource", icon="EXPORT")
+            asset_box = export_box.box()
+            asset_box.label(text="Models")
+            asset_row = asset_box.row(align=True)
+            asset_row.prop(settings, "export_dff", text="DFF")
+            asset_row.prop(settings, "export_txd", text="TXD")
+            asset_box.prop(settings, "copy_existing_assets", text="Copy Existing Files")
+            if settings.copy_existing_assets:
+                asset_box.prop(settings, "source_assets_directory", text="Source Folder")
+
+            if settings.model_mode == "REQUEST_NEW":
+                asset_box.prop(settings, "default_parent_model_id", text="Base Model ID")
+            else:
+                asset_box.prop(settings, "replacement_start_id", text="First Model ID")
+                asset_box.prop(settings, "write_model_ids_to_scene", text="Save IDs in Scene")
+                asset_box.prop(settings, "write_map_file", text="Write placements.map")
+
+            asset_box.prop(settings, "truncate_frame_names")
+
+            placement_box = export_box.box()
+            placement_box.label(text="Map Objects")
+            placement_box.prop(settings, "export_placements", text="Export Placements")
+            if settings.export_placements:
+                placement_box.prop(settings, "default_interior", text="Interior")
+                placement_box.prop(settings, "use_map_interior", text="Use Imported Interior")
+                placement_box.prop(settings, "default_dimension", text="Dimension")
+                placement_box.prop(settings, "default_lod_distance", text="Draw Distance")
+                placement_box.prop(settings, "skip_lod", text="Skip LODs")
+
+            output_box = export_box.box()
+            output_box.label(text="Output")
+            output_box.prop(settings, "clean_output", text="Clean Old Resource")
+            output_box.prop(settings, "fail_on_missing_models", text="Stop if DFF is Missing")
+            output_box.prop(settings, "create_zip", text="Create ZIP")
 
         import_box = layout.box()
-        import_box.label(text="Import Lua / Map / Resource")
-        import_box.prop(settings, "import_collection_name")
-        import_box.prop(settings, "import_use_models")
-        import_box.prop(settings, "import_resource_models")
-        import_box.prop(settings, "import_placeholders")
-        import_box.prop(settings, "import_clear_existing")
-        import_box.operator("scene.demonff_import_mta_resource", icon="IMPORT")
+        import_icon = 'TRIA_DOWN' if settings.show_import_settings else 'TRIA_RIGHT'
+        import_box.prop(
+            settings,
+            "show_import_settings",
+            text="Import Settings",
+            icon=import_icon,
+            emboss=False,
+        )
+
+        if settings.show_import_settings:
+            import_column = import_box.column(align=True)
+            import_column.prop(settings, "import_collection_name", text="Collection Name")
+            import_column.prop(settings, "import_use_models", text="Use Models Already in Blender")
+            import_column.prop(settings, "import_resource_models", text="Import DFF Files")
+            import_column.prop(settings, "import_placeholders", text="Create Missing Placeholders")
+            import_column.prop(settings, "import_clear_existing", text="Clear Old Import Collection")
 
 
 class OBJECT_PT_demonff_mta(bpy.types.Panel):

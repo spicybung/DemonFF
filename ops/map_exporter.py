@@ -20,10 +20,20 @@
 import bpy
 import os
 import re
+import time
+import ast
+import operator
 import mathutils
 
 from ..data import map_data
 from ..ops.importer_common import game_version
+from .map_transform import (
+    blender_quaternion_to_ipl,
+    gta_euler_degrees_to_quaternion,
+    quaternion_to_gta_euler_degrees,
+)
+from . import dff_importer
+from .state import State
 
 
 
@@ -41,9 +51,7 @@ def euler_to_degrees(euler):
 
 #######################################################
 def quat_to_degrees(quat):
-    quat = quat.copy()
-    quat.normalize()
-    return euler_to_degrees(quat.to_euler('XYZ'))
+    return quaternion_to_gta_euler_degrees(quat)
 
 IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
 
@@ -273,61 +281,6 @@ def object_is_lod(obj):
     return name.startswith("lod") or ".colmesh" in name or get_dff_type(obj) == 'COL'
 
 #######################################################
-def object_has_2dfx_role(obj):
-    current = obj
-    visited = set()
-
-    while current is not None:
-        try:
-            pointer = current.as_pointer()
-        except Exception:
-            pointer = id(current)
-
-        if pointer in visited:
-            break
-        visited.add(pointer)
-
-        try:
-            if current.dff.type == '2DFX':
-                return True
-        except Exception:
-            pass
-
-        try:
-            if bool(current.get("demonff_text_ide_2dfx", False)):
-                return True
-            if str(current.get("DemonFF_Entity_Role", "")).upper() == "2DFX":
-                return True
-        except Exception:
-            pass
-
-        current = getattr(current, 'parent', None)
-
-    return False
-
-#######################################################
-def object_has_explicit_map_placement(obj):
-    try:
-        if bool(obj.get("DemonFF_Map_Placement", False)):
-            return True
-    except Exception:
-        pass
-
-    try:
-        role = str(obj.get("DemonFF_Entity_Role", "")).upper()
-        if role == "MAP_INSTANCE":
-            return True
-        if role in {"2DFX", "DFF_COMPONENT"}:
-            return False
-    except Exception:
-        pass
-
-    try:
-        return "IDE_ID" in obj and "DFF_Name" in obj
-    except Exception:
-        return False
-
-#######################################################
 def object_is_primary_empty_child(obj):
     parent = getattr(obj, 'parent', None)
     if parent is None or getattr(parent, 'type', None) != 'EMPTY':
@@ -349,26 +302,6 @@ def object_is_primary_empty_child(obj):
 
 #######################################################
 def object_is_exportable_map_instance(obj):
-    if object_has_2dfx_role(obj):
-        return False
-
-    try:
-        entity_role = str(obj.get("DemonFF_Entity_Role", "")).upper()
-    except Exception:
-        entity_role = ""
-
-    if entity_role in {"2DFX", "DFF_COMPONENT"}:
-        return False
-
-    own_dff_type = ""
-    try:
-        own_dff_type = obj.dff.type
-    except Exception:
-        pass
-
-    if object_has_explicit_map_placement(obj):
-        return obj.type in {'MESH', 'EMPTY', 'ARMATURE'} and own_dff_type == 'OBJ'
-
     if obj.type != 'MESH':
         return False
 
@@ -385,30 +318,7 @@ def object_is_exportable_map_instance(obj):
     return True
 
 #######################################################
-def object_or_descendant_is_selected(obj):
-    try:
-        if obj.select_get():
-            return True
-    except Exception:
-        pass
-
-    descendants = list(getattr(obj, 'children', []))
-    while descendants:
-        child = descendants.pop()
-        try:
-            if child.select_get():
-                return True
-        except Exception:
-            pass
-        descendants.extend(getattr(child, 'children', []))
-
-    return False
-
-#######################################################
 def object_is_2dfx_pawn_helper(obj):
-    if object_has_2dfx_role(obj):
-        return True
-
     names = [
         obj.name,
         clean_map_name(obj.name),
@@ -447,7 +357,7 @@ def get_export_transform(obj):
 #######################################################
 def get_pawn_rotation(obj):
     position, rotation, scale = get_export_transform(obj)
-    return euler_to_degrees(rotation.to_euler('XYZ'))
+    return quaternion_to_gta_euler_degrees(rotation)
 
 
 #######################################################
@@ -734,7 +644,7 @@ def mass_import_samp_ide(filepaths, context):
 def collect_ipl_export_objects(context, only_selected=True):
     objects = []
     for obj in context.scene.objects:
-        if only_selected and not object_or_descendant_is_selected(obj):
+        if only_selected and not obj.select_get():
             continue
         if not object_is_exportable_map_instance(obj):
             continue
@@ -750,10 +660,7 @@ def format_ipl_inst_line(context, obj, game_id=None):
     interior = get_object_interior(obj, 0)
     lod_index = get_object_lod(obj, -1)
     position, rotation, scale = get_export_transform(obj)
-    rot_w = -rotation.w
-    rot_x = rotation.x
-    rot_y = rotation.y
-    rot_z = rotation.z
+    rot_x, rot_y, rot_z, rot_w = blender_quaternion_to_ipl(rotation)
 
     if game_id == game_version.III:
         return (
@@ -924,19 +831,145 @@ def clean_pawn_string(value):
     return value.replace('\\\\', '\\').replace('\\"', '"')
 
 #######################################################
-def pawn_to_int(value, default=0):
-    try:
-        return int(str(value).strip(), 0)
-    except Exception:
-        try:
-            return int(float(str(value).strip()))
-        except Exception:
-            return default
+def normalize_pawn_numeric_expression(value):
+    expression = str(value or '').strip()
+    expression = re.sub(
+        r"\b(?:Float|bool|PlayerText|Text|Menu|DB|DBResult|File|INI|XML|Node|BitStream):",
+        "",
+        expression,
+        flags=re.IGNORECASE,
+    )
+    expression = re.sub(r"(?<=\d)[fF]\b", "", expression)
+    expression = re.sub(r"\btrue\b", "1", expression, flags=re.IGNORECASE)
+    expression = re.sub(r"\bfalse\b", "0", expression, flags=re.IGNORECASE)
+    return expression.strip()
 
 #######################################################
-def pawn_to_float(value, default=0.0):
+def evaluate_pawn_numeric_expression(value, constants=None, default=None):
+    expression = normalize_pawn_numeric_expression(value)
+    if not expression:
+        return default
+
+    constants = constants or {}
+    binary_operators = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+        ast.FloorDiv: operator.floordiv,
+        ast.Mod: operator.mod,
+        ast.Pow: operator.pow,
+        ast.LShift: operator.lshift,
+        ast.RShift: operator.rshift,
+        ast.BitOr: operator.or_,
+        ast.BitAnd: operator.and_,
+        ast.BitXor: operator.xor,
+    }
+    unary_operators = {
+        ast.UAdd: operator.pos,
+        ast.USub: operator.neg,
+        ast.Invert: operator.invert,
+    }
+
+    def evaluate(node):
+        if isinstance(node, ast.Expression):
+            return evaluate(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.Name):
+            if node.id not in constants:
+                raise ValueError('unresolved Pawn symbol: %s' % node.id)
+            return constants[node.id]
+        if isinstance(node, ast.UnaryOp) and type(node.op) in unary_operators:
+            return unary_operators[type(node.op)](evaluate(node.operand))
+        if isinstance(node, ast.BinOp) and type(node.op) in binary_operators:
+            return binary_operators[type(node.op)](
+                evaluate(node.left),
+                evaluate(node.right),
+            )
+        raise ValueError('unsupported Pawn numeric expression')
+
     try:
-        return float(str(value).strip())
+        tree = ast.parse(expression, mode='eval')
+        result = evaluate(tree)
+        if isinstance(result, bool):
+            return int(result)
+        if isinstance(result, (int, float)):
+            return result
+    except Exception:
+        pass
+    return default
+
+#######################################################
+def parse_pawn_numeric_constants(raw_text):
+    clean_text = re.sub(r"/\*.*?\*/", "", raw_text, flags=re.DOTALL)
+    pending = []
+
+    for raw_line in clean_text.splitlines():
+        line = raw_line.split('//', 1)[0].strip()
+        if not line:
+            continue
+
+        define_match = re.match(
+            r"^#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$",
+            line,
+        )
+        if define_match:
+            pending.append((define_match.group(1), define_match.group(2).strip()))
+            continue
+
+        const_match = re.match(
+            r"^(?:(?:static|new)\s+)*const(?:\s+[A-Za-z_][A-Za-z0-9_]*:)?\s+"
+            r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^;]+)\s*;",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if const_match:
+            pending.append((const_match.group(1), const_match.group(2).strip()))
+
+    constants = {}
+    unresolved = list(pending)
+    for _pass_index in range(max(1, len(unresolved))):
+        if not unresolved:
+            break
+
+        next_unresolved = []
+        resolved_this_pass = 0
+        for name, expression in unresolved:
+            value = evaluate_pawn_numeric_expression(
+                expression,
+                constants,
+                default=None,
+            )
+            if value is None:
+                next_unresolved.append((name, expression))
+                continue
+            constants[name] = value
+            resolved_this_pass += 1
+
+        unresolved = next_unresolved
+        if resolved_this_pass == 0:
+            break
+
+    return constants
+
+#######################################################
+def pawn_to_int(value, default=0, constants=None):
+    resolved = evaluate_pawn_numeric_expression(value, constants, default=None)
+    if resolved is None:
+        return default
+    try:
+        return int(resolved)
+    except Exception:
+        return default
+
+#######################################################
+def pawn_to_float(value, default=0.0, constants=None):
+    resolved = evaluate_pawn_numeric_expression(value, constants, default=None)
+    if resolved is None:
+        return default
+    try:
+        return float(resolved)
     except Exception:
         return default
 
@@ -946,42 +979,95 @@ def clean_pawn_model_name(path_value):
     return os.path.splitext(name)[0]
 
 #######################################################
+def clean_pawn_comment_model_name(comment_value):
+    value = clean_pawn_string(comment_value or '').strip()
+    if not value:
+        return ''
+
+    value = value.replace('\\', '/')
+    labelled_match = re.fullmatch(
+        r"\s*(?:model|dff)\s*[:=]\s*[\"']?([^\"'\s,;]+)[\"']?\s*",
+        value,
+        flags=re.IGNORECASE,
+    )
+
+    if labelled_match:
+        candidate = labelled_match.group(1)
+    else:
+        # VCS2OMP writes a single DFF/object name after each placement. Do not
+        # treat prose such as "Command for making it day time" as an asset name.
+        unlabelled_match = re.fullmatch(
+            r"\s*([A-Za-z0-9_@#$%+\-.]+)\s*",
+            value,
+        )
+        if unlabelled_match is None:
+            return ''
+        candidate = unlabelled_match.group(1)
+
+    candidate = candidate.strip('.,;:()[]{}<>\"\'')
+    if not candidate or candidate.lstrip('+-').isdigit():
+        return ''
+
+    ignored_tokens = {
+        'a', 'an', 'and', 'as', 'at', 'by', 'command', 'create',
+        'createdynamicobject', 'createobject', 'day', 'dff', 'do', 'for',
+        'from', 'id', 'in', 'instance', 'it', 'lod', 'making', 'model',
+        'night', 'object', 'of', 'on', 'or', 'placement', 'player', 'spawn',
+        'the', 'this', 'time', 'to', 'when', 'with', 'xyz',
+    }
+    if candidate.lower() in ignored_tokens:
+        return ''
+
+    candidate = os.path.basename(candidate)
+    candidate = re.sub(r"\.dff$", "", candidate, flags=re.IGNORECASE)
+    candidate = re.sub(r"\.\d{3,}$", "", candidate)
+    return candidate
+
+#######################################################
 def parse_pawn_script(filename):
     with open(filename, 'r', encoding='latin-1', errors='ignore') as handle:
         raw_text = handle.read()
 
+    constants = parse_pawn_numeric_constants(raw_text)
     simple_models = {}
     created_objects = []
     lines = strip_pawn_comments(raw_text)
     statement = ""
-    statement_comment = ""
 
     for line, comment in lines:
         if not line.strip() and not statement:
             continue
 
         statement += line + "\n"
-        if comment and not statement_comment:
-            statement_comment = comment
-
         if ';' not in line:
             continue
 
+        statement_comment = comment.strip() if comment else ""
         pieces = statement.split(';')
         for piece in pieces[:-1]:
             stmt = piece.strip()
             if not stmt:
                 continue
 
-            add_match = re.search(r"AddSimpleModel\s*\((.*)\)", stmt, flags=re.IGNORECASE | re.DOTALL)
+            add_match = re.search(
+                r"\bAddSimpleModel\s*\((.*)\)",
+                stmt,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
             if add_match:
                 args = split_pawn_args(add_match.group(1))
                 if len(args) >= 5:
-                    virtual_world = pawn_to_int(args[0], -1)
-                    base_id = pawn_to_int(args[1], 19379)
-                    model_id = pawn_to_int(args[2], 0)
+                    model_id = pawn_to_int(args[2], None, constants)
+                    if model_id is None:
+                        continue
+
+                    virtual_world = pawn_to_int(args[0], -1, constants)
+                    base_id = pawn_to_int(args[1], 19379, constants)
                     dff_path = clean_pawn_string(args[3])
                     txd_path = clean_pawn_string(args[4])
+                    if not dff_path.lower().endswith('.dff'):
+                        continue
+
                     simple_models[model_id] = {
                         'virtual_world': virtual_world,
                         'base_id': base_id,
@@ -994,30 +1080,54 @@ def parse_pawn_script(filename):
                     }
                 continue
 
-            create_match = re.search(r"(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*)?(CreateDynamicObject|CreateObject)\s*\((.*)\)", stmt, flags=re.IGNORECASE | re.DOTALL)
-            if create_match:
-                args = split_pawn_args(create_match.group(2))
-                if len(args) >= 7:
-                    model_id = pawn_to_int(args[0], 0)
-                    created_objects.append({
-                        'function': create_match.group(1),
-                        'model_id': model_id,
-                        'x': pawn_to_float(args[1]),
-                        'y': pawn_to_float(args[2]),
-                        'z': pawn_to_float(args[3]),
-                        'rx': pawn_to_float(args[4]),
-                        'ry': pawn_to_float(args[5]),
-                        'rz': pawn_to_float(args[6]),
-                        'world_id': pawn_to_int(args[7], -1) if len(args) > 7 else -1,
-                        'interior_id': pawn_to_int(args[8], -1) if len(args) > 8 else -1,
-                        'player_id': pawn_to_int(args[9], -1) if len(args) > 9 else -1,
-                        'stream_distance': pawn_to_float(args[10], 300.0) if len(args) > 10 else 300.0,
-                        'draw_distance': pawn_to_float(args[11], 300.0) if len(args) > 11 else 300.0,
-                        'comment': statement_comment,
-                    })
+            create_match = re.search(
+                r"(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*)?"
+                r"\b(CreateDynamicObject|CreateObject)\s*\((.*)\)",
+                stmt,
+                flags=re.IGNORECASE | re.DOTALL,
+            )
+            if not create_match:
+                continue
+
+            args = split_pawn_args(create_match.group(2))
+            if len(args) < 7:
+                continue
+
+            required_values = (
+                pawn_to_int(args[0], None, constants),
+                pawn_to_float(args[1], None, constants),
+                pawn_to_float(args[2], None, constants),
+                pawn_to_float(args[3], None, constants),
+                pawn_to_float(args[4], None, constants),
+                pawn_to_float(args[5], None, constants),
+                pawn_to_float(args[6], None, constants),
+            )
+            if any(value is None for value in required_values):
+                # Runtime loops, array expressions, function parameters and other
+                # non-constant calls cannot be represented as one fixed placement.
+                # Skipping them is safer than silently importing them at 0, 0, 0.
+                continue
+
+            model_id, x, y, z, rx, ry, rz = required_values
+            created_objects.append({
+                'function': create_match.group(1),
+                'model_id': model_id,
+                'x': x,
+                'y': y,
+                'z': z,
+                'rx': rx,
+                'ry': ry,
+                'rz': rz,
+                'world_id': pawn_to_int(args[7], -1, constants) if len(args) > 7 else -1,
+                'interior_id': pawn_to_int(args[8], -1, constants) if len(args) > 8 else -1,
+                'player_id': pawn_to_int(args[9], -1, constants) if len(args) > 9 else -1,
+                'stream_distance': pawn_to_float(args[10], 300.0, constants) if len(args) > 10 else 300.0,
+                'draw_distance': pawn_to_float(args[11], 300.0, constants) if len(args) > 11 else 300.0,
+                'comment': statement_comment,
+                'comment_model_name': clean_pawn_comment_model_name(statement_comment),
+            })
 
         statement = pieces[-1]
-        statement_comment = ""
 
     return simple_models, created_objects
 
@@ -1042,23 +1152,7 @@ def link_object_to_collection(obj, collection):
                 pass
 
 #######################################################
-def make_pawn_placeholder_mesh(name):
-    mesh = bpy.data.meshes.new(name + '_mesh')
-    verts = [
-        (-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
-        (-0.5, -0.5, 0.5), (0.5, -0.5, 0.5), (0.5, 0.5, 0.5), (-0.5, 0.5, 0.5),
-    ]
-    faces = [
-        (0, 1, 2, 3), (4, 7, 6, 5), (0, 4, 5, 1),
-        (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0),
-    ]
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-    obj = bpy.data.objects.new(name, mesh)
-    return obj
-
-#######################################################
-def set_pawn_import_props(obj, created, model_info):
+def set_pawn_import_props(obj, created, model_info, set_dff_type=True):
     model_id = created['model_id']
     model_name = model_info.get('model_name') if model_info else str(model_id)
     txd_name = model_info.get('txd_name') if model_info else 'default_txd'
@@ -1067,6 +1161,7 @@ def set_pawn_import_props(obj, created, model_info):
     base_id = model_info.get('base_id') if model_info else 19379
 
     obj['Pawn_Model_ID'] = model_id
+    obj['DemonFF_Pawn_Instance'] = True
     obj['Pawn_Function'] = created.get('function', 'CreateDynamicObject')
     obj['Pawn_World_ID'] = created.get('world_id', -1)
     obj['Pawn_Interior_ID'] = created.get('interior_id', -1)
@@ -1081,7 +1176,7 @@ def set_pawn_import_props(obj, created, model_info):
     obj['DFF_Name'] = model_name
     obj['TXD_Name'] = txd_name
 
-    if hasattr(obj, 'dff'):
+    if set_dff_type and hasattr(obj, 'dff'):
         obj.dff.type = 'OBJ'
 
     if hasattr(obj, 'dff_map'):
@@ -1096,64 +1191,1209 @@ def set_pawn_import_props(obj, created, model_info):
         obj.dff_map.pawn_txd_name = str(txd_name)
 
 #######################################################
+def normalize_pawn_asset_path(path_value):
+    value = clean_pawn_string(path_value or '').strip().replace('\\', '/')
+    while value.startswith('./'):
+        value = value[2:]
+    return value.lstrip('/')
+
+#######################################################
+def normalize_pawn_root(root_value):
+    value = str(root_value or '').strip()
+    if not value:
+        return ''
+    return os.path.normpath(bpy.path.abspath(value))
+
+#######################################################
+def build_pawn_asset_index(root_path, extension, recursive=True):
+    root_path = normalize_pawn_root(root_path)
+    index = {
+        'root': root_path,
+        'relative': {},
+        'basename': {},
+    }
+
+    if not root_path or not os.path.isdir(root_path):
+        return index
+
+    extension = extension.lower()
+    if recursive:
+        iterator = os.walk(root_path)
+    else:
+        try:
+            names = os.listdir(root_path)
+        except OSError:
+            names = []
+        iterator = [(root_path, [], names)]
+
+    for directory, _subdirectories, filenames in iterator:
+        for filename in filenames:
+            if not filename.lower().endswith(extension):
+                continue
+
+            full_path = os.path.normpath(os.path.join(directory, filename))
+            relative_path = os.path.relpath(full_path, root_path).replace('\\', '/')
+            relative_key = relative_path.lower()
+            basename_key = filename.lower()
+
+            index['relative'].setdefault(relative_key, []).append(full_path)
+            index['basename'].setdefault(basename_key, []).append(full_path)
+
+    return index
+
+#######################################################
+def choose_pawn_asset_match(matches):
+    if not matches:
+        return None
+    return sorted(
+        set(matches),
+        key=lambda path: (path.count(os.sep), len(path), path.lower()),
+    )[0]
+
+#######################################################
+def resolve_pawn_asset(asset_index, path_value, extension):
+    root_path = asset_index.get('root', '')
+    clean_path = normalize_pawn_asset_path(path_value)
+    if not clean_path:
+        return None
+
+    if not clean_path.lower().endswith(extension.lower()):
+        clean_path += extension
+
+    native_path = os.path.normpath(clean_path.replace('/', os.sep))
+    if os.path.isabs(native_path) and os.path.isfile(native_path):
+        return native_path
+
+    candidates = [clean_path]
+    lower_path = clean_path.lower()
+    for prefix in ('models/', 'model/', 'dff/', 'txd/'):
+        if lower_path.startswith(prefix):
+            candidates.append(clean_path[len(prefix):])
+
+    if root_path:
+        for candidate in candidates:
+            direct_path = os.path.normpath(
+                os.path.join(root_path, candidate.replace('/', os.sep))
+            )
+            if os.path.isfile(direct_path):
+                return direct_path
+
+        for candidate in candidates:
+            matches = asset_index['relative'].get(candidate.lower())
+            selected = choose_pawn_asset_match(matches)
+            if selected:
+                return selected
+
+    basename = os.path.basename(clean_path).lower()
+    return choose_pawn_asset_match(asset_index['basename'].get(basename))
+
+#######################################################
+def make_pawn_comment_model_info(created, official_info=None):
+    # AddSimpleModel custom assets use negative IDs. A positive ID is a stock
+    # GTA model and must not inherit an arbitrary English word from a comment.
+    if int(created.get('model_id', 0)) >= 0:
+        return None
+
+    model_name = created.get('comment_model_name', '')
+    if not model_name:
+        return None
+
+    official_info = official_info or {}
+    txd_path = official_info.get('txd_path', '')
+    txd_name = official_info.get('txd_name', '')
+
+    return {
+        'virtual_world': official_info.get('virtual_world', -1),
+        'base_id': official_info.get('base_id', 19379),
+        'model_id': created.get('model_id', 0),
+        'dff_path': model_name + '.dff',
+        'txd_path': txd_path,
+        'model_name': model_name,
+        'txd_name': txd_name,
+        'comment': created.get('comment', ''),
+        'mapping_source': 'placement comment',
+    }
+
+#######################################################
+def pawn_model_info_candidates(created, simple_models):
+    official_info = simple_models.get(created.get('model_id'))
+    candidates = []
+
+    if official_info is not None:
+        official_copy = dict(official_info)
+        official_copy['mapping_source'] = 'AddSimpleModel'
+        candidates.append(official_copy)
+
+    comment_info = make_pawn_comment_model_info(created, official_info)
+    if comment_info is not None:
+        candidates.append(comment_info)
+
+    unique_candidates = []
+    seen = set()
+    for candidate in candidates:
+        key = (
+            normalize_pawn_asset_path(candidate.get('dff_path', '')).lower(),
+            normalize_pawn_asset_path(candidate.get('txd_path', '')).lower(),
+            str(candidate.get('model_name', '')).lower(),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append(candidate)
+
+    return unique_candidates
+
+#######################################################
+def resolve_pawn_model_assets(
+    created,
+    simple_models,
+    dff_index,
+    txd_index,
+    import_textures,
+):
+    candidates = pawn_model_info_candidates(created, simple_models)
+    first_info = candidates[0] if candidates else None
+
+    for model_info in candidates:
+        dff_path = resolve_pawn_asset(
+            dff_index,
+            model_info.get('dff_path', ''),
+            '.dff',
+        )
+        if dff_path is None:
+            continue
+
+        txd_path = None
+        if import_textures:
+            txd_candidates = []
+            configured_txd = model_info.get('txd_path', '')
+            if configured_txd:
+                txd_candidates.append(configured_txd)
+
+            dff_basename = os.path.splitext(os.path.basename(dff_path))[0]
+            txd_candidates.extend((
+                dff_basename + '.txd',
+                model_info.get('model_name', '') + '.txd',
+            ))
+
+            seen_txd_candidates = set()
+            for txd_candidate in txd_candidates:
+                normalized_candidate = normalize_pawn_asset_path(txd_candidate).lower()
+                if not normalized_candidate or normalized_candidate in seen_txd_candidates:
+                    continue
+                seen_txd_candidates.add(normalized_candidate)
+                txd_path = resolve_pawn_asset(txd_index, txd_candidate, '.txd')
+                if txd_path is not None:
+                    break
+
+        resolved_info = dict(model_info)
+        resolved_info['resolved_dff_path'] = dff_path
+        resolved_info['resolved_txd_path'] = txd_path or ''
+        if not resolved_info.get('model_name'):
+            resolved_info['model_name'] = os.path.splitext(os.path.basename(dff_path))[0]
+        if txd_path and not resolved_info.get('txd_name'):
+            resolved_info['txd_name'] = os.path.splitext(os.path.basename(txd_path))[0]
+
+        return resolved_info, dff_path, txd_path
+
+    return first_info, None, None
+
+#######################################################
+def remove_pawn_collection_tree(collection):
+    if collection is None:
+        return 0, 0
+
+    collections = []
+    objects = set()
+    pending = [collection]
+
+    while pending:
+        current = pending.pop()
+        collections.append(current)
+        pending.extend(list(current.children))
+        objects.update(list(current.objects))
+
+    object_count = len(objects)
+    collection_count = len(collections)
+
+    batch_remove = getattr(bpy.data, 'batch_remove', None)
+    if callable(batch_remove):
+        if objects:
+            batch_remove(ids=tuple(objects))
+        if collections:
+            batch_remove(ids=tuple(reversed(collections)))
+        return object_count, collection_count
+
+    for current in reversed(collections):
+        for obj in list(current.objects):
+            if bpy.data.objects.get(obj.name) is obj:
+                bpy.data.objects.remove(obj, do_unlink=True)
+
+        if bpy.data.collections.get(current.name) is current:
+            bpy.data.collections.remove(current)
+
+    return object_count, collection_count
+
+#######################################################
+def remove_pawn_collection_shell(collection):
+    if collection is None:
+        return 0
+
+    collections = []
+    pending = [collection]
+    seen = set()
+
+    while pending:
+        current = pending.pop()
+        try:
+            key = current.as_pointer()
+        except Exception:
+            key = id(current)
+        if key in seen:
+            continue
+        seen.add(key)
+        collections.append(current)
+        pending.extend(list(current.children))
+
+    for current in reversed(collections):
+        for obj in list(current.objects):
+            try:
+                current.objects.unlink(obj)
+            except RuntimeError:
+                pass
+
+        if bpy.data.collections.get(current.name) is current:
+            bpy.data.collections.remove(current)
+
+    return len(collections)
+
+
+def create_pawn_source_collection(collection_name):
+    source_name = '.%s Model Sources' % (collection_name or 'Pawn Import')
+    old_collection = bpy.data.collections.get(source_name)
+    if old_collection is not None:
+        remove_pawn_collection_tree(old_collection)
+
+    source_collection = bpy.data.collections.new(source_name)
+    bpy.context.scene.collection.children.link(source_collection)
+    source_collection.hide_viewport = True
+    source_collection.hide_render = True
+    return source_collection
+
+#######################################################
+def move_pawn_import_collection(import_collection, source_collection):
+    if source_collection.children.get(import_collection.name) is None:
+        source_collection.children.link(import_collection)
+
+    scene_root = bpy.context.scene.collection
+    if scene_root.children.get(import_collection.name) is not None:
+        scene_root.children.unlink(import_collection)
+
+    for collection in list(bpy.data.collections):
+        if collection == source_collection:
+            continue
+        if collection.children.get(import_collection.name) is not None:
+            try:
+                collection.children.unlink(import_collection)
+            except RuntimeError:
+                pass
+
+#######################################################
+def get_pawn_collection_objects(collection):
+    try:
+        return list(collection.all_objects)
+    except AttributeError:
+        return list(collection.objects)
+
+#######################################################
+def is_pawn_2dfx_object(obj):
+    if obj is None:
+        return False
+
+    try:
+        if getattr(getattr(obj, 'dff', None), 'type', '') == '2DFX':
+            return True
+    except Exception:
+        pass
+
+    try:
+        if bool(obj.get('demonff_2dfx_source_dff', '')):
+            return True
+    except Exception:
+        pass
+
+    return str(getattr(obj, 'name', '')).lower().startswith('2dfx_')
+
+#######################################################
+def attach_pawn_helpers_to_primary(source_objects, primary_source):
+    if primary_source is None:
+        return 0, 0
+
+    attached_2dfx = 0
+    attached_collision = 0
+    primary_world = primary_source.matrix_world.copy()
+
+    for obj in source_objects:
+        if obj == primary_source:
+            continue
+
+        is_2dfx = is_pawn_2dfx_object(obj)
+        is_collision = is_pawn_collision_object(obj)
+        if not is_2dfx and not is_collision:
+            continue
+
+        world_matrix = obj.matrix_world.copy()
+        obj.parent = primary_source
+        obj.matrix_parent_inverse = primary_world.inverted_safe()
+        obj.matrix_world = world_matrix
+
+        if is_2dfx:
+            obj['DemonFF_Pawn_Attached_2DFX'] = True
+            attached_2dfx += 1
+        if is_collision:
+            obj['DemonFF_Pawn_Attached_Collision'] = True
+            attached_collision += 1
+
+    return attached_2dfx, attached_collision
+
+#######################################################
+def load_pawn_model_template(
+    model_info,
+    dff_path,
+    txd_path,
+    source_collection,
+    import_collisions=False,
+):
+    importer = dff_importer.import_dff(
+        {
+            'file_name': dff_path,
+            'load_txd': bool(txd_path),
+            'txd_filename': txd_path or '',
+            'skip_mipmaps': True,
+            'txd_pack': True,
+            'image_ext': None,
+            'connect_bones': False,
+            'use_mat_split': True,
+            'remove_doubles': False,
+            'create_backfaces': False,
+            'group_materials': True,
+            'import_normals': True,
+            'materials_naming': 'DEF',
+            'defer_scene_update': True,
+            'import_collisions': bool(import_collisions),
+        }
+    )
+
+    imported_collection = importer.current_collection
+    move_pawn_import_collection(imported_collection, source_collection)
+    imported_collection.hide_viewport = True
+    imported_collection.hide_render = True
+
+    source_objects = get_pawn_collection_objects(imported_collection)
+    source_set = set(source_objects)
+    roots = [
+        obj for obj in source_objects
+        if obj.parent is None or obj.parent not in source_set
+    ]
+
+    if not source_objects or not roots:
+        raise RuntimeError('DFF imported without usable objects')
+
+    source_display_names = {
+        source_obj: source_obj.name
+        for source_obj in source_objects
+    }
+    source_tag = os.path.splitext(os.path.basename(dff_path))[0]
+    for source_index, source_obj in enumerate(source_objects):
+        source_obj.name = '.DemonFF_PWN_SOURCE_%s_%04d' % (
+            source_tag,
+            source_index,
+        )
+
+    template = {
+        'collection': imported_collection,
+        'objects': source_objects,
+        'roots': roots,
+        'object_set': source_set,
+        'display_names': source_display_names,
+        'model_info': model_info,
+        'dff_path': dff_path,
+        'txd_path': txd_path,
+        'activated': False,
+        'import_collisions': bool(import_collisions),
+    }
+
+    primary_source = choose_pawn_primary_source(template)
+    attached_2dfx, attached_collision = attach_pawn_helpers_to_primary(
+        source_objects,
+        primary_source,
+    )
+
+    template['primary_source'] = primary_source
+    template['attached_2dfx_count'] = attached_2dfx
+    template['attached_collision_count'] = attached_collision
+    template['original_parent'] = {
+        source_obj: source_obj.parent
+        for source_obj in source_objects
+    }
+    template['original_matrix_local'] = {
+        source_obj: source_obj.matrix_local.copy()
+        for source_obj in source_objects
+    }
+    template['original_matrix_world'] = {
+        source_obj: source_obj.matrix_world.copy()
+        for source_obj in source_objects
+    }
+
+    return template
+
+#######################################################
+def remap_pawn_object_links(source_to_copy):
+    for source_obj, copy_obj in source_to_copy.items():
+        for modifier in copy_obj.modifiers:
+            if hasattr(modifier, 'object') and modifier.object in source_to_copy:
+                modifier.object = source_to_copy[modifier.object]
+
+        for constraint in copy_obj.constraints:
+            if hasattr(constraint, 'target') and constraint.target in source_to_copy:
+                constraint.target = source_to_copy[constraint.target]
+
+        if copy_obj.parent in source_to_copy:
+            copy_obj.parent = source_to_copy[copy_obj.parent]
+
+#######################################################
+def choose_pawn_primary_source(template):
+    roots = list(template.get('roots', []))
+    objects = list(template.get('objects', []))
+
+    for source_obj in roots:
+        if getattr(source_obj, 'type', None) == 'MESH':
+            return source_obj
+
+    for source_obj in objects:
+        if getattr(source_obj, 'type', None) == 'MESH':
+            return source_obj
+
+    if roots:
+        return roots[0]
+    if objects:
+        return objects[0]
+    return None
+
+#######################################################
+def pawn_source_display_name(template, source_obj):
+    source_name = template.get('display_names', {}).get(source_obj)
+    if not source_name:
+        source_name = getattr(source_obj, 'name', '') or 'part'
+    return re.sub(r"\.\d{3,}$", "", source_name)
+
+#######################################################
+def get_pawn_placement_object_name(template, source_obj, model_name):
+    primary_source = template.get('primary_source') or choose_pawn_primary_source(template)
+    if source_obj == primary_source:
+        return model_name
+
+    part_name = pawn_source_display_name(template, source_obj)
+    if part_name.lower() == model_name.lower():
+        return model_name
+    return '%s_%s' % (model_name, part_name)
+
+#######################################################
+def is_pawn_collision_object(obj):
+    if obj is None:
+        return False
+
+    try:
+        if getattr(getattr(obj, 'dff', None), 'type', '') == 'COL':
+            return True
+    except Exception:
+        pass
+
+    try:
+        if bool(obj.get('demonff_embedded_collision', False)):
+            return True
+    except Exception:
+        pass
+
+    return '.col.' in str(getattr(obj, 'name', '')).lower()
+
+#######################################################
+def prepare_pawn_placement_object(obj, name, created, model_info, template):
+    obj.name = name
+    obj.hide_viewport = False
+    obj.hide_render = False
+    try:
+        obj.hide_set(False)
+    except Exception:
+        pass
+
+    preserve_special_type = is_pawn_2dfx_object(obj) or is_pawn_collision_object(obj)
+    set_pawn_import_props(
+        obj,
+        created,
+        model_info,
+        not preserve_special_type,
+    )
+    obj['DemonFF_Pawn_Model_Source'] = template['dff_path']
+    obj['DemonFF_Pawn_Model_Key'] = str(
+        model_info.get('model_name') or created.get('model_id', '')
+    ).lower()
+    obj['DemonFF_Pawn_Model_ID'] = int(created.get('model_id', 0))
+    obj['DemonFF_Pawn_Placement_ID'] = int(
+        created.get('_demonff_placement_index', 0)
+    )
+
+    if is_pawn_collision_object(obj):
+        obj.hide_render = True
+        obj.show_wire = True
+        obj.show_in_front = True
+
+#######################################################
+def activate_pawn_template_as_first_placement(
+    template,
+    created,
+    model_info,
+    collection,
+    placement_matrix,
+):
+    source_objects = list(template['objects'])
+    original_parent = template['original_parent']
+    original_matrix_local = template['original_matrix_local']
+    original_matrix_world = template['original_matrix_world']
+
+    for source_obj in source_objects:
+        link_object_to_collection(source_obj, collection)
+        prepare_pawn_placement_object(
+            source_obj,
+            get_pawn_placement_object_name(template, source_obj, model_info.get('model_name') or str(created.get('model_id', 0))),
+            created,
+            model_info,
+            template,
+        )
+
+    for source_obj in source_objects:
+        parent = original_parent.get(source_obj)
+        if parent in template['object_set']:
+            source_obj.parent = parent
+            source_obj.matrix_parent_inverse = mathutils.Matrix.Identity(4)
+            source_obj.matrix_local = original_matrix_local[source_obj].copy()
+        else:
+            source_obj.parent = None
+            source_obj.matrix_world = placement_matrix @ original_matrix_world[source_obj]
+
+    imported_collection = template.get('collection')
+    if imported_collection is not None:
+        remove_pawn_collection_shell(imported_collection)
+        template['collection'] = None
+
+    template['activated'] = True
+    return source_objects
+
+#######################################################
+def copy_pawn_template_placement(
+    template,
+    created,
+    model_info,
+    collection,
+    placement_matrix,
+):
+    source_objects = list(template['objects'])
+    original_parent = template['original_parent']
+    original_matrix_local = template['original_matrix_local']
+    original_matrix_world = template['original_matrix_world']
+    source_to_copy = {}
+    model_name = model_info.get('model_name') or str(created.get('model_id', 0))
+
+    for source_obj in source_objects:
+        copy_obj = source_obj.copy()
+        if source_obj.data is not None:
+            copy_obj.data = source_obj.data
+
+        prepare_pawn_placement_object(
+            copy_obj,
+            get_pawn_placement_object_name(template, source_obj, model_name),
+            created,
+            model_info,
+            template,
+        )
+        collection.objects.link(copy_obj)
+        source_to_copy[source_obj] = copy_obj
+
+    for source_obj, copy_obj in source_to_copy.items():
+        parent = original_parent.get(source_obj)
+        if parent in source_to_copy:
+            copy_obj.parent = source_to_copy[parent]
+            copy_obj.matrix_parent_inverse = mathutils.Matrix.Identity(4)
+            copy_obj.matrix_local = original_matrix_local[source_obj].copy()
+        else:
+            copy_obj.parent = None
+            copy_obj.matrix_world = placement_matrix @ original_matrix_world[source_obj]
+
+    remap_pawn_object_links(source_to_copy)
+    return list(source_to_copy.values())
+
+#######################################################
+def instantiate_pawn_model(template, created, model_info, collection):
+    placement_matrix = (
+        mathutils.Matrix.Translation((created['x'], created['y'], created['z']))
+        @ gta_euler_degrees_to_quaternion(
+            created['rx'],
+            created['ry'],
+            created['rz'],
+        ).to_matrix().to_4x4()
+    )
+
+    if not template.get('activated', False):
+        return activate_pawn_template_as_first_placement(
+            template,
+            created,
+            model_info,
+            collection,
+            placement_matrix,
+        )
+
+    return copy_pawn_template_placement(
+        template,
+        created,
+        model_info,
+        collection,
+        placement_matrix,
+    )
+
+#######################################################
 class pwn_importer:
     total_objects_num = 0
+    parsed_objects_num = 0
+    processed_objects_num = 0
+    skipped_objects_num = 0
     total_models_num = 0
+    loaded_models_num = 0
+    real_model_instances_num = 0
+    placeholder_objects_num = 0
+    comment_mapped_models_num = 0
     missing_model_info_num = 0
+    missing_dff_num = 0
+    missing_txd_num = 0
+    failed_dff_num = 0
+    progress_percent = 0.0
+    progress_message = ""
+    last_progress_print_at = 0.0
+    last_progress_print_index = -1
 
     @staticmethod
-    def import_pawn(filename, collection_name='Pawn Import', clear_existing=False):
+    def format_progress_duration(seconds):
+        seconds = max(0, int(float(seconds)))
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+
+        if hours:
+            return "%d:%02d:%02d" % (hours, minutes, seconds)
+        return "%02d:%02d" % (minutes, seconds)
+
+    @staticmethod
+    def update_progress(
+        progress_callback,
+        started_at,
+        stage,
+        percent,
+        current,
+        total,
+        imported,
+        skipped,
+        loaded_models,
+        detail='',
+        force_console=False,
+        force_redraw=False,
+    ):
+        percent = max(0.0, min(100.0, float(percent)))
+        elapsed = max(0.0, time.perf_counter() - started_at)
+
+        stage_names = {
+            'reading Pawn script': 'Reading file',
+            'parsed Pawn script': 'Reading file',
+            'clearing existing collection': 'Clearing old import',
+            'indexing DFF files': 'Finding models',
+            'indexing TXD files': 'Finding textures',
+            'importing placements': 'Importing models',
+            'loading DFF': 'Loading model',
+            'removing temporary model sources': 'Cleaning up',
+            'completing import': 'Finishing',
+            'complete': 'Done',
+        }
+        friendly_stage = stage_names.get(stage, stage)
+
+        if total > 0:
+            message = (
+                "PWN import %.1f%%: %d/%d placements, %d imported, %d skipped"
+                % (percent, current, total, imported, skipped)
+            )
+        else:
+            message = "PWN import %.1f%%: %s" % (percent, friendly_stage)
+
+        simple_detail = str(detail or '').strip()
+        if simple_detail:
+            if os.path.sep in simple_detail or ('/' in simple_detail and not simple_detail.lower().endswith('.dff')):
+                simple_detail = os.path.basename(os.path.normpath(simple_detail))
+            if simple_detail and simple_detail not in ('DFF', 'TXD'):
+                message += " - %s" % simple_detail
+
+        if total > 0 and friendly_stage not in ('Importing models', 'Loading model'):
+            message += " - %s" % friendly_stage
+
+        pwn_importer.progress_percent = percent
+        pwn_importer.progress_message = message
+        pwn_importer.processed_objects_num = current
+
+        if progress_callback is not None:
+            try:
+                progress_callback({
+                    'stage': friendly_stage,
+                    'percent': percent,
+                    'current': current,
+                    'total': total,
+                    'imported': imported,
+                    'skipped': skipped,
+                    'loaded_models': loaded_models,
+                    'detail': simple_detail,
+                    'elapsed': elapsed,
+                    'message': message,
+                    'force_redraw': force_redraw,
+                })
+            except Exception:
+                pass
+
+        now = time.perf_counter()
+        should_print = force_console
+        if not should_print and now - pwn_importer.last_progress_print_at >= 1.0:
+            should_print = True
+        if not should_print and current - pwn_importer.last_progress_print_index >= 100:
+            should_print = True
+
+        if should_print:
+            print(message, flush=True)
+            pwn_importer.last_progress_print_at = now
+            pwn_importer.last_progress_print_index = current
+
+    @staticmethod
+    def import_pawn(
+        filename,
+        collection_name='Pawn Import',
+        clear_existing=False,
+        dff_root='',
+        txd_root='',
+        recursive_search=True,
+        import_textures=True,
+        import_collisions=False,
+        progress_callback=None,
+    ):
+        started_at = time.perf_counter()
+
+        pwn_importer.total_objects_num = 0
+        pwn_importer.parsed_objects_num = 0
+        pwn_importer.processed_objects_num = 0
+        pwn_importer.skipped_objects_num = 0
+        pwn_importer.total_models_num = 0
+        pwn_importer.loaded_models_num = 0
+        pwn_importer.real_model_instances_num = 0
+        pwn_importer.placeholder_objects_num = 0
+        pwn_importer.comment_mapped_models_num = 0
+        pwn_importer.missing_model_info_num = 0
+        pwn_importer.missing_dff_num = 0
+        pwn_importer.missing_txd_num = 0
+        pwn_importer.failed_dff_num = 0
+        pwn_importer.progress_percent = 0.0
+        pwn_importer.progress_message = ""
+        pwn_importer.last_progress_print_at = 0.0
+        pwn_importer.last_progress_print_index = -1
+
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'reading Pawn script',
+            0.0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            os.path.basename(filename),
+            force_console=True,
+            force_redraw=True,
+        )
+
         simple_models, created_objects = parse_pawn_script(filename)
+        total_placements = len(created_objects)
+        pwn_importer.parsed_objects_num = total_placements
+        pwn_importer.total_models_num = len(simple_models)
+
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'parsed Pawn script',
+            1.0,
+            0,
+            total_placements,
+            0,
+            0,
+            0,
+            "%d model definitions" % len(simple_models),
+            force_console=True,
+            force_redraw=True,
+        )
+
         collection = ensure_collection(collection_name or 'Pawn Import')
 
         if clear_existing:
+            existing_count = len(collection.objects)
+            pwn_importer.update_progress(
+                progress_callback,
+                started_at,
+                'clearing existing collection',
+                2.0,
+                0,
+                total_placements,
+                0,
+                0,
+                0,
+                "%d existing object(s)" % existing_count,
+                force_console=True,
+            )
             for obj in list(collection.objects):
                 bpy.data.objects.remove(obj, do_unlink=True)
 
+        pwn_directory = os.path.dirname(os.path.abspath(filename))
+        dff_root = normalize_pawn_root(dff_root)
+        if not dff_root:
+            models_subdirectory = os.path.join(pwn_directory, 'models')
+            dff_root = models_subdirectory if os.path.isdir(models_subdirectory) else pwn_directory
+
+        txd_root = normalize_pawn_root(txd_root)
+        if not txd_root:
+            txd_root = dff_root
+
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'indexing DFF files',
+            2.5,
+            0,
+            total_placements,
+            0,
+            0,
+            0,
+            '',
+            force_console=True,
+            force_redraw=True,
+        )
+        dff_index = build_pawn_asset_index(dff_root, '.dff', recursive_search)
+        indexed_dff_count = sum(len(paths) for paths in dff_index['relative'].values())
+
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'indexing TXD files',
+            4.0,
+            0,
+            total_placements,
+            0,
+            0,
+            0,
+            "%d model files found" % indexed_dff_count,
+            force_console=True,
+            force_redraw=True,
+        )
+        txd_index = build_pawn_asset_index(txd_root, '.txd', recursive_search)
+        indexed_txd_count = sum(len(paths) for paths in txd_index['relative'].values())
+
+        source_collection = create_pawn_source_collection(collection_name)
+        template_cache = {}
+
         imported = 0
-        missing_model_info = 0
+        skipped = 0
+        loaded_models = 0
+        real_instances = 0
+        attached_2dfx_count = 0
+        attached_collision_count = 0
+        comment_mapped_ids = set()
+        missing_model_ids = set()
+        missing_dff_keys = set()
+        missing_txd_keys = set()
+        failed_dff_keys = set()
 
-        for index, created in enumerate(created_objects):
-            model_info = simple_models.get(created['model_id'])
-            if model_info is None:
-                missing_model_info += 1
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'importing placements',
+            5.0,
+            0,
+            total_placements,
+            imported,
+            skipped,
+            loaded_models,
+            "%d model files and %d texture files found" % (
+                indexed_dff_count,
+                indexed_txd_count,
+            ),
+            force_console=True,
+            force_redraw=True,
+        )
 
-            model_name = model_info.get('model_name') if model_info else str(created['model_id'])
-            obj_name = '%s_%03d' % (model_name, index)
-            obj = make_pawn_placeholder_mesh(obj_name)
-            obj.location = (created['x'], created['y'], created['z'])
-            obj.rotation_mode = 'XYZ'
-            obj.rotation_euler = (
-                created['rx'] * 3.141592653589793 / 180.0,
-                created['ry'] * 3.141592653589793 / 180.0,
-                created['rz'] * 3.141592653589793 / 180.0,
+        for placement_index, created in enumerate(created_objects, 1):
+            created['_demonff_placement_index'] = placement_index
+            model_id = created.get('model_id', 0)
+            progress_detail = "Starting placement"
+
+            try:
+                candidates = pawn_model_info_candidates(created, simple_models)
+                if not candidates:
+                    skipped += 1
+                    progress_detail = "Skipped placement"
+                    missing_model_ids.add(model_id)
+                    continue
+
+                model_info, dff_path, txd_path = resolve_pawn_model_assets(
+                    created,
+                    simple_models,
+                    dff_index,
+                    txd_index,
+                    import_textures,
+                )
+
+                if model_info is not None and model_info.get('mapping_source') == 'placement comment':
+                    comment_mapped_ids.add(model_id)
+
+                if dff_path is None:
+                    skipped += 1
+                    requested_dff = ''
+                    if model_info is not None:
+                        requested_dff = model_info.get('dff_path', '')
+                    missing_key = (model_id, requested_dff.lower())
+                    progress_detail = "skipped %s" % (
+                        requested_dff or created.get('comment_model_name', '') or model_id
+                    )
+                    missing_dff_keys.add(missing_key)
+                    continue
+
+                dff_name = os.path.basename(dff_path)
+                progress_detail = dff_name
+                configured_txd = model_info.get('txd_path', '') if model_info else ''
+                if import_textures and configured_txd and txd_path is None:
+                    missing_key = (model_id, configured_txd.lower())
+                    missing_txd_keys.add(missing_key)
+
+                cache_key = (
+                    os.path.normcase(os.path.abspath(dff_path)),
+                    os.path.normcase(os.path.abspath(txd_path)) if txd_path else '',
+                )
+
+                if cache_key not in template_cache:
+                    progress_detail = "loading %s" % dff_name
+                    if total_placements:
+                        loading_percent = 5.0 + (
+                            float(placement_index - 1) / float(total_placements)
+                        ) * 93.0
+                    else:
+                        loading_percent = 5.0
+                    pwn_importer.update_progress(
+                        progress_callback,
+                        started_at,
+                        'loading DFF',
+                        loading_percent,
+                        placement_index,
+                        total_placements,
+                        imported,
+                        skipped,
+                        loaded_models,
+                        progress_detail,
+                    )
+                    try:
+                        template_cache[cache_key] = load_pawn_model_template(
+                            model_info,
+                            dff_path,
+                            txd_path,
+                            source_collection,
+                            import_collisions,
+                        )
+                        loaded_models += 1
+                        attached_2dfx_count += int(
+                            template_cache[cache_key].get('attached_2dfx_count', 0)
+                        )
+                        attached_collision_count += int(
+                            template_cache[cache_key].get('attached_collision_count', 0)
+                        )
+                        progress_detail = "loaded %s" % dff_name
+                    except Exception as error:
+                        template_cache[cache_key] = None
+                        progress_detail = "failed %s" % dff_name
+                        failed_dff_keys.add(cache_key)
+
+                template = template_cache.get(cache_key)
+                if template is None:
+                    skipped += 1
+                    continue
+
+                instantiate_pawn_model(
+                    template,
+                    created,
+                    model_info,
+                    collection,
+                )
+                imported += 1
+                real_instances += 1
+                progress_detail = dff_name
+            finally:
+                if total_placements:
+                    percent = 5.0 + (float(placement_index) / float(total_placements)) * 93.0
+                else:
+                    percent = 98.0
+
+                pwn_importer.update_progress(
+                    progress_callback,
+                    started_at,
+                    'importing placements',
+                    percent,
+                    placement_index,
+                    total_placements,
+                    imported,
+                    skipped,
+                    loaded_models,
+                    progress_detail,
+                    force_console=(placement_index == total_placements),
+                    force_redraw=(placement_index == total_placements),
+                )
+
+        source_object_count = 0
+        source_collection_count = 0
+        try:
+            source_object_count = sum(
+                len([
+                    obj for obj in template.get('objects', ())
+                    if any(collection == source_collection for collection in obj.users_collection)
+                ])
+                for template in template_cache.values()
+                if template is not None
             )
-            link_object_to_collection(obj, collection)
-            set_pawn_import_props(obj, created, model_info)
-            imported += 1
+            source_collection_count = 1 + sum(
+                1
+                for template in template_cache.values()
+                if template is not None and template.get('collection') is not None
+            )
+        except Exception:
+            source_object_count = 0
+            source_collection_count = 0
+
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'removing temporary model sources',
+            98.5,
+            total_placements,
+            total_placements,
+            imported,
+            skipped,
+            loaded_models,
+            "Cleaning up",
+            force_console=True,
+            force_redraw=True,
+        )
+
+        removed_objects, removed_collections = remove_pawn_collection_tree(
+            source_collection
+        )
+        template_cache.clear()
+
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'completing import',
+            99.8,
+            total_placements,
+            total_placements,
+            imported,
+            skipped,
+            loaded_models,
+            "Almost done",
+            force_console=True,
+            force_redraw=True,
+        )
 
         pwn_importer.total_objects_num = imported
+        pwn_importer.parsed_objects_num = total_placements
+        pwn_importer.processed_objects_num = total_placements
+        pwn_importer.skipped_objects_num = skipped
         pwn_importer.total_models_num = len(simple_models)
-        pwn_importer.missing_model_info_num = missing_model_info
+        pwn_importer.loaded_models_num = loaded_models
+        pwn_importer.real_model_instances_num = real_instances
+        pwn_importer.placeholder_objects_num = 0
+        pwn_importer.comment_mapped_models_num = len(comment_mapped_ids)
+        pwn_importer.missing_model_info_num = len(missing_model_ids)
+        pwn_importer.missing_dff_num = len(missing_dff_keys)
+        pwn_importer.missing_txd_num = len(missing_txd_keys)
+        pwn_importer.failed_dff_num = len(failed_dff_keys)
 
-        print(
-            "DemonFF Pawn import verify: AddSimpleModel=%d, CreateDynamicObject=%d, imported_objects=%d, missing_AddSimpleModel_info=%d." % (
-                len(simple_models),
-                len(created_objects),
+        elapsed = max(0.0, time.perf_counter() - started_at)
+        pwn_importer.update_progress(
+            progress_callback,
+            started_at,
+            'complete',
+            100.0,
+            total_placements,
+            total_placements,
+            imported,
+            skipped,
+            loaded_models,
+            pwn_importer.format_progress_duration(elapsed),
+            force_console=True,
+            force_redraw=True,
+        )
+
+        summary = (
+            "PWN import finished: %d of %d placements imported; %d skipped; %s."
+            % (
                 imported,
-                missing_model_info,
+                total_placements,
+                skipped,
+                pwn_importer.format_progress_duration(elapsed),
             )
         )
+        if missing_dff_keys:
+            summary += " %d model file(s) were not found." % len(missing_dff_keys)
+        if failed_dff_keys:
+            summary += " %d model file(s) could not be opened." % len(failed_dff_keys)
+        print(summary, flush=True)
+
 
         return imported
 
 #######################################################
 def import_pawn(options):
-    return pwn_importer.import_pawn(
-        options['file_name'],
-        options.get('collection_name', 'Pawn Import'),
-        options.get('clear_existing', False),
-    )
+    scene_settings = getattr(getattr(bpy.context, 'scene', None), 'dff', None)
+    previous_real_time_update = None
+
+    if scene_settings is not None and hasattr(scene_settings, 'real_time_update'):
+        previous_real_time_update = bool(scene_settings.real_time_update)
+        if previous_real_time_update:
+            scene_settings.real_time_update = False
+
+    try:
+        return pwn_importer.import_pawn(
+            options['file_name'],
+            options.get('collection_name', 'Pawn Import'),
+            options.get('clear_existing', False),
+            options.get('dff_root', ''),
+            options.get('txd_root', ''),
+            options.get('recursive_search', True),
+            options.get('import_textures', True),
+            options.get('import_collisions', False),
+            options.get('progress_callback'),
+        )
+    finally:
+        if (
+            scene_settings is not None
+            and previous_real_time_update is not None
+            and hasattr(scene_settings, 'real_time_update')
+        ):
+            scene_settings.real_time_update = previous_real_time_update
 
 #######################################################
 class pwn_exporter:
@@ -1173,32 +2413,24 @@ class pwn_exporter:
     @staticmethod
     def collect_objects(context):
         objects = []
-        seen_placements = set()
-
         for obj in context.scene.objects:
             if not object_is_exportable_map_instance(obj):
                 continue
-            if pwn_exporter.only_selected and not object_or_descendant_is_selected(obj):
+            if pwn_exporter.only_selected and not obj.select_get():
                 continue
             if pwn_exporter.skip_lod and object_is_lod(obj):
                 continue
             if object_is_2dfx_pawn_helper(obj):
                 continue
-
-            source_section = str(get_custom_prop(obj, "IPL_Source_Section", ""))
-            instance_index = get_custom_prop(obj, "IPL_Instance_Index", None)
-            if instance_index is not None:
-                placement_key = (source_section.lower(), str(instance_index))
-                if placement_key in seen_placements:
-                    continue
-                seen_placements.add(placement_key)
-
             objects.append(obj)
         return objects
 
     @staticmethod
-    def get_or_create_model_id(obj, name_mapping, current_id):
-        key = get_pawn_model_name(obj).lower()
+    def get_or_create_model_id(model_name, txd_name, name_mapping, current_id):
+        key = (
+            normalize_export_asset_name(model_name, ".dff").lower(),
+            normalize_export_asset_name(txd_name, ".txd").lower(),
+        )
 
         if key in name_mapping:
             return name_mapping[key], current_id
@@ -1241,15 +2473,20 @@ class pwn_exporter:
             pawn_file.write("public OnGameModeInit()\n{\n")
 
             for obj in objects:
-                model_id, current_id = self.get_or_create_model_id(obj, name_mapping, current_id)
+                model_name = normalize_export_asset_name(get_pawn_model_name(obj), ".dff")
+                txd_name = normalize_export_asset_name(resolve_export_txd_name(obj, ide_txd_lookup), ".txd")
+                model_id, current_id = self.get_or_create_model_id(
+                    model_name,
+                    txd_name,
+                    name_mapping,
+                    current_id,
+                )
                 position, rotation_quat, scale = get_export_transform(obj)
                 position.x += self.x_offset
                 position.y += self.y_offset
                 position.z += self.z_offset
                 rotation = get_pawn_rotation(obj)
                 world_id, interior = get_stream_world_and_interior(obj, -1, -1)
-                model_name = normalize_export_asset_name(get_pawn_model_name(obj), ".dff")
-                txd_name = normalize_export_asset_name(resolve_export_txd_name(obj, ide_txd_lookup), ".txd")
                 safe_model_dir = normalize_export_directory(model_directory)
                 safe_texture_dir = normalize_export_directory(texture_directory) or safe_model_dir
                 addsimplemodel_line, dff_path, txd_path = make_addsimplemodel_line(
@@ -1298,6 +2535,14 @@ class pwn_exporter:
                             dff_path.lower(),
                             txd_path.lower(),
                         )
+                    )
+
+                lod_index = get_object_lod(obj, None)
+                if lod_index not in (None, "", -1, "-1"):
+                    pawn_file.write(
+                        f"    CreateDynamicObject({lod_index}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
+                        f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
+                        f"{world_id}, {interior}, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // LOD for {obj.name}\n"
                     )
 
                 self.total_objects_num += 1

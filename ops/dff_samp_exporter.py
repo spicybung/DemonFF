@@ -297,6 +297,8 @@ class dff_exporter:
     parent_queue = {}
     collection = None
     collision_objects = None
+    explicit_export_objects = None
+    explicit_collision_objects = None
     export_coll = False
     preserve_collision_positions = True
     force_collision_to_dff_transform = True
@@ -2074,16 +2076,18 @@ class dff_exporter:
         self = dff_exporter
         objects = {}
 
-        if bpy.app.version < (2, 80, 0):
+        if self.explicit_export_objects is not None:
+            object_source = self.explicit_export_objects
+        elif bpy.app.version < (2, 80, 0):
             object_source = bpy.data.objects
         else:
             object_source = bpy.context.scene.objects
 
         for obj in object_source:
-            if not self.is_exportable_dff_object(obj):
+            if obj is None or not self.is_exportable_dff_object(obj):
                 continue
 
-            if self.selected and not self.is_selected(obj):
+            if self.explicit_export_objects is None and self.selected and not self.is_selected(obj):
                 continue
 
             objects[obj] = self.calculate_parent_depth(obj)
@@ -2508,6 +2512,51 @@ class dff_exporter:
         if collection is None:
             return []
 
+        pawn_placement_ids = set()
+        pawn_model_sources = set()
+        for obj in objects:
+            try:
+                placement_id = str(obj.get('DemonFF_Pawn_Placement_ID', '')).strip()
+                model_source = str(obj.get('DemonFF_Pawn_Model_Source', '')).strip()
+            except Exception:
+                placement_id = ''
+                model_source = ''
+            if placement_id:
+                pawn_placement_ids.add(placement_id)
+            if model_source:
+                pawn_model_sources.add(os.path.normcase(os.path.normpath(model_source)))
+
+        if pawn_placement_ids or pawn_model_sources:
+            matched = []
+            seen = set()
+            for collision_object in self.get_collection_collision_objects(collection, True):
+                try:
+                    collision_placement_id = str(collision_object.get('DemonFF_Pawn_Placement_ID', '')).strip()
+                    collision_model_source = str(collision_object.get('DemonFF_Pawn_Model_Source', '')).strip()
+                except Exception:
+                    collision_placement_id = ''
+                    collision_model_source = ''
+
+                if pawn_placement_ids and collision_placement_id not in pawn_placement_ids:
+                    continue
+                if pawn_model_sources:
+                    if not collision_model_source:
+                        continue
+                    collision_source_key = os.path.normcase(os.path.normpath(collision_model_source))
+                    if collision_source_key not in pawn_model_sources:
+                        continue
+
+                try:
+                    key = collision_object.as_pointer()
+                except Exception:
+                    key = id(collision_object)
+                if key in seen:
+                    continue
+                seen.add(key)
+                matched.append(collision_object)
+
+            return matched
+
         collision_collection = self.get_matching_collision_collection(collection)
         if collision_collection is None:
             print('DemonFF SA-MP DFF export: no matching .col collection found for %s; exporting DFF without embedded collision.' % collection.name)
@@ -2766,29 +2815,18 @@ class dff_exporter:
     @staticmethod
     def get_2dfx_local_location(obj, root_objects):
         self = dff_exporter
-        owner_object = None
-        parent = getattr(obj, "parent", None)
-        root_set = set(root_objects)
-
-        while parent is not None:
-            if parent in root_set:
-                owner_object = parent
-                break
-            parent = getattr(parent, "parent", None)
-
-        if owner_object is None:
-            owner_object = self.get_nearest_atomic_object(obj, root_objects)
+        nearest_object = self.get_nearest_atomic_object(obj, root_objects)
 
         try:
             location = obj.matrix_world.translation.copy()
         except Exception:
             location = mathutils.Vector(obj.location)
 
-        if owner_object is None:
+        if nearest_object is None:
             return location
 
         try:
-            return owner_object.matrix_world.inverted() @ location
+            return nearest_object.matrix_world.inverted() @ location
         except Exception:
             return location
 
@@ -3469,7 +3507,26 @@ class dff_exporter:
 
         objects = self.get_single_export_objects()
         self.collection = self.get_primary_collection_for_export_objects(objects)
-        self.collision_objects = self.get_collision_objects_for_export_objects(self.collection, objects)
+
+        if self.explicit_collision_objects is not None:
+            collision_objects = []
+            seen_collision_objects = set()
+            for obj in self.explicit_collision_objects:
+                if obj is None:
+                    continue
+                if self.get_dff_type(obj) not in {'COL', 'SHA'}:
+                    continue
+                try:
+                    key = obj.as_pointer()
+                except Exception:
+                    key = id(obj)
+                if key in seen_collision_objects:
+                    continue
+                seen_collision_objects.add(key)
+                collision_objects.append(obj)
+            self.collision_objects = collision_objects
+        else:
+            self.collision_objects = self.get_collision_objects_for_export_objects(self.collection, objects)
 
         self.reset_export_state()
         self.export_objects(objects)
@@ -3479,7 +3536,6 @@ class dff_exporter:
                 
 #######################################################
 def export_dff(options):
-    # Setup options for export without changing directory structures
     dff_exporter.selected = options['selected']
     dff_exporter.export_frame_names = options['export_frame_names']
     dff_exporter.truncate_frame_names = options.get('truncate_frame_names', False)
@@ -3490,14 +3546,20 @@ def export_dff(options):
     dff_exporter.export_coll = options['export_coll']
     dff_exporter.preserve_collision_positions = options.get('preserve_collision_positions', True)
     dff_exporter.force_collision_to_dff_transform = options.get('force_collision_to_dff_transform', True)
-    
+    dff_exporter.explicit_export_objects = options.get('objects')
+    dff_exporter.explicit_collision_objects = (
+        options.get('collision_objects')
+        if 'collision_objects' in options
+        else None
+    )
 
-    # Normalize and attempt forced read on file path without directory checks
     file_path = os.path.normpath(options['file_name'])
 
     try:
-        # Bypass directory check and attempt to read directly
         dff_exporter.export_dff(file_path)
     except FileNotFoundError:
-        # Provide a clear notice for a missing file
         print(f"Path '{file_path}' could not be accessed. Ensure file and directory are accessible.")
+    finally:
+        dff_exporter.explicit_export_objects = None
+        dff_exporter.explicit_collision_objects = None
+        dff_exporter.collision_objects = None

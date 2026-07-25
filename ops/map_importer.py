@@ -31,10 +31,10 @@ from collections import Counter, deque
 from mathutils import Matrix, Quaternion, Vector
 
 from ..ops import dff_importer, col_importer
-from .ext_2dfx_importer import create_arrow_mesh
 from ..gtaLib import map as map_utilites
 from .importer_common import (hide_object)
 from .state import State
+from .map_transform import build_ipl_instance_matrix, ipl_quaternion_to_blender
 from .ipl.cull_importer import cull_importer
 from .ipl.grge_importer import grge_importer
 from .ipl.enex_importer import enex_importer
@@ -64,110 +64,6 @@ LCS_AUXILIARY_IPL_SECTIONS = {
 
 
 #######################################################
-def _record_float(record, name, default=0.0):
-    try:
-        return float(getattr(record, name))
-    except (AttributeError, TypeError, ValueError):
-        return default
-
-#######################################################
-def _record_int(record, name, default=0):
-    try:
-        return int(float(getattr(record, name)))
-    except (AttributeError, TypeError, ValueError):
-        return default
-
-#######################################################
-def _apply_lcs_light_flags(settings, value):
-    flags = max(0, min(255, int(value)))
-    settings.flag1_corona_check_obstacles = bool(flags & 1)
-    settings.flag1_fog_type = (flags >> 1) & 3
-    settings.flag1_without_corona = bool(flags & 8)
-    settings.flag1_corona_only_at_long_distance = bool(flags & 16)
-    settings.flag1_at_day = bool(flags & 32)
-    settings.flag1_at_night = bool(flags & 64)
-    settings.flag1_blinking1 = bool(flags & 128)
-
-#######################################################
-def _direction_to_dff_view_vector(record):
-    direction = Vector((
-        _record_float(record, 'dirX'),
-        _record_float(record, 'dirY'),
-        _record_float(record, 'dirZ'),
-    ))
-    if direction.length_squared == 0.0:
-        return (0, 0, 0)
-    direction.normalize()
-    return tuple(max(-128, min(127, int(round(value * 127.0)))) for value in direction)
-
-#######################################################
-def _create_lcs_light(record, index, red, green, blue, alpha, directional=False):
-    light_data = bpy.data.lights.new(
-        name="2dfx_directional_%s_%d" % (record.id, index) if directional else "2dfx_light_%s_%d" % (record.id, index),
-        type='POINT'
-    )
-    light_data.color = (red, green, blue)
-    light_data.energy = 10.0
-    light_data.shadow_soft_size = 0.25
-    obj = bpy.data.objects.new(light_data.name, light_data)
-    settings = light_data.ext_2dfx
-    settings.alpha = alpha
-
-    if directional:
-        # ReLCS external type 1 contains direction + size, while standard RW
-        # DFF type 1 is a particle-name record. Convert it to the standard DFF
-        # directional-light representation so its useful data is not discarded.
-        settings.corona_far_clip = 100.0
-        settings.point_light_range = 0.0
-        settings.corona_size = max(0.0, _record_float(record, 'size', 1.0))
-        settings.shadow_size = 0.0
-        settings.corona_show_mode = str(max(0, min(13, _record_int(record, 'param1'))))
-        settings.corona_tex_name = "coronastar"
-        settings.shadow_tex_name = "shad_exp"
-        settings.view_vector = _direction_to_dff_view_vector(record)
-        settings.export_view_vector = True
-        settings.flag2_check_view_vector = True
-        obj["demonff_2dfx_conversion"] = "LCS_DIRECTIONAL_TO_DFF_LIGHT"
-    else:
-        settings.corona_tex_name = str(getattr(record, 'coronaTexName', '')).strip('"')
-        settings.shadow_tex_name = str(getattr(record, 'shadowTexName', '')).strip('"')
-        settings.corona_far_clip = _record_float(record, 'param1')
-        settings.point_light_range = _record_float(record, 'param2')
-        settings.corona_size = _record_float(record, 'param3')
-        settings.shadow_size = _record_float(record, 'param4')
-        settings.shadow_color_multiplier = max(0, min(255, _record_int(record, 'param5')))
-        settings.corona_show_mode = str(max(0, min(13, _record_int(record, 'param6'))))
-        settings.corona_enable_reflection = bool(_record_int(record, 'param7'))
-        settings.corona_flare_type = max(0, min(2, _record_int(record, 'param8')))
-        _apply_lcs_light_flags(settings, _record_int(record, 'param9'))
-
-    return obj
-
-#######################################################
-def _create_lcs_attractor(record, index):
-    mesh = create_arrow_mesh("_2dfx_lcs_ped_attractor")
-    obj = bpy.data.objects.new("2dfx_attractor_%s_%d" % (record.id, index), mesh)
-    obj.lock_rotation[0] = True
-    obj.lock_rotation[1] = True
-    settings = obj.dff.ext_2dfx
-    queue_dir = Vector(tuple(_record_float(record, name) for name in ('dir1X', 'dir1Y', 'dir1Z')))
-    use_dir = Vector(tuple(_record_float(record, name) for name in ('dir2X', 'dir2Y', 'dir2Z')))
-    forward_dir = use_dir.copy() if use_dir.length_squared else queue_dir.copy()
-    if not forward_dir.length_squared:
-        forward_dir = Vector((0.0, 1.0, 0.0))
-    settings.queue_dir = queue_dir
-    settings.use_dir = use_dir
-    settings.forward_dir = forward_dir
-    settings.attractor_type = max(0, min(9, _record_int(record, 'attractorType')))
-    settings.script_name = ""
-    settings.ped_probability = 0
-    try:
-        obj.rotation_euler = forward_dir.to_track_quat('Y', 'Z').to_euler()
-    except (ValueError, ZeroDivisionError):
-        pass
-    return obj
-
-#######################################################
 def import_text_ide_2dfx(importer, records, root_object, inst):
     if not records or root_object is None:
         return []
@@ -183,15 +79,17 @@ def import_text_ide_2dfx(importer, records, root_object, inst):
             alpha = max(0.0, min(1.0, float(record.alpha) / 255.0))
 
             effect_type = int(float(getattr(record, 'effectType', 0)))
+            light_data = None
+
             if effect_type == 0:
-                obj = _create_lcs_light(record, index, red, green, blue, alpha)
-                dff_effect_type = 0
-            elif effect_type == 1:
-                obj = _create_lcs_light(record, index, red, green, blue, alpha, directional=True)
-                dff_effect_type = 0
-            elif effect_type == 3:
-                obj = _create_lcs_attractor(record, index)
-                dff_effect_type = 3
+                light_data = bpy.data.lights.new(
+                    name="2dfx_light_%s_%d" % (record.id, index),
+                    type='POINT'
+                )
+                light_data.color = (red, green, blue)
+                light_data.energy = 10.0
+                light_data.shadow_soft_size = 0.25
+                obj = bpy.data.objects.new(light_data.name, light_data)
             else:
                 obj = bpy.data.objects.new(
                     "2dfx_effect_%s_%d_type_%d" % (record.id, index, effect_type),
@@ -199,10 +97,9 @@ def import_text_ide_2dfx(importer, records, root_object, inst):
                 )
                 obj.empty_display_type = 'PLAIN_AXES'
                 obj.empty_display_size = 0.35
-                dff_effect_type = effect_type
 
             obj.dff.type = '2DFX'
-            obj.dff.ext_2dfx.effect = str(dff_effect_type)
+            obj.dff.ext_2dfx.effect = str(effect_type)
             obj.parent = root_object
             obj.matrix_parent_inverse = Matrix.Identity(4)
             obj.matrix_basis = Matrix.Translation((
@@ -212,8 +109,6 @@ def import_text_ide_2dfx(importer, records, root_object, inst):
             ))
 
             obj["demonff_text_ide_2dfx"] = True
-            obj["DemonFF_Entity_Role"] = "2DFX"
-            obj["DemonFF_Map_Placement"] = False
             obj["demonff_2dfx_model_id"] = str(record.id)
 
             source_model_name = str(root_object.get("DFF_Name", "")).strip()
@@ -227,7 +122,6 @@ def import_text_ide_2dfx(importer, records, root_object, inst):
 
             obj["demonff_2dfx_alpha"] = alpha
             obj["demonff_2dfx_effect_type"] = str(getattr(record, 'effectType', 0))
-            obj["demonff_2dfx_dff_effect_type"] = str(dff_effect_type)
             obj["demonff_2dfx_source_ide"] = str(getattr(record, 'filename', ''))
 
             for field_name in record._fields:
@@ -235,6 +129,31 @@ def import_text_ide_2dfx(importer, records, root_object, inst):
                     obj["demonff_2dfx_%s" % field_name] = str(getattr(record, field_name))
                 except Exception:
                     pass
+
+            settings = getattr(light_data, 'ext_2dfx', None) if light_data is not None else None
+            if settings is not None:
+                settings.alpha = alpha
+                if hasattr(record, 'coronaTexName'):
+                    settings.corona_tex_name = str(record.coronaTexName).strip('"')
+                if hasattr(record, 'shadowTexName'):
+                    settings.shadow_tex_name = str(record.shadowTexName).strip('"')
+
+                numeric = []
+                for name in ('param1', 'param2', 'param3', 'param4', 'param5', 'param6', 'param7', 'param8', 'param9'):
+                    if hasattr(record, name):
+                        try:
+                            numeric.append(float(getattr(record, name)))
+                        except Exception:
+                            numeric.append(0.0)
+
+                if len(numeric) > 0:
+                    settings.corona_far_clip = numeric[0]
+                if len(numeric) > 1:
+                    settings.point_light_range = numeric[1]
+                if len(numeric) > 2:
+                    settings.corona_size = numeric[2]
+                if len(numeric) > 3:
+                    settings.shadow_size = numeric[3]
 
             collection.objects.link(obj)
             created.append(obj)
@@ -245,56 +164,16 @@ def import_text_ide_2dfx(importer, records, root_object, inst):
 
 #######################################################
 def get_instance_model_data(inst, object_data):
-    inst_id = getattr(inst, "id", None)
-    model_name = str(getattr(inst, "modelName", "") or "").strip().lower()
-
-    keys = []
-
-    if model_name:
-        keys.append((str(inst_id), model_name))
-        keys.append(model_name)
-
-    keys.append(inst_id)
-
-    try:
-        keys.append(str(inst_id))
-    except Exception:
-        pass
-
-    try:
-        int_id = int(inst_id)
-        keys.append(int_id)
-        if model_name:
-            keys.append((str(int_id), model_name))
-    except Exception:
-        pass
-
-    seen = set()
-    for key in keys:
-        marker = repr(key)
-        if marker in seen:
-            continue
-        seen.add(marker)
-
-        if key in object_data:
-            return object_data[key]
-
-    return None
+    return map_utilites.MapDataUtility.resolve_object_data_entry(
+        object_data,
+        getattr(inst, "id", None),
+        getattr(inst, "modelName", ""),
+    )
 
 #######################################################
 def get_instance_cache_key(inst, ide_data):
     model_name = str(getattr(ide_data, "modelName", getattr(inst, "modelName", "")) or "").strip().lower()
     return (str(getattr(inst, "id", "")), model_name)
-
-#######################################################
-def get_instance_2dfx_records(inst, ide_data, effects_2dfx):
-    entry_id = str(getattr(inst, "id", ""))
-    model_name = str(getattr(ide_data, "modelName", getattr(inst, "modelName", "")) or "").strip().lower()
-    if model_name:
-        records = effects_2dfx.get((entry_id, model_name))
-        if records is not None:
-            return records
-    return effects_2dfx.get(entry_id, [])
 
 #######################################################
 def get_instance_model_name(inst, object_data):
@@ -454,27 +333,7 @@ def get_instance_transform_values(inst):
 #######################################################
 def build_instance_matrix(inst):
     position, quaternion, scale_values = get_instance_transform_values(inst)
-
-    location = Vector(position)
-    rotation = Quaternion((
-        -quaternion[3],
-        quaternion[0],
-        quaternion[1],
-        quaternion[2],
-    ))
-
-    if rotation.magnitude > 1.0e-12:
-        rotation.normalize()
-    else:
-        rotation = Quaternion((1.0, 0.0, 0.0, 0.0))
-
-    scale = Vector(scale_values)
-
-    return (
-        Matrix.Translation(location)
-        @ rotation.to_matrix().to_4x4()
-        @ Matrix.Diagonal((scale.x, scale.y, scale.z, 1.0))
-    )
+    return build_ipl_instance_matrix(position, quaternion, scale_values)
 
 #######################################################
 
@@ -902,8 +761,6 @@ class Map_Import_Operator(bpy.types.Operator):
             )
 
         obj["IDE_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
-        obj["DemonFF_Entity_Role"] = "MAP_INSTANCE"
-        obj["DemonFF_Map_Placement"] = True
         obj["DFF_Name"] = str(model_name)
         obj["TXD_Name"] = str(txd_name)
         obj["IPL_Source_Interior"] = source_interior_id
@@ -1021,8 +878,6 @@ class Map_Import_Operator(bpy.types.Operator):
         txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
 
         obj["demonff_2dfx_source_dff"] = "%s.dff" % model_name
-        obj["DemonFF_Entity_Role"] = "2DFX"
-        obj["DemonFF_Map_Placement"] = False
         obj["demonff_2dfx_source_model"] = str(model_name)
         obj["demonff_2dfx_source_model_key"] = str(model_name)
         obj["DFF_Name"] = str(model_name)
@@ -1174,12 +1029,6 @@ class Map_Import_Operator(bpy.types.Operator):
         obj["IPL_Source_Role"] = str(self._map_section_role)
         obj["IPL_Source_Model"] = str(model_name)
         obj["IPL_Source_ID"] = str(getattr(inst, "id", ""))
-
-        if obj.dff.type == "2DFX":
-            obj["DemonFF_Entity_Role"] = "2DFX"
-            obj["DemonFF_Map_Placement"] = False
-        elif not bool(obj.get("DemonFF_Map_Placement", False)):
-            obj["DemonFF_Entity_Role"] = "DFF_COMPONENT"
 
         position, quaternion, scale = get_instance_transform_values(inst)
         obj["IPL_Source_Position"] = list(position)
@@ -1706,7 +1555,7 @@ class Map_Import_Operator(bpy.types.Operator):
                 else:
                     imported_obj.matrix_basis = source_local_matrix.copy()
 
-            text_effects = get_instance_2dfx_records(inst, ide_data, self._effects_2dfx)
+            text_effects = self._effects_2dfx.get(str(inst.id), [])
             if root_objects and text_effects:
                 existing_text_effects = [
                     obj
@@ -2028,48 +1877,32 @@ class Map_Import_Operator(bpy.types.Operator):
         else:
             self._map_section_role = "runtime"
 
-        # Get all the necessary IDE and IPL data
-        map_data = map_utilites.MapDataUtility.getMapData(
-            self.settings.game_version_dropdown,
-            self.settings.game_root,
-            map_section,
-            self.settings.use_custom_map_section)
+        ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
 
-        if self.settings.use_binary_ipl or self.settings.use_custom_map_section:
-            ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
-            if not ide_paths:
-                self.report({'ERROR'}, "No IDEs specified for import.")
-                self.restore_real_time_scene_updates()
-                return {'CANCELLED'}
-        else:
-            ide_paths = [] 
+        try:
+            if self.settings.use_binary_ipl:
+                if not ide_paths:
+                    self.report({'ERROR'}, "No IDEs specified for Binary IPL import.")
+                    self.restore_real_time_scene_updates()
+                    return {'CANCELLED'}
 
-        # Get all the necessary IDE and IPL data
-        if self.settings.use_binary_ipl:
-            ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
-            if not ide_paths:
-                self.report({'ERROR'}, "No IDEs specified for Binary IPL import.")
-                self.restore_real_time_scene_updates()
-                return {'CANCELLED'}
+                map_data = map_utilites.MapDataUtility.getBinaryMapData(
+                    self.settings.game_version_dropdown,
+                    self.filepath,
+                    ide_paths
+                )
+            else:
+                if self.settings.use_custom_map_section and ide_paths:
+                    map_utilites.MapDataUtility.override_ide_paths(ide_paths)
 
-            map_data = map_utilites.MapDataUtility.getBinaryMapData(
-                self.settings.game_version_dropdown,
-                self.filepath,
-                ide_paths
-            )
-        elif self.settings.use_custom_map_section:
-            custom_ide_paths = [entry.name for entry in self.settings.ide_paths if entry.name.strip()]
-            if custom_ide_paths:
-                map_utilites.MapDataUtility.override_ide_paths(custom_ide_paths)
-
-            map_data = map_utilites.MapDataUtility.getMapData(
-                self.settings.game_version_dropdown,
-                self.settings.game_root,
-                map_section,
-                self.settings.use_custom_map_section
-            )
-
-        map_utilites.MapDataUtility.forced_ide_paths = None
+                map_data = map_utilites.MapDataUtility.getMapData(
+                    self.settings.game_version_dropdown,
+                    self.settings.game_root,
+                    map_section,
+                    self.settings.use_custom_map_section
+                )
+        finally:
+            map_utilites.MapDataUtility.forced_ide_paths = None
 
         main_source_section = os.path.basename(str(map_section))
         self._object_instances = list(map_data['object_instances'])
@@ -2607,10 +2440,12 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
         obj.location.y = float(inst.posY)
         obj.location.z = float(inst.posZ)
         obj.rotation_mode = 'QUATERNION'
-        obj.rotation_quaternion.w = -float(inst.rotW)
-        obj.rotation_quaternion.x = float(inst.rotX)
-        obj.rotation_quaternion.y = float(inst.rotY)
-        obj.rotation_quaternion.z = float(inst.rotZ)
+        obj.rotation_quaternion = ipl_quaternion_to_blender(
+            inst.rotX,
+            inst.rotY,
+            inst.rotZ,
+            inst.rotW,
+        )
 
         if hasattr(inst, 'scaleX'):
             obj.scale.x = float(inst.scaleX)

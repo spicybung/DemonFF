@@ -124,6 +124,344 @@ class SectionUtility:
 class MapDataUtility:
 
     forced_ide_paths = None
+    OBJECT_DATA_ID_INDEX = "__demonff_id_index__"
+    OBJECT_DATA_NAME_INDEX = "__demonff_name_index__"
+    OBJECT_DATA_PAIR_INDEX = "__demonff_pair_index__"
+
+    ########################################################################
+    @staticmethod
+    def normalize_map_lookup_name(value):
+        name = str(value or "").strip().replace('\\', '/')
+        name = os.path.basename(name)
+        name = os.path.splitext(name)[0]
+        return name.lower()
+
+    ########################################################################
+    @staticmethod
+    def normalize_map_id(value):
+        value_text = str(value if value is not None else "").strip()
+        try:
+            numeric_value = float(value_text)
+            if numeric_value.is_integer():
+                return str(int(numeric_value))
+        except (TypeError, ValueError):
+            pass
+        return value_text
+
+    ########################################################################
+    @staticmethod
+    def normalize_map_path(value):
+        return str(value or "").strip().replace('\\', '/').lower()
+
+    ########################################################################
+    @staticmethod
+    def discover_ide_paths(game_root):
+        self = MapDataUtility
+        discovered = []
+        seen = set()
+
+        map_roots = (
+            os.path.join(game_root, "DATA", "MAPS"),
+            os.path.join(game_root, "data", "maps"),
+        )
+
+        for map_root in map_roots:
+            if not os.path.isdir(map_root):
+                continue
+
+            for root_path, _, filenames in os.walk(map_root):
+                for filename in filenames:
+                    if not filename.lower().endswith('.ide'):
+                        continue
+
+                    fullpath = os.path.join(root_path, filename)
+                    relative_path = os.path.relpath(fullpath, game_root)
+                    lookup_key = self.normalize_map_path(relative_path)
+                    if lookup_key in seen:
+                        continue
+
+                    seen.add(lookup_key)
+                    discovered.append(relative_path)
+
+        default_ide = self.find_path_case_insensitive(game_root, os.path.join('DATA', 'DEFAULT.IDE'))
+        if default_ide:
+            relative_path = os.path.relpath(default_ide, game_root)
+            lookup_key = self.normalize_map_path(relative_path)
+            if lookup_key not in seen:
+                discovered.insert(0, relative_path)
+
+        return discovered
+
+    ########################################################################
+    @staticmethod
+    def is_shared_ide_path(ide_path):
+        normalized = MapDataUtility.normalize_map_path(ide_path)
+        stem = os.path.splitext(os.path.basename(normalized))[0]
+        return (
+            '/generic/' in normalized
+            or '/leveldes/' in normalized
+            or 'xref' in normalized
+            or stem in {'default', 'generic'}
+        )
+
+    ########################################################################
+    @staticmethod
+    def get_ide_path_affinity(ide_path, ipl_section):
+        ide_normalized = MapDataUtility.normalize_map_path(ide_path)
+        ipl_normalized = MapDataUtility.normalize_map_path(ipl_section)
+
+        ide_stem = os.path.splitext(os.path.basename(ide_normalized))[0]
+        ipl_stem = os.path.splitext(os.path.basename(ipl_normalized))[0]
+        ide_parent = os.path.basename(os.path.dirname(ide_normalized))
+        ipl_parent = os.path.basename(os.path.dirname(ipl_normalized))
+
+        if ide_stem and ide_stem == ipl_stem and ide_parent == ipl_parent:
+            return 100
+        if ide_stem and ide_stem == ipl_stem:
+            return 90
+        if ide_parent and ide_parent == ipl_parent:
+            return 80
+        if ide_stem and ipl_stem and (ide_stem.startswith(ipl_stem) or ipl_stem.startswith(ide_stem)):
+            return 40
+        if ide_stem[:4] and ide_stem[:4] == ipl_stem[:4]:
+            return 20
+        return 0
+
+    ########################################################################
+    @staticmethod
+    def collect_ide_object_entries(sections):
+        entries = []
+        for section_name in ('objs', 'tobj', 'anim'):
+            entries.extend(sections.get(section_name, []))
+        return entries
+
+    ########################################################################
+    @staticmethod
+    def select_ide_paths_for_ipl(game_root, ide_paths, ipl_section, object_instances, data_structures, aliases):
+        self = MapDataUtility
+
+        unique_paths = []
+        seen_paths = set()
+        for ide_path in ide_paths:
+            normalized_path = self.normalize_map_path(ide_path)
+            if not normalized_path or normalized_path in seen_paths:
+                continue
+            seen_paths.add(normalized_path)
+            unique_paths.append(ide_path)
+
+        wanted_ids = set()
+        wanted_names = set()
+        wanted_pairs = set()
+        for instance in object_instances:
+            instance_id = self.normalize_map_id(getattr(instance, 'id', ''))
+            model_name = self.normalize_map_lookup_name(getattr(instance, 'modelName', ''))
+            if instance_id:
+                wanted_ids.add(instance_id)
+            if model_name:
+                wanted_names.add(model_name)
+            if instance_id and model_name:
+                wanted_pairs.add((instance_id, model_name))
+
+        candidate_info = []
+        for ide_path in unique_paths:
+            fullpath = self.get_full_path(game_root, ide_path)
+            if not os.path.isfile(fullpath):
+                continue
+
+            sections = self.read_file(fullpath, data_structures, aliases)
+            entries = self.collect_ide_object_entries(sections)
+            entry_ids = set()
+            entry_names = set()
+            entry_pairs = set()
+
+            for entry in entries:
+                entry_id = self.normalize_map_id(getattr(entry, 'id', ''))
+                model_name = self.normalize_map_lookup_name(getattr(entry, 'modelName', ''))
+                if entry_id:
+                    entry_ids.add(entry_id)
+                if model_name:
+                    entry_names.add(model_name)
+                if entry_id and model_name:
+                    entry_pairs.add((entry_id, model_name))
+
+            candidate_info.append({
+                'path': ide_path,
+                'affinity': self.get_ide_path_affinity(ide_path, ipl_section),
+                'shared': self.is_shared_ide_path(ide_path),
+                'id_matches': len(entry_ids.intersection(wanted_ids)),
+                'name_matches': len(entry_names.intersection(wanted_names)),
+                'pair_matches': len(entry_pairs.intersection(wanted_pairs)),
+                'entry_names': entry_names,
+            })
+
+        selected_paths = []
+        selected_keys = set()
+
+        def select(candidate):
+            candidate_path = candidate['path']
+            candidate_key = self.normalize_map_path(candidate_path)
+            if candidate_key in selected_keys:
+                return
+            selected_keys.add(candidate_key)
+            selected_paths.append(candidate_path)
+
+        for candidate in candidate_info:
+            if candidate['affinity'] >= 80:
+                select(candidate)
+                continue
+
+            if wanted_names:
+                if candidate['pair_matches'] > 0:
+                    select(candidate)
+                    continue
+                if candidate['shared'] and candidate['name_matches'] > 0:
+                    select(candidate)
+                    continue
+            elif candidate['id_matches'] > 0 and candidate['shared']:
+                select(candidate)
+
+        if wanted_names:
+            resolved_names = set()
+            for candidate in candidate_info:
+                if self.normalize_map_path(candidate['path']) in selected_keys:
+                    resolved_names.update(candidate['entry_names'].intersection(wanted_names))
+
+            unresolved_names = wanted_names.difference(resolved_names)
+            if unresolved_names:
+                for candidate in candidate_info:
+                    if candidate['entry_names'].intersection(unresolved_names):
+                        select(candidate)
+
+        if not selected_paths:
+            local_candidates = [candidate for candidate in candidate_info if candidate['affinity'] > 0]
+            for candidate in sorted(local_candidates, key=lambda item: item['affinity'], reverse=True):
+                select(candidate)
+
+        if not selected_paths:
+            selected_paths = list(unique_paths)
+
+        if selected_paths:
+            print('MapDataUtility: selected IDEs for %s:' % os.path.basename(str(ipl_section)))
+            for selected_path in selected_paths:
+                print('   ', selected_path)
+
+        return selected_paths
+
+    ########################################################################
+    @staticmethod
+    def build_object_data(ide_sections):
+        self = MapDataUtility
+        object_data = {}
+        id_index = {}
+        name_index = {}
+        pair_index = {}
+        entry_keys = set()
+
+        for entry in self.collect_ide_object_entries(ide_sections):
+            entry_id = self.normalize_map_id(getattr(entry, 'id', ''))
+            model_name = self.normalize_map_lookup_name(getattr(entry, 'modelName', ''))
+            txd_name = self.normalize_map_lookup_name(getattr(entry, 'txdName', ''))
+            filename = self.normalize_map_path(getattr(entry, 'filename', ''))
+            entry_key = (type(entry).__name__, entry_id, model_name, txd_name, filename, tuple(entry))
+            if entry_key in entry_keys:
+                continue
+            entry_keys.add(entry_key)
+
+            if entry_id:
+                id_index.setdefault(entry_id, []).append(entry)
+            if model_name:
+                name_index.setdefault(model_name, []).append(entry)
+            if entry_id and model_name:
+                pair_index.setdefault((entry_id, model_name), []).append(entry)
+
+        object_data[self.OBJECT_DATA_ID_INDEX] = id_index
+        object_data[self.OBJECT_DATA_NAME_INDEX] = name_index
+        object_data[self.OBJECT_DATA_PAIR_INDEX] = pair_index
+
+        for pair_key, entries in pair_index.items():
+            if len(entries) == 1:
+                object_data[pair_key] = entries[0]
+
+        ambiguous_ids = []
+        for entry_id, entries in id_index.items():
+            if len(entries) != 1:
+                ambiguous_ids.append(entry_id)
+                continue
+
+            object_data[entry_id] = entries[0]
+            try:
+                object_data[int(entry_id)] = entries[0]
+            except (TypeError, ValueError):
+                pass
+
+        for model_name, entries in name_index.items():
+            if len(entries) == 1:
+                object_data[model_name] = entries[0]
+
+        if ambiguous_ids:
+            print(
+                'MapDataUtility: ambiguous IDE IDs will only resolve by model name:',
+                ', '.join(sorted(ambiguous_ids)[:16])
+            )
+
+        return object_data
+
+    ########################################################################
+    @staticmethod
+    def resolve_object_data_entry(object_data, instance_id, model_name=''):
+        self = MapDataUtility
+        entry_id = self.normalize_map_id(instance_id)
+        normalized_name = self.normalize_map_lookup_name(model_name)
+
+        id_index = object_data.get(self.OBJECT_DATA_ID_INDEX, {})
+        name_index = object_data.get(self.OBJECT_DATA_NAME_INDEX, {})
+        pair_index = object_data.get(self.OBJECT_DATA_PAIR_INDEX, {})
+
+        if normalized_name:
+            if entry_id:
+                pair_entries = pair_index.get((entry_id, normalized_name), [])
+                if len(pair_entries) == 1:
+                    return pair_entries[0]
+
+                id_name_matches = [
+                    entry
+                    for entry in id_index.get(entry_id, [])
+                    if self.normalize_map_lookup_name(getattr(entry, 'modelName', '')) == normalized_name
+                ]
+                if len(id_name_matches) == 1:
+                    return id_name_matches[0]
+
+            name_entries = name_index.get(normalized_name, [])
+            if len(name_entries) == 1:
+                return name_entries[0]
+
+            legacy_pair = object_data.get((entry_id, normalized_name)) if entry_id else None
+            if legacy_pair is not None:
+                return legacy_pair
+
+            legacy_name = object_data.get(normalized_name)
+            if legacy_name is not None:
+                return legacy_name
+
+            return None
+
+        id_entries = id_index.get(entry_id, [])
+        if len(id_entries) == 1:
+            return id_entries[0]
+
+        if entry_id:
+            legacy_entry = object_data.get(entry_id)
+            if legacy_entry is not None:
+                return legacy_entry
+
+            try:
+                legacy_entry = object_data.get(int(entry_id))
+                if legacy_entry is not None:
+                    return legacy_entry
+            except (TypeError, ValueError):
+                pass
+
+        return None
 
     # Finds the path to a file case-insensitively
     #######################################################
@@ -368,85 +706,12 @@ class MapDataUtility:
     @staticmethod
     def load_map_data(game_id, game_root, ipl_section, is_custom_ipl):
         self = MapDataUtility
-
         data = map_data.data[game_id].copy()
 
-        if self.forced_ide_paths:
-            data['IDE_paths'] = list(self.forced_ide_paths)
-
-        elif is_custom_ipl:
-            # Find paths to all IDEs
-            ide_paths = []
-            map_root_candidates = (
-                os.path.join(game_root, "DATA", "MAPS"),
-                os.path.join(game_root, "data", "maps"),
-            )
-
-            map_roots = []
-            for candidate in map_root_candidates:
-                if os.path.isdir(candidate) and candidate not in map_roots:
-                    map_roots.append(candidate)
-
-            if not map_roots:
-                map_roots.append(os.path.join(game_root, "DATA", "MAPS"))
-
-            for map_root in map_roots:
-                for root_path, _, files in os.walk(map_root):
-                    for file in files:
-                        if file.lower().endswith(".ide"):
-                            fullpath = os.path.join(root_path, file)
-                            ide_paths.append(os.path.relpath(fullpath, game_root))
-
-            data['IDE_paths'] = ide_paths
-
-        else:
-            # VCS PC-port maps reuse SA-style text IPL/IDE data, but the converted
-            # island chunks are not globally unique. Many segment IDEs reuse the
-            # same local ID range, so loading every VCS IDE for one IPL can make
-            # harmless local IDs look like duplicate global IDs and can resolve an
-            # IPL entry to the wrong model. Keep the normal generic/shared IDEs,
-            # then keep only the IDE that belongs to the selected map segment.
-            if game_id in (map_data.game_version.SA, map_data.game_version.VCS):
-                data['IDE_paths'] = list(data['IDE_paths'])
-
-                ipl_norm = str(ipl_section).replace('\\', '/').lower()
-                ipl_name = os.path.splitext(os.path.basename(ipl_norm))[0]
-                ipl_dir = os.path.basename(os.path.dirname(ipl_norm))
-
-                for ide_path in data['IDE_paths'].copy():
-                    ide_norm = str(ide_path).replace('\\', '/').lower()
-                    ide_name = os.path.splitext(os.path.basename(ide_norm))[0]
-                    ide_dir = os.path.basename(os.path.dirname(ide_norm))
-
-                    if '/generic/' in ide_norm or '/leveldes/' in ide_norm or 'xref' in ide_norm:
-                        continue
-
-                    if game_id == map_data.game_version.VCS:
-                        if ide_name == ipl_name or ide_dir == ipl_dir:
-                            continue
-                        data['IDE_paths'].remove(ide_path)
-                        continue
-
-                    ide_prefix = ide_name[:3]
-                    ipl_prefix = ipl_name[:3]
-                    if not ide_prefix.startswith(ipl_prefix):
-                        data['IDE_paths'].remove(ide_path)
-
-        # Load IDEs
-        ide = self.load_ide_data(
-            game_root,
-            data['IDE_paths'],
-            data['structures'],
-            data['IDE_aliases']
-        )
-
-        # Load IPL. Custom text IPLs are detected from their inst row layout
-        # independently from the selected game, so ReLCS/VC, III and SA/VCS
-        # placements do not need a manual format selector.
         ipl_structures = data['structures']
         ipl_aliases = data['IPL_aliases']
         if is_custom_ipl:
-            custom_path = ipl_section if os.path.isabs(ipl_section) else os.path.join(game_root, ipl_section)
+            custom_path = self.get_full_path(game_root, ipl_section)
             detected_game = self.detect_text_ipl_game(custom_path)
             detected_data = map_data.data[detected_game]
             ipl_structures = detected_data['structures']
@@ -460,108 +725,71 @@ class MapDataUtility:
             ipl_aliases
         )
 
-        # Extract relevant sections
-        object_instances = []
-        cull_instances = []
-        grge_instances = []
-        enex_instances = []
-        object_data = {}
+        object_instances = list(ipl.get('inst', []))
+        cull_instances = list(ipl.get('cull', []))
+        grge_instances = list(ipl.get('grge', []))
+        enex_instances = list(ipl.get('enex', []))
+
+        forced_ide_paths = list(self.forced_ide_paths or [])
+        if forced_ide_paths:
+            ide_paths = forced_ide_paths
+        elif is_custom_ipl:
+            ide_paths = self.discover_ide_paths(game_root)
+            ide_paths = self.select_ide_paths_for_ipl(
+                game_root,
+                ide_paths,
+                ipl_section,
+                object_instances,
+                data['structures'],
+                data['IDE_aliases']
+            )
+        elif game_id == map_data.game_version.VCS:
+            ide_paths = self.select_ide_paths_for_ipl(
+                game_root,
+                list(data['IDE_paths']),
+                ipl_section,
+                object_instances,
+                data['structures'],
+                data['IDE_aliases']
+            )
+        else:
+            ide_paths = list(data['IDE_paths'])
+
+            if game_id == map_data.game_version.SA:
+                selected_paths = []
+                ipl_normalized = self.normalize_map_path(ipl_section)
+                ipl_name = os.path.splitext(os.path.basename(ipl_normalized))[0]
+                ipl_prefix = ipl_name[:3]
+
+                for ide_path in ide_paths:
+                    ide_normalized = self.normalize_map_path(ide_path)
+                    ide_name = os.path.splitext(os.path.basename(ide_normalized))[0]
+                    if self.is_shared_ide_path(ide_path) or ide_name[:3] == ipl_prefix:
+                        selected_paths.append(ide_path)
+
+                if selected_paths:
+                    ide_paths = selected_paths
+
+        ide = self.load_ide_data(
+            game_root,
+            ide_paths,
+            data['structures'],
+            data['IDE_aliases']
+        )
+
+        object_data = self.build_object_data(ide)
         effects_2dfx = {}
-        ide_models_by_source_id = {}
-
-        # Get all insts into a flat list (array)
-        # Can't be an ID keyed dictionary, because there's many ipl
-        # entries with the same ID - multiple pieces of
-        # the same model (lamps, benches, trees etc.)
-        if 'inst' in ipl:
-            for entry in ipl['inst']:
-                object_instances.append(entry)
-
-        # Get all culls into a flat list (array)
-        if 'cull' in ipl:
-            for entry in ipl['cull']:
-                cull_instances.append(entry)
-
-        # Get all garages into a flat list (array)
-        if 'grge' in ipl:
-            for entry in ipl['grge']:
-                grge_instances.append(entry)
-
-        # Get all EnExes into a flat list (array)
-        if 'enex' in ipl:
-            for entry in ipl['enex']:
-                enex_instances.append(entry)
-
-        # Get all IDE objects into an ID keyed dictionary.
-        # Duplicate IDs are expected in some converted PC-port map sets if shared
-        # or unrelated IDEs slip in. Prefer the first entry for the plain ID key
-        # and also keep a model-name qualified key so IPL entries that include a
-        # model name can still resolve the exact object.
-        duplicate_ide_ids = set()
-
-        def add_ide_entry(section_name, entry):
-            entry_id = entry.id
-            model_name = str(getattr(entry, 'modelName', '')).strip().lower()
-            source_name = str(getattr(entry, 'filename', '')).strip().lower()
-
-            for key in (entry_id, str(entry_id)):
-                if key in object_data:
-                    old_model = str(getattr(object_data[key], 'modelName', '')).strip().lower()
-                    if old_model != model_name:
-                        duplicate_ide_ids.add(str(entry_id))
-                    continue
-                object_data[key] = entry
-
-            if model_name:
-                object_data[(str(entry_id), model_name)] = entry
-                object_data[model_name] = entry
-                if source_name:
-                    ide_models_by_source_id[(source_name, str(entry_id))] = model_name
-
-        for section_name in ('objs', 'tobj', 'anim'):
-            for entry in ide.get(section_name, []):
-                add_ide_entry(section_name, entry)
-
-        # ReLCS stores 2DFX in external IDE text sections. The effect ID is the
-        # owning model ID, not a world-placement model to export to IPL/Pawn.
-        # Resolve against the object definition from the same source IDE first;
-        # converted map packs can reuse numeric IDs in unrelated IDE files.
-        unresolved_effects = []
-        effects_by_plain_id = {}
         for entry in ide.get('2dfx', []):
-            entry_id = str(entry.id)
-            source_name = str(getattr(entry, 'filename', '')).strip().lower()
-            model_name = ide_models_by_source_id.get((source_name, entry_id), '')
-
-            if model_name:
-                effects_2dfx.setdefault((entry_id, model_name), []).append(entry)
-                effects_by_plain_id.setdefault(entry_id, set()).add(model_name)
-            else:
-                unresolved_effects.append(entry)
-
-        # Compatibility fallback for ordinary map sets whose IDs have exactly
-        # one owner. Ambiguous IDs deliberately have no plain-ID alias.
-        for entry_id, model_names in effects_by_plain_id.items():
-            if len(model_names) == 1:
-                model_name = next(iter(model_names))
-                effects_2dfx[entry_id] = effects_2dfx[(entry_id, model_name)]
-
-        for entry in unresolved_effects:
-            effects_2dfx.setdefault(str(entry.id), []).append(entry)
-
-        if unresolved_effects:
-            print('MapDataUtility: 2DFX entries without a same-IDE model owner:', len(unresolved_effects))
-
-        if duplicate_ide_ids:
-            print('MapDataUtility: duplicate IDE IDs kept by model name:', ', '.join(sorted(duplicate_ide_ids)[:16]))
+            entry_id = self.normalize_map_id(getattr(entry, 'id', ''))
+            effects_2dfx.setdefault(entry_id, []).append(entry)
 
         return MapData(
-            object_instances = object_instances,
-            object_data = object_data,
-            cull_instances = cull_instances,
-            grge_instances = grge_instances,
-            enex_instances = enex_instances,
-            effects_2dfx = effects_2dfx
+            object_instances=object_instances,
+            object_data=object_data,
+            cull_instances=cull_instances,
+            grge_instances=grge_instances,
+            enex_instances=enex_instances,
+            effects_2dfx=effects_2dfx
         )
 
     ########################################################################
@@ -687,7 +915,6 @@ class MapDataUtility:
         ide_aliases = data['IDE_aliases']
 
         object_instances = []
-        object_data = {}
 
         with open(binary_ipl_path, 'rb') as file_stream:
             if MapDataUtility.is_binary_ipl_stream(file_stream):
@@ -723,6 +950,7 @@ class MapDataUtility:
                     object_instances.append(inst)
 
         binary_dir = os.path.dirname(binary_ipl_path)
+        ide_sections = {}
         for ide_path in ide_paths:
             if os.path.isabs(ide_path):
                 fullpath = ide_path
@@ -736,23 +964,17 @@ class MapDataUtility:
                 structures,
                 ide_aliases
             )
+            ide_sections = MapDataUtility.merge_dols(ide_sections, sections)
 
-            for section_name in ('objs', 'tobj', 'anim'):
-                for entry in sections.get(section_name, []):
-                    entry_id = entry.id
-                    model_name = str(getattr(entry, 'modelName', '')).strip().lower()
-
-                    for key in (entry_id, str(entry_id)):
-                        if key not in object_data:
-                            object_data[key] = entry
-
-                    if model_name:
-                        object_data[(str(entry_id), model_name)] = entry
-                        object_data[model_name] = entry
+        object_data = MapDataUtility.build_object_data(ide_sections)
 
         for index, inst in enumerate(object_instances):
-            model = object_data.get(inst.id)
-            if model and hasattr(inst, '_replace'):
+            model = MapDataUtility.resolve_object_data_entry(
+                object_data,
+                getattr(inst, 'id', ''),
+                getattr(inst, 'modelName', '')
+            )
+            if model is not None and hasattr(inst, '_replace'):
                 object_instances[index] = inst._replace(modelName=model.modelName)
 
         return {
@@ -761,4 +983,6 @@ class MapDataUtility:
             'cull_instances': [],
             'grge_instances': [],
             'enex_instances': [],
+            'effects_2dfx': {},
         }
+

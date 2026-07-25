@@ -54,6 +54,7 @@ class dff_importer:
     import_normals     = False
     group_materials    = False
     defer_scene_update = False
+    import_collisions   = True
     version            = ""
     warning            = ""
 
@@ -149,6 +150,8 @@ class dff_importer:
             vert_index = -1
             last_face_index = len(faces) - 1
 
+            existing_face_keys = set()
+
             for fi, f in enumerate(faces):
                 if fi < last_face_index:
                     next_face = faces[fi + 1]
@@ -156,35 +159,30 @@ class dff_importer:
                         vert_index += 3
                         continue
 
+                if f.a == f.b or f.b == f.c or f.a == f.c:
+                    continue
+
+                face_key = tuple(sorted((int(f.a), int(f.b), int(f.c))))
+                if face_key in existing_face_keys and not self.create_backfaces:
+                    vert_index += 3
+                    continue
+
                 v1 = bm.verts[f.a]
                 v2 = bm.verts[f.b]
                 v3 = bm.verts[f.c]
 
-                if v1 == v2 or v2 == v3 or v1 == v3:
-                    continue
-
-                # Blender bmesh does not allow two faces to reuse the exact same vertex set.
-                # Some GTA map models use those duplicate triangles as backfaces, so preserve them
-                # when the map importer asks for backfaces.
-                try:
-                    face = bm.faces.new([v1, v2, v3])
-                except ValueError:
-                    if not self.create_backfaces:
-                        vert_index += 3
-                        continue
-
-                    bm.verts.new(geom.vertices[f.a])
-                    bm.verts.new(geom.vertices[f.b])
-                    bm.verts.new(geom.vertices[f.c])
+                if face_key not in existing_face_keys:
+                    face = bm.faces.new((v1, v2, v3))
+                    existing_face_keys.add(face_key)
+                else:
+                    duplicate_vertices = (
+                        bm.verts.new(geom.vertices[f.a]),
+                        bm.verts.new(geom.vertices[f.b]),
+                        bm.verts.new(geom.vertices[f.c]),
+                    )
                     bm.verts.ensure_lookup_table()
                     bm.verts.index_update()
-
-                    try:
-                        face = bm.faces.new(bm.verts[-3:])
-                    except Exception as e:
-                        vert_index += 3
-                        print(f"Face error: {e}")
-                        continue
+                    face = bm.faces.new(duplicate_vertices)
 
                 try:
 
@@ -984,7 +982,10 @@ class dff_importer:
             base_path = os.path.dirname(file_name)
             txd_filename = self.txd_filename if self.txd_filename \
                 else os.path.basename(file_name)[:-4] + ".txd"
-            txd_path = os.path.join(base_path, txd_filename)
+            if os.path.isabs(txd_filename):
+                txd_path = os.path.normpath(txd_filename)
+            else:
+                txd_path = os.path.join(base_path, txd_filename)
             if os.path.isfile(txd_path):
                 self.txd_images = txd_importer.import_txd(
                     {
@@ -1031,69 +1032,70 @@ class dff_importer:
         file_base = os.path.splitext(os.path.basename(file_name))[0]
         collision_display_matrix = self.get_embedded_collision_display_matrix()
 
-        for collision_index, collision in enumerate(self.dff.collisions):
-            collision_data = collision.data if hasattr(collision, "data") else collision
-            col = import_col_mem(collision_data, file_base, False)
+        if self.import_collisions:
+            for collision_index, collision in enumerate(self.dff.collisions):
+                collision_data = collision.data if hasattr(collision, "data") else collision
+                col = import_col_mem(collision_data, file_base, False)
 
-            if (2, 80, 0) <= bpy.app.version:
-                for collection_index, collection in enumerate(col):
-                    if len(col) == 1 and len(self.dff.collisions) == 1:
-                        collision_name = "%s.col.%s" % (file_base, file_base)
-                    else:
-                        collision_name = "%s.col.%s.%03d" % (file_base, file_base, collision_index + collection_index)
+                if (2, 80, 0) <= bpy.app.version:
+                    for collection_index, collection in enumerate(col):
+                        if len(col) == 1 and len(self.dff.collisions) == 1:
+                            collision_name = "%s.col.%s" % (file_base, file_base)
+                        else:
+                            collision_name = "%s.col.%s.%03d" % (file_base, file_base, collision_index + collection_index)
 
-                    collection.name = collision_name
-
-                    try:
-                        collection["demonff_collision_source_collection"] = os.path.basename(file_name)
-                        collection["demonff_collision_source_model"] = file_base
-                        collection["demonff_embedded_collision"] = True
-                    except Exception:
-                        pass
-
-                    # Keep embedded collision visible after import.
-                    # Hiding the collection here made the imported .col look broken,
-                    # because Blender shows the sibling collection in the outliner but
-                    # the actual collision mesh stays invisible until several viewport
-                    # restriction flags are manually cleared.
-                    collection.hide_viewport = False
-                    collection.hide_render = True
-
-                    for object in collection.objects:
-                        object.hide_set(False)
-                        object.hide_viewport = False
-                        object.hide_render = True
-                        object.show_wire = True
-                        object.show_in_front = True
-
-                        if object.name.endswith(".ColMesh"):
-                            object.name = collision_name + ".ColMesh"
-                        elif object.name.endswith(".ShadowMesh"):
-                            object.name = collision_name + ".ShadowMesh"
+                        collection.name = collision_name
 
                         try:
-                            object.matrix_world = collision_display_matrix.copy()
-                            object["demonff_collision_transform_applied"] = False
-                            object["demonff_collision_source_matrix_world"] = [list(row) for row in collision_display_matrix]
-                            object["demonff_collision_source_collection"] = os.path.basename(file_name)
-                            object["demonff_collision_source_model"] = file_base
-                            object["demonff_collision_source_object"] = file_base
-                            object["demonff_collision_source_object_key"] = file_base.lower()
-                            object["demonff_collision_source_mesh"] = file_base.lower()
-                            object["demonff_embedded_collision"] = True
+                            collection["demonff_collision_source_collection"] = os.path.basename(file_name)
+                            collection["demonff_collision_source_model"] = file_base
+                            collection["demonff_embedded_collision"] = True
                         except Exception:
                             pass
 
-                    try:
-                        self.current_collection.children.link(collection)
-                    except RuntimeError:
-                        pass
+                        # Keep embedded collision visible after import.
+                        # Hiding the collection here made the imported .col look broken,
+                        # because Blender shows the sibling collection in the outliner but
+                        # the actual collision mesh stays invisible until several viewport
+                        # restriction flags are manually cleared.
+                        collection.hide_viewport = False
+                        collection.hide_render = True
 
-                    # Make sure the same embedded COL collection is not also
-                    # linked at the scene root. Otherwise Blender shows it both
-                    # inside and outside the DFF collection, and hiding either
-                    # instance appears to hide the same object twice.
-                    unlink_collection_from_scene_root(collection)
+                        for object in collection.objects:
+                            object.hide_set(False)
+                            object.hide_viewport = False
+                            object.hide_render = True
+                            object.show_wire = True
+                            object.show_in_front = True
+
+                            if object.name.endswith(".ColMesh"):
+                                object.name = collision_name + ".ColMesh"
+                            elif object.name.endswith(".ShadowMesh"):
+                                object.name = collision_name + ".ShadowMesh"
+
+                            try:
+                                object.matrix_world = collision_display_matrix.copy()
+                                object["demonff_collision_transform_applied"] = False
+                                object["demonff_collision_source_matrix_world"] = [list(row) for row in collision_display_matrix]
+                                object["demonff_collision_source_collection"] = os.path.basename(file_name)
+                                object["demonff_collision_source_model"] = file_base
+                                object["demonff_collision_source_object"] = file_base
+                                object["demonff_collision_source_object_key"] = file_base.lower()
+                                object["demonff_collision_source_mesh_key"] = file_base.lower()
+                                object["demonff_embedded_collision"] = True
+                            except Exception:
+                                pass
+
+                        try:
+                            self.current_collection.children.link(collection)
+                        except RuntimeError:
+                            pass
+
+                        # Make sure the same embedded COL collection is not also
+                        # linked at the scene root. Otherwise Blender shows it both
+                        # inside and outside the DFF collection, and hiding either
+                        # instance appears to hide the same object twice.
+                        unlink_collection_from_scene_root(collection)
 
         if not self.defer_scene_update:
             State.update_scene()
@@ -1119,6 +1121,7 @@ def import_dff(options):
     dff_importer.defer_scene_update = bool(
         options.get('defer_scene_update', False)
     )
+    dff_importer.import_collisions = bool(options.get('import_collisions', True))
 
     dff_importer.import_dff(options['file_name'])
 

@@ -21,6 +21,8 @@ import bpy
 import os
 import gpu
 import random
+import time
+import traceback
 import numpy as np
 
 from ..data import map_data
@@ -29,7 +31,11 @@ from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from gpu_extras.batch import batch_for_shader
 from ..ops.importer_common import game_version
-from ..ops import ide_text_exporter, ipl_text_exporter
+from ..ops import ide_text_exporter, ipl_text_exporter, samp_test
+from ..ops.map_transform import (
+    ipl_quaternion_to_blender,
+    quaternion_to_gta_euler_degrees,
+)
 from bpy.props import StringProperty, CollectionProperty
 
 
@@ -56,10 +62,7 @@ class SCENE_OT_demonff_map_filebrowser(bpy.types.Operator, ImportHelper):
         return {'FINISHED'}
 #######################################################
 def quat_to_degrees(quat):
-    euler = quat.to_euler('XYZ')
-    return (euler.x * (180 / 3.141592653589793),
-            euler.y * (180 / 3.141592653589793),
-            euler.z * (180 / 3.141592653589793))
+    return quaternion_to_gta_euler_degrees(quat)
 
 IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
 #######################################################
@@ -400,6 +403,76 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         default = '',
         description = "Folder with the game's executable",
         subtype = 'DIR_PATH'
+    )
+
+    samp_game_root: bpy.props.StringProperty(
+        name="Game Root",
+        default=samp_test.get_default_gtasa_game_root_text(),
+        description=(
+            "Complete GTA San Andreas folder used by the local SA-MP/open.mp model test. "
+            "It must contain gta_sa.exe, data/gta.dat and models/gta3.img"
+        ),
+        subtype='DIR_PATH'
+    )
+
+    samp_client_executable: bpy.props.StringProperty(
+        name="Multiplayer Launcher",
+        default=samp_test.get_default_multiplayer_launcher_text(),
+        description=(
+            "Select omp-launcher.exe or samp.exe. When blank, DemonFF searches the "
+            "selected Game Root and prefers omp-launcher.exe"
+        ),
+        subtype='FILE_PATH'
+    )
+
+    samp_live_transform: bpy.props.BoolProperty(
+        name="Live Updates",
+        default=True,
+        description=(
+            "Move or rotate the selected model in Blender and it updates in the test game"
+        ),
+    )
+
+    pawn_dff_root: bpy.props.StringProperty(
+        name="DFF Folder",
+        default="",
+        description=(
+            "Folder containing the DFF files used by AddSimpleModel. "
+            "Subfolders are searched automatically"
+        ),
+        subtype='DIR_PATH'
+    )
+
+    pawn_txd_root: bpy.props.StringProperty(
+        name="TXD Folder",
+        default="",
+        description=(
+            "Folder containing the TXD files used by AddSimpleModel. "
+            "Blank uses the PWN DFF Folder"
+        ),
+        subtype='DIR_PATH'
+    )
+
+    pawn_recursive_search: bpy.props.BoolProperty(
+        name="Search Subfolders",
+        default=True,
+        description="Search below the selected DFF and TXD folders"
+    )
+
+    pawn_import_textures: bpy.props.BoolProperty(
+        name="Import Textures",
+        default=True,
+        description="Load the TXD named by AddSimpleModel while importing each DFF"
+    )
+
+
+    pawn_import_collisions: bpy.props.BoolProperty(
+        name="Import Collisions",
+        default=False,
+        description=(
+            "Import collision data embedded in each DFF. Leave this disabled for "
+            "a much faster map import when collision meshes are not needed"
+        )
     )
 
     dff_folder : bpy.props.StringProperty(
@@ -843,11 +916,11 @@ class ImportIPLDataOperator(bpy.types.Operator, ImportHelper):
     def apply_instance_transform(self, obj, inst):
         obj.location = (float(inst.posX), float(inst.posY), float(inst.posZ))
         obj.rotation_mode = 'QUATERNION'
-        obj.rotation_quaternion = (
-            -float(inst.rotW),
-            float(inst.rotX),
-            float(inst.rotY),
-            float(inst.rotZ),
+        obj.rotation_quaternion = ipl_quaternion_to_blender(
+            inst.rotX,
+            inst.rotY,
+            inst.rotZ,
+            inst.rotW,
         )
         if hasattr(inst, 'scaleX'):
             obj.scale = (float(inst.scaleX), float(inst.scaleY), float(inst.scaleZ))
@@ -1372,19 +1445,107 @@ class IMPORT_OT_pawn(bpy.types.Operator, ImportHelper):
         layout.prop(self, "collection_name")
         layout.prop(self, "clear_existing")
 
+        asset_box = layout.box()
+        asset_box.label(text="Model Folders")
+        asset_box.prop(context.scene.dff, "pawn_dff_root", text="DFF Folder")
+        asset_box.prop(context.scene.dff, "pawn_txd_root", text="TXD Folder")
+        asset_box.prop(context.scene.dff, "pawn_recursive_search")
+        asset_box.prop(context.scene.dff, "pawn_import_textures")
+        asset_box.prop(context.scene.dff, "pawn_import_collisions")
+
+    @staticmethod
+    def set_progress_text(context, message):
+        try:
+            context.workspace.status_text_set(message)
+        except Exception:
+            pass
+
+        try:
+            if context.area is not None:
+                context.area.header_text_set(message)
+        except Exception:
+            pass
+
+    @staticmethod
+    def clear_progress_text(context):
+        try:
+            context.workspace.status_text_set(None)
+        except Exception:
+            pass
+
+        try:
+            if context.area is not None:
+                context.area.header_text_set(None)
+        except Exception:
+            pass
+
     def execute(self, context):
         from ..ops import map_exporter
-        map_exporter.import_pawn({
-            "file_name": self.filepath,
-            "collection_name": self.collection_name,
-            "clear_existing": self.clear_existing,
-        })
 
-        if not map_exporter.pwn_importer.total_objects_num:
+        settings = context.scene.dff
+        window_manager = context.window_manager
+        last_redraw_at = 0.0
+
+        def update_progress(progress):
+            nonlocal last_redraw_at
+
+            percent = max(0.0, min(100.0, float(progress.get('percent', 0.0))))
+            message = str(progress.get('message', 'PWN import'))
+            window_manager.progress_update(percent)
+            self.set_progress_text(context, message)
+
+            now = time.perf_counter()
+            if progress.get('force_redraw') or now - last_redraw_at >= 0.20:
+                last_redraw_at = now
+                try:
+                    if context.screen is not None:
+                        for area in context.screen.areas:
+                            area.tag_redraw()
+                except Exception:
+                    pass
+
+        window_manager.progress_begin(0.0, 100.0)
+
+        try:
+            map_exporter.import_pawn({
+                "file_name": self.filepath,
+                "collection_name": self.collection_name,
+                "clear_existing": self.clear_existing,
+                "dff_root": settings.pawn_dff_root,
+                "txd_root": settings.pawn_txd_root,
+                "recursive_search": settings.pawn_recursive_search,
+                "import_textures": settings.pawn_import_textures,
+                "import_collisions": settings.pawn_import_collisions,
+                "progress_callback": update_progress,
+            })
+        except Exception as error:
+            traceback.print_exc()
+            self.report({'ERROR'}, "PWN import failed: %s" % error)
+            return {'CANCELLED'}
+        finally:
+            self.clear_progress_text(context)
+            window_manager.progress_end()
+
+        if not map_exporter.pwn_importer.parsed_objects_num:
             self.report({'ERROR'}, "No CreateDynamicObject lines found")
             return {'CANCELLED'}
 
-        self.report({'INFO'}, "Imported %d Pawn object(s)" % map_exporter.pwn_importer.total_objects_num)
+        if not map_exporter.pwn_importer.total_objects_num:
+            self.report(
+                {'ERROR'},
+                "No models were imported. Check the DFF Folder.",
+            )
+            return {'CANCELLED'}
+
+        message = "Imported %d of %d placements" % (
+            map_exporter.pwn_importer.total_objects_num,
+            map_exporter.pwn_importer.parsed_objects_num,
+        )
+        if map_exporter.pwn_importer.skipped_objects_num:
+            message += "; %d skipped" % (
+                map_exporter.pwn_importer.skipped_objects_num,
+            )
+        self.report({'INFO'}, message)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -1463,7 +1624,7 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
         return {'RUNNING_MODAL'}
 
 class DemonFFNewPawnPanel(bpy.types.Panel):
-    bl_label = "DemonFF - SAMP Pawn I/O"
+    bl_label = "DemonFF - SAMP I/O"
     bl_idname = "SCENE_PT_demonff_pawn_io"
     bl_space_type = 'PROPERTIES'
     bl_region_type = 'WINDOW'
@@ -1471,11 +1632,70 @@ class DemonFFNewPawnPanel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        col = layout.column(align=True)
-        col.operator("scene.pwn_import", text="Import PWN")
-        col.operator("scene.pwn_export", text="Export PWN + artconfig")
-        col.separator()
-        col.operator("object.remove_building_for_player", text="RemoveBuildingForPlayer")
+
+        pawn_box = layout.box()
+        pawn_box.label(text="Pawn Files")
+
+        asset_column = pawn_box.column(align=True)
+        asset_column.prop(context.scene.dff, "pawn_dff_root", text="DFF Folder")
+        asset_column.prop(context.scene.dff, "pawn_txd_root", text="TXD Folder")
+        asset_options = pawn_box.row(align=True)
+        asset_options.prop(context.scene.dff, "pawn_recursive_search", text="Subfolders")
+        asset_options.prop(context.scene.dff, "pawn_import_textures", text="Textures")
+        pawn_box.prop(
+            context.scene.dff,
+            "pawn_import_collisions",
+            text="Collisions",
+        )
+
+        pawn_column = pawn_box.column(align=True)
+        pawn_column.operator("scene.pwn_import", text="Import PWN", icon='IMPORT')
+        pawn_column.operator("scene.pwn_export", text="Export PWN + artconfig", icon='EXPORT')
+        pawn_column.operator(
+            "object.remove_building_for_player",
+            text="RemoveBuildingForPlayer",
+        )
+
+        test_box = layout.box()
+        test_box.label(text="Local Model Test")
+        test_box.prop(context.scene.dff, "samp_game_root", text="Game Root")
+        test_box.prop(
+            context.scene.dff,
+            "samp_client_executable",
+            text="Multiplayer Launcher",
+        )
+        test_box.prop(
+            context.scene.dff,
+            "samp_live_transform",
+            text="Live Updates",
+        )
+
+        test_button = test_box.column(align=True)
+        test_button.scale_y = 1.35
+        test_button.operator(
+            "scene.demonff_test_selected_model",
+            text="Test Selected Model",
+            icon='PLAY',
+        )
+
+        test_actions = test_box.row(align=True)
+        test_actions.operator(
+            "scene.demonff_stop_test_server",
+            text="Stop Test",
+            icon='CANCEL',
+        )
+        test_actions.operator(
+            "scene.demonff_open_game_root",
+            text="Open Game Root",
+            icon='FILE_FOLDER',
+        )
+
+        test_box.operator(
+            "scene.demonff_open_local_test_root",
+            text="Open Test Files",
+            icon='FILE_FOLDER',
+        )
+
 
 #######################################################
 def register():

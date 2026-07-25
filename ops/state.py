@@ -58,6 +58,8 @@ class State(metaclass=_StateMeta):
         frame_objects, atomic_objects = [], []
 
         for ob in scene.objects:
+            if ob.get('DemonFF_Pawn_Instance', False):
+                continue
             if ob.dff.type != 'OBJ':
                 continue
 
