@@ -44,7 +44,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 - **Renderware Compatibility**: DemonFF is planned to work with all Renderware .DFF files, offering support for various versions and features.
 
-- **Collision Editing**: Streamline collision model editing whether your workload is large or small; singularly, or mass import & export .COL's(.COL libraries soon).
+- **Collision Editing**: Streamline collision model editing whether your workload is large or small; singularly, or mass import & export .COL's(.COL archives, too).
 
 - **Animation Editing**: Import & export .IFP animation files - modify them or craft your own animations.
 
