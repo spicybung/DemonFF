@@ -8,7 +8,9 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 #### File Types
 
-- [X] Model files
+- [X] Model files (.dff, .mdl)
+  - [X] Import
+  - [x] Export *(.dff)*
 - [ ] Texture Files
   - [X] Import *(Partial, experimental)*
   - [x] Export
