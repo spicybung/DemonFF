@@ -14,7 +14,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 - [X] Texture Files
   - [X] Import *(Partial, experimental)*
   - [x] Export
-- [X] Collision files (including the ones packed in dff)
+- [X] Collision files (*including .COL archives & the ones packed in .dff*)
   - [X] Import
   - [X] Export
 - [x] Map files (.ipl, .ide)
@@ -71,7 +71,7 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 1. Open Blender and navigate to the DemonFF panel.
 2. Import or create your 3D model.
-3. Use DemonFF tools to edit collision models, export, and import DFF files.
+3. Use DemonFF tools to edit collision models, export, and import DFF as well as even MDL files.
 4. Use DemonFF to import .IFP animation.
 5. Import/edit maps via .IPL & IDE files.
 6. Export your map to Pawn, & artconfig.
