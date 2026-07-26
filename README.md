@@ -21,6 +21,8 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
   - [X] Import *(Partial, experimental)*
   - [X] Export
 - [X] Animation files ( .ifp)
+  - [X] Import *(Partial, experimental)*
+  - [ ] Export
 - [X] IMG archives (.img)
   - [X] Import *(Partial, experimental)*
   - [ ] Export
