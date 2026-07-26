@@ -39,6 +39,8 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 - [X] Rockstar Specular and Reflection Extensions
 - [X] 2D Effects *(Including escalators)*
 - [X] SAMP compatible models
+- [X] Live SAMP/OMP mesh testing in Blender
+- [X] MTA compatibility(*WIP*)
 
 ## Features Further Explained
 
