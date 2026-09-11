@@ -8,11 +8,11 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 
 #### File Types
 
-- [X] Model files (.dff, .mdl)
+- [X] Model files (.dff, .mdl, .rpf, .rw4)
   - [X] Import
   - [x] Export *(.dff)*
 - [X] Texture Files
-  - [X] Import *(Partial, experimental)*
+  - [X] Import
   - [x] Export
 - [X] Collision files (*including .COL archives & the ones packed in .dff*)
   - [X] Import
@@ -20,11 +20,11 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 - [x] Map files (.ipl, .ide)
   - [X] Import
   - [X] Export
-- [X] Animation files ( .ifp)
-  - [X] Import *(Partial, experimental)*
+- [X] Animation files ( .ifp, .anim)
+  - [X] Import
   - [ ] Export
-- [X] IMG archives (.img)
-  - [X] Import *(Partial, experimental)*
+- [X] IMG archives (.img, .img + lvz)
+  - [X] Import
   - [ ] Export
 
 #### Model Features
