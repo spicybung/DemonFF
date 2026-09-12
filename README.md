@@ -72,10 +72,11 @@ DemonFF is a neat little fork of DragonFF made to further enhance your workflow 
 1. Open Blender and navigate to the DemonFF panel.
 2. Import or create your 3D model.
 3. Use DemonFF tools to edit collision models, export, and import DFF as well as even MDL files.
-4. Use DemonFF to import .IFP animation.
-5. Import/edit maps via .IPL & IDE files.
-6. Export your map to Pawn, & artconfig.
-7. Export your map to LUA for MTA(WIP).
+4. Use DemonFF to import .IFP or .ANIM animation.
+5. Mass export embedded collisions.
+6. Import/edit maps via .IPL & IDE files.
+7. Export your map to Pawn, & artconfig.
+8. Export your map to LUA for MTA(WIP).
 
 ## Documentation
 
@@ -83,7 +84,7 @@ For detailed instructions and documentation, visit the [Wiki](https://github.com
 
 ## License
 
-This project is licensed under the GPL 3.0 License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
