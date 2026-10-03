@@ -4,7 +4,7 @@
 
 ## Introduction
 
-DemonFF is a neat little fork of DragonFF made to further enhance your workflow for working with Renderware files, and more. Whether you're working with GTA game assets - or it happens to be another Renderware game, DemonFF simplifies the process of importing and exporting many RW types such as .DFF files, as well as .IFP animation, and map editing(.IPL/.IDE/.PWN/.LUA).
+DemonFF is a fork of DragonFF made to smoothen & improve your workflow for working with Renderware files, and more. Whether you're working with GTA game assets - or it happens to be another Renderware game, DemonFF helps the process of importing and exporting many RW and Rockstar Games types such as .DFF files, as well as .IFP animation, including singleplayer and multiplayer map editing(.IPL/.IDE/.PWN/.LUA).
 
 #### File Types
 
