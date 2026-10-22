@@ -26,6 +26,7 @@ from .map_export_ot import *
 from .mdl_ot import *
 from .tdfx_ot import *
 from .ifp_ot import *
+from .anim_ot import *
 from .mta_ot import *
 
 from .samp_test_ot import *

@@ -1,0 +1,18 @@
+schema_version = "1.0.0"
+
+id = "demonff"
+version = "0.6.9-beta"
+name = "DemonFF"
+tagline = "RenderWare and Rockstar format import/export tools"
+maintainer = "SpicyBung"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = [
+    "SPDX:GPL-3.0-or-later",
+]
+
+[permissions]
+files = "Import and export game assets and local SA-MP test files"
+network = "Download SA-MP test runtime components when requested"

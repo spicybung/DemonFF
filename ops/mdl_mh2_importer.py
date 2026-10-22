@@ -636,7 +636,30 @@ class IMPORT_OT_read_mdl_header(Operator, ImportHelper):
                     bone_lookup[offset].parent = bone_lookup[parent_offset]
 
             bpy.ops.object.mode_set(mode='OBJECT')
-            print("Armature created.")
+
+            # Preserve Manhunt animation BoneID values on the Blender bones.
+            # Manhunt IFP tracks are keyed by the uint16 BoneID stored in the
+            # model's AnimBoneData table, not by a text bone name.  Without
+            # these properties the IFP importer cannot reliably retarget SEQT
+            # tracks to an imported MH2 armature.
+            bound_anim_ids = 0
+            for anim_bone_id, anim_info in anim_bone_map.items():
+                bone_offset = anim_info.get("offset")
+                source_bone = bone_map.get(bone_offset)
+                if source_bone is None:
+                    continue
+                data_bone = arm_data.bones.get(source_bone.get("name", ""))
+                if data_bone is None:
+                    continue
+                data_bone["bleeds_anim_bone_id"] = int(anim_bone_id)
+                data_bone["BoneID"] = int(anim_bone_id)
+                data_bone["bleeds_mh2_anim_bone_type"] = int(anim_info.get("type", 0))
+                data_bone["bleeds_mh2_source_offset"] = int(bone_offset)
+                bound_anim_ids += 1
+
+            arm_obj["DemonFF_Game"] = "MANHUNT_2"
+            arm_obj["DemonFF_MH2_AnimBone_Count"] = bound_anim_ids
+            print(f"Armature created. Bound {bound_anim_ids} Manhunt animation BoneID values.")
             
             print("Setting up bone groups by hierarchy and parenting meshes...")
 

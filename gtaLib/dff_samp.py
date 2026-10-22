@@ -476,6 +476,21 @@ class Material:
         return data
 
     #######################################################
+    def dualfx_to_mem(self):
+        dual_fx = self.plugins['dual'][0]
+
+        data = pack("<IIII",
+                    4,
+                    dual_fx.src_blend,
+                    dual_fx.dst_blend,
+                    dual_fx.texture is not None
+        )
+        if dual_fx.texture is not None:
+            data += dual_fx.texture.to_mem()
+
+        return data
+
+    #######################################################
     def plugins_to_mem(self):
         data = self.matfx_to_mem()
 
@@ -497,7 +512,7 @@ class Material:
 
         # UV Animation PLG
         if 'uv_anim' in self.plugins:
-            _data = pack("<I", len(self.plugins['uv_anim']))
+            _data = pack("<I", (1 << len(self.plugins['uv_anim'])) - 1) # bitmask
             for frame_name in self.plugins['uv_anim']:
                 _data += pack("<32s", frame_name.encode('ascii'))
 
@@ -512,42 +527,55 @@ class Material:
     #######################################################
     def matfx_to_mem(self):
         data = b''
-
         effectType = 0
-        if 'bump_map' in self.plugins:
-            data += self.bumpfx_to_mem()
-            effectType = 1
-            
-            if 'env_map' in self.plugins: #rwMATFXEFFECTBUMPENVMAP
+
+        # UV transform / dual texture effects must be serialized before
+        # bump/environment effects. This matches RenderWare's two-slot MatFX
+        # payload layout and avoids malformed combined effects.
+        if 'dual' in self.plugins or 'uv_anim' in self.plugins:
+            if 'dual' in self.plugins and 'uv_anim' in self.plugins:
+                dual_fx = self.plugins['dual'][0]
+                if dual_fx.texture is None or dual_fx.texture.name == "":
+                    data += pack("<I", 5)
+                    effectType = 5
+                else:
+                    data += pack("<I", 5)
+                    data += self.dualfx_to_mem()
+                    effectType = 6
+            elif 'dual' in self.plugins:
+                dual_fx = self.plugins['dual'][0]
+                if dual_fx.texture is not None and dual_fx.texture.name != "":
+                    data += self.dualfx_to_mem()
+                    effectType = 4
+            else:
+                data += pack("<I", 5)
+                effectType = 5
+
+        elif 'bump_map' in self.plugins or 'env_map' in self.plugins:
+            if 'bump_map' in self.plugins and 'env_map' in self.plugins:
+                data += self.bumpfx_to_mem()
                 data += self.envfx_to_mem()
                 effectType = 3
-                
-            
-        elif 'env_map' in self.plugins:
-            data += self.envfx_to_mem()
-            effectType = 2
-            
-        elif 'dual' in self.plugins:
-            effectType = 4
-            
-            if 'uv_anim' in self.plugins: #rwMATFXEFFECTDUALUVTTRANSFORM
-                effectType = 6
-
-        elif 'uv_anim' in self.plugins:
-            effectType = 5
-            data += pack("<I", 5)
+            elif 'bump_map' in self.plugins:
+                data += self.bumpfx_to_mem()
+                effectType = 1
+            else:
+                data += self.envfx_to_mem()
+                effectType = 2
 
         if effectType == 0:
             self._hasMatFX = False
             return b''
-            
-        if effectType != 3 or effectType != 6: #Both effects are set
+
+        # MatFX stores two effect slots. Combined effects 3 and 6 already
+        # contain both slots; all others need the terminating empty slot.
+        if effectType not in (3, 6):
             data += pack("<I", 0)
 
         self._hasMatFX = True
         data = pack("<I", effectType) + data
         return Sections.write_chunk(data, types["Material Effects PLG"])
-        
+
     #######################################################
     def to_mem(self):
 
@@ -583,7 +611,7 @@ class Atomic:
     ]
 
     ##################################################################
-    def __init__(self, frame, geometry, flags, unk):
+    def __init__(self, frame=None, geometry=None, flags=None, unk=None):
         self.frame      = 0
         self.geometry   = 0
         self.flags      = 0
@@ -785,8 +813,16 @@ class Frame:
 
         data = b''
 
-        if self.name is not None and self.name != "b": # Make sure we don't pad/null-terminate frame strings
-            data += Sections.write_chunk(self.name.encode("utf-8"), types["Frame"])
+        if self.name is not None and self.name != "unknown":
+            name_bytes = self.name.encode("utf-8")[:22]
+            while True:
+                try:
+                    name_bytes.decode("utf-8")
+                    break
+                except UnicodeDecodeError:
+                    name_bytes = name_bytes[:-1]
+
+            data += Sections.write_chunk(name_bytes + b'\x00', types["Frame"])
 
         if self.bone_data is not None:
             data += self.bone_data.to_mem()
@@ -945,12 +981,14 @@ class SkinPLG:
 
     ##################################################################
     def calc_max_weights_per_vertex (self):
-        for i, bone_indices in enumerate(self.vertex_bone_indices):
-            for j in range(len(bone_indices)):
-                if self.vertex_bone_weights[i][j] > 0:
-                    if self.max_weights_per_vertex >= 4:
-                        return
-                    self.max_weights_per_vertex += 1
+        self.max_weights_per_vertex = 0
+        for weights in self.vertex_bone_weights:
+            influences = sum(1 for weight in weights[:4] if weight > 0)
+            if influences > self.max_weights_per_vertex:
+                self.max_weights_per_vertex = influences
+            if self.max_weights_per_vertex >= 4:
+                self.max_weights_per_vertex = 4
+                return
 
     ##################################################################
     def calc_used_bones (self):
@@ -971,8 +1009,12 @@ class SkinPLG:
 
         oldver = Sections.get_rw_version() < 0x34000
 
-        self.calc_max_weights_per_vertex ()
-        self.calc_used_bones ()
+        if not oldver:
+            self.calc_max_weights_per_vertex ()
+            self.calc_used_bones ()
+        else:
+            self.max_weights_per_vertex = 0
+            self.bones_used = []
 
         data = b''
         data += pack("<3Bx", self.num_bones, len(self.bones_used),
@@ -1317,16 +1359,10 @@ class PedAttractor2dfx:
 
     #######################################################
     def to_mem(self):
+        # Extension2dfx writes position/effect-id/payload-size. Return only the
+        # 56-byte ped-attractor payload here; embedding another size field made
+        # re-import interpret 50 as the attractor type.
         data = b''
-
-        data += pack('<f', self.Right)
-        data += pack('<f', self.up)
-        data += pack('<f', self.forward)  
-
-        # Effect ID and entry size
-        data += pack('<I', self.effect_id)
-        data += pack('<I', 50)  # 50 bytes per entry
-
         data += pack('<I', self.attractor_type)
         data += pack('<3f', *self.queue_dir)
         data += pack('<3f', *self.use_dir)
@@ -1335,10 +1371,8 @@ class PedAttractor2dfx:
         script_padded = self.external_script.encode('ascii')[:8]
         script_padded += b'\x00' * (8 - len(script_padded))
         data += script_padded
-
         data += pack('<I', self.ped_existing_probability)
         data += pack('<BBBB', self.unknown1, self.unknown2, self.unknown3, self.unknown4)
-
         return data
 
 #######################################################

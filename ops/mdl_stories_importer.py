@@ -23,6 +23,7 @@ import struct
 import traceback
 
 import bpy
+from .importer_common import set_material_render_method, set_principled_specular
 from bpy.types import Operator
 from bpy.props import EnumProperty
 from bpy.props import StringProperty
@@ -917,13 +918,12 @@ class ImportMDLOperator(bpy.types.Operator, ImportHelper):
                         principled.inputs["Base Color"].default_value = (r, g, b, 1.0)
                         principled.inputs["Alpha"].default_value = a
                         if a < 0.999:
-                            material.blend_method = 'BLEND'
-                            material.shadow_method = 'HASHED'
+                            set_material_render_method(material, 'BLEND')
                     else:
                         principled.inputs["Base Color"].default_value = (0.8, 0.8, 0.8, 1.0)
 
                     if spec is not None:
-                        principled.inputs["Specular"].default_value = max(0.0, min(1.0, float(spec)))
+                        set_principled_specular(principled, spec)
 
                     report(f"✔ Built Blender material: {mat_name}")
                     return material

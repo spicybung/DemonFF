@@ -151,6 +151,7 @@ commonBoneParentsVCS: Dict[str, str] = {
 
 DIRECT_ID_PROPERTY_NAMES: Tuple[str, ...] = (
     "bleeds_anim_bone_id",
+    "bleeds_mh2_anim_bone_id",
     "bleeds_mdl_anim_bone_id",
     "bleeds_ped_anim_bone_id",
     "bleeds_hanim_bone_id",

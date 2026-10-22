@@ -27,7 +27,7 @@ import struct
 from mathutils import Vector, Matrix
 
 from ..gtaLib import mdl as mdl_lib
-from .mdl_blender_api import ensureMeshAttribute, getMeshAttribute, removeMeshAttribute
+from .mdl_blender_api import ensureMeshAttribute, getMeshAttribute, removeMeshAttribute, updateMeshNormals
 
 def natural_sort_key(name: str) -> List[object]:
 
@@ -3700,13 +3700,7 @@ def build_source_point_vertices_world(
         return []
 
     try:
-        try:
-            mesh.calc_normals_split()
-        except Exception:
-            try:
-                mesh.calc_normals()
-            except Exception:
-                pass
+        updateMeshNormals(mesh)
 
         vertex_order = getPointSourceEmitOrder(mesh)
         if not vertex_order:
@@ -3955,13 +3949,7 @@ def build_source_corner_vertices_world(
     if mesh_eval is None:
         return []
     try:
-        try:
-            mesh_eval.calc_normals_split()
-        except Exception:
-            try:
-                mesh_eval.calc_normals()
-            except Exception:
-                pass
+        updateMeshNormals(mesh_eval)
 
         loop_order = getCornerSourceEmitOrder(mesh_eval)
         if not loop_order:
@@ -4313,13 +4301,7 @@ def build_strip_vertices_world(
         except Exception:
             pass
         mesh_eval.calc_loop_triangles()
-        try:
-            mesh_eval.calc_normals_split()
-        except Exception:
-            try:
-                mesh_eval.calc_normals()
-            except Exception:
-                pass
+        updateMeshNormals(mesh_eval)
 
         uv_layer = mesh_eval.uv_layers.active.data if (mesh_eval.uv_layers.active) else None
         vcol_layer = get_active_vcol_layer(mesh_eval)
@@ -4617,13 +4599,7 @@ def build_simple_vertices_world(
         except Exception:
             pass
 
-        try:
-            mesh_eval.calc_normals_split()
-        except Exception:
-            try:
-                mesh_eval.calc_normals()
-            except Exception:
-                pass
+        updateMeshNormals(mesh_eval)
 
         uv_layer = mesh_eval.uv_layers.active.data if (mesh_eval.uv_layers.active) else None
         vcol_layer = get_active_vcol_layer(mesh_eval)

@@ -750,7 +750,7 @@ class Map_Import_Operator(bpy.types.Operator):
         if ide_data is None:
             return
 
-        model_name = getattr(ide_data, "modelName", obj.name.split('.')[0])
+        model_name = getattr(ide_data, "modelName", re.sub(r"\.\d{3,}$", "", obj.name))
         txd_name = getattr(ide_data, "txdName", obj.get("TXD_Name", ""))
         source_interior_id = get_instance_interior_id(inst)
 
@@ -891,6 +891,57 @@ class Map_Import_Operator(bpy.types.Operator):
                 target_obj[key] = source_obj[key]
             except Exception:
                 pass
+
+    #######################################################
+    def copy_property_group_values(self, source_group, target_group):
+        if source_group is None or target_group is None:
+            return
+
+        rna = getattr(source_group, "bl_rna", None)
+        properties = getattr(rna, "properties", ()) if rna is not None else ()
+
+        for prop in properties:
+            identifier = getattr(prop, "identifier", "")
+            if not identifier or identifier == "rna_type":
+                continue
+
+            prop_type = getattr(prop, "type", "")
+
+            try:
+                source_value = getattr(source_group, identifier)
+            except Exception:
+                continue
+
+            if prop_type == "POINTER":
+                try:
+                    target_value = getattr(target_group, identifier)
+                except Exception:
+                    continue
+                if isinstance(source_value, bpy.types.PropertyGroup) and isinstance(target_value, bpy.types.PropertyGroup):
+                    self.copy_property_group_values(source_value, target_value)
+                continue
+
+            if prop_type == "COLLECTION":
+                try:
+                    target_value = getattr(target_group, identifier)
+                    target_value.clear()
+                    for source_item in source_value:
+                        target_item = target_value.add()
+                        self.copy_property_group_values(source_item, target_item)
+                except Exception:
+                    pass
+                continue
+
+            if getattr(prop, "is_readonly", False):
+                continue
+
+            try:
+                setattr(target_group, identifier, source_value)
+            except Exception:
+                try:
+                    setattr(target_group, identifier, tuple(source_value))
+                except Exception:
+                    pass
 
     #######################################################
     def get_effective_interior_id(self, inst, ide_data=None):
@@ -2351,8 +2402,7 @@ class Binary_Map_Import_Operator(bpy.types.Operator):
                     root_source = next((cached for cached in cached_objects if not cached.parent), cached_objects[0])
                     new_obj.parent = new_objects[root_source]
 
-                for prop in obj.dff.keys():
-                    new_obj.dff[prop] = obj.dff[prop]
+                self.copy_property_group_values(obj.dff, new_obj.dff)
 
                 self.copy_object_id_properties(obj, new_obj)
                 self.stamp_2dfx_source_properties(new_obj, inst)

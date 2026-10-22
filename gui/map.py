@@ -21,6 +21,7 @@ import bpy
 import os
 import gpu
 import random
+import re
 import time
 import traceback
 import numpy as np
@@ -28,6 +29,10 @@ import numpy as np
 from ..data import map_data
 
 from bpy.types import Operator
+
+
+def _strip_blender_duplicate_suffix(name):
+    return re.sub(r"\.\d{3,}$", "", str(name or ""))
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from gpu_extras.batch import batch_for_shader
 from ..ops.importer_common import game_version
@@ -65,6 +70,14 @@ def quat_to_degrees(quat):
     return quaternion_to_gta_euler_degrees(quat)
 
 IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
+#######################################################
+def update_samp_player_target(self, context):
+    try:
+        samp_test.refresh_live_player_export_exclusions(context)
+    except Exception:
+        pass
+
+
 #######################################################
 class IDEPathItem(bpy.types.PropertyGroup):
     name: bpy.props.StringProperty(name="IDE Path")
@@ -429,7 +442,81 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         name="Live Updates",
         default=True,
         description=(
-            "Move or rotate the selected model in Blender and it updates in the test game"
+            "Move or rotate the active selected object to move the complete tested selection in-game"
+        ),
+    )
+
+
+    samp_player_sync: bpy.props.BoolProperty(
+        name="Player to Blender",
+        default=True,
+        description=(
+            "Read the local test player's position, facing angle, movement keys, "
+            "velocity and animation index into Blender"
+        ),
+    )
+
+    samp_player_target: bpy.props.PointerProperty(
+        name="Player Target",
+        description=(
+            "Ped root, armature or other Blender object driven by the live player. "
+            "A lightweight tracker is created automatically when blank"
+        ),
+        type=bpy.types.Object,
+        update=update_samp_player_target,
+    )
+
+    samp_player_follow_view: bpy.props.BoolProperty(
+        name="Follow Player in View",
+        default=True,
+        description=(
+            "Lock Blender's 3D views to the live player target while testing"
+        ),
+    )
+
+    samp_player_animation_sync: bpy.props.BoolProperty(
+        name="Mirror Player Animations",
+        default=True,
+        description=(
+            "Apply the game player's current PED animation to the detected armature"
+        ),
+    )
+
+    samp_player_auto_load_ifp: bpy.props.BoolProperty(
+        name="Auto-load ped.ifp",
+        default=True,
+        description=(
+            "Load only the animation currently needed from DemonFF's embedded ped.ifp; "
+            "other animation libraries fall back to the selected GTA SA installation"
+        ),
+    )
+
+    samp_player_auto_align_ped: bpy.props.BoolProperty(
+        name="Auto-align Ped Feet",
+        default=True,
+        description=(
+            "Align the selected ped's rest-pose feet and root axis to the live GTA player "
+            "position instead of placing the Blender object's origin on the player"
+        ),
+    )
+
+    samp_player_position_offset: bpy.props.FloatVectorProperty(
+        name="Tracking Offset",
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        subtype='TRANSLATION',
+        description=(
+            "Fine XYZ correction added after automatic ped alignment"
+        ),
+    )
+
+    samp_player_heading_offset: bpy.props.FloatProperty(
+        name="Heading Correction",
+        default=0.0,
+        subtype='ANGLE',
+        unit='ROTATION',
+        description=(
+            "Fine facing-angle correction for rigs whose imported forward axis differs"
         ),
     )
 
@@ -746,7 +833,7 @@ def import_ide(filepaths, context):
                     obj_data[obj_name] = (samp_id, txd_name)
 
         for obj in context.scene.objects:
-            base_name = obj.name.split('.')[0]
+            base_name = _strip_blender_duplicate_suffix(obj.name)
             if base_name in obj_data:
                 samp_id, txd_name = obj_data[base_name]
                 obj["SAMP_ID"] = samp_id
@@ -801,7 +888,7 @@ def mass_import_samp_ide(filepaths, context):
 
         # Match objects in the scene with the IDE data and apply SAMP ID and TXD name
         for obj in context.scene.objects:
-            base_name = obj.name.split('.')[0]  # Get the base name of the object in the scene
+            base_name = _strip_blender_duplicate_suffix(obj.name)  # Get the base name of the object in the scene
             if base_name in obj_data:  # If the object name matches one from the IDE file
                 samp_id, txd_name = obj_data[base_name]
                 samp_id = -abs(samp_id)  # Apply '-' to the second argument (modelid)
@@ -836,7 +923,7 @@ class ImportIPLDataOperator(bpy.types.Operator, ImportHelper):
         name = collection.name.lower()
         if name.endswith('.dff'):
             name = name[:-4]
-        return name.split('.')[0]
+        return _strip_blender_duplicate_suffix(name)
 
     def build_source_collections(self):
         result = {}
@@ -1128,6 +1215,13 @@ class DemonFFMapExportPanel(bpy.types.Panel):
         row.operator("object.export_to_ipl", text="Export IPL")
         row.operator("object.export_to_ide", text="Export IDE")
         row.operator("object.samp_mass_ide_import", text="Import IDE")
+
+        row = layout.row()
+        row.operator(
+            "object.demonff_organize_obj_neighborhoods",
+            text="Organize OBJ Neighborhoods",
+            icon='OUTLINER_COLLECTION',
+        )
 #######################################################
 class DemonFFPawnPanel(bpy.types.Panel):
     bl_label = "DemonFF - Pawn"
@@ -1415,7 +1509,7 @@ class SCENE_OT_import_ide(bpy.types.Operator):
         assigned = 0
 
         for obj in context.scene.objects:
-            base_name = obj.name.split('.')[0].lower()
+            base_name = _strip_blender_duplicate_suffix(obj.name).lower()
             record = records.get(base_name)
             if not record:
                 continue
@@ -1560,6 +1654,34 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
     only_selected: bpy.props.BoolProperty(name="Only Selected", default=False)
     model_directory: bpy.props.StringProperty(name="Model Directory", default="", description="Model directory for artconfig DFF paths")
     texture_directory: bpy.props.StringProperty(name="Texture Directory", default="", description="Texture directory for artconfig TXD paths. Blank uses the model directory.")
+    txd_mode: bpy.props.EnumProperty(
+        name="TXD Packing",
+        items=(
+            ('REFERENCE', "Use Existing TXD Names", "Write the existing object or IDE TXD names without generating texture dictionaries"),
+            ('PER_MODEL', "One TXD Per Model", "Create one TXD containing all Blender material textures used by each exported model"),
+            ('NEIGHBORHOOD', "Pack TXDs Per Neighborhood", "Share TXDs between models in the same marked or spatially inferred neighborhood"),
+        ),
+        default='REFERENCE',
+    )
+    txd_output_directory: bpy.props.StringProperty(
+        name="Generated TXD Folder",
+        default="",
+        subtype='DIR_PATH',
+        description="Physical output folder for generated TXDs. Blank creates them below the PWN folder using Texture Directory or Model Directory",
+    )
+    maximum_textures_per_txd: bpy.props.IntProperty(
+        name="Maximum Textures Per TXD",
+        default=256,
+        min=1,
+        max=999,
+        description="Neighborhood packs split before exceeding this many unique texture names",
+    )
+    neighborhood_cell_size: bpy.props.FloatProperty(
+        name="Neighborhood Cell Size",
+        default=600.0,
+        min=1.0,
+        description="XY cell size used when objects have not been organized into marked neighborhood collections",
+    )
     skip_lod: bpy.props.BoolProperty(name="Skip LOD Objects", default=True)
     stream_distance: bpy.props.FloatProperty(name="Stream Distance", default=300.0)
     draw_distance: bpy.props.FloatProperty(name="Draw Distance", default=300.0)
@@ -1585,6 +1707,12 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
         layout.prop(self, "only_selected")
         layout.prop(self, "model_directory")
         layout.prop(self, "texture_directory")
+        layout.prop(self, "txd_mode")
+        if self.txd_mode != 'REFERENCE':
+            layout.prop(self, "txd_output_directory")
+            layout.prop(self, "maximum_textures_per_txd")
+        if self.txd_mode == 'NEIGHBORHOOD':
+            layout.prop(self, "neighborhood_cell_size")
         layout.prop(self, "skip_lod")
         layout.prop(self, "stream_distance")
         layout.prop(self, "draw_distance")
@@ -1601,6 +1729,10 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
             "only_selected": self.only_selected,
             "model_directory": self.model_directory,
             "texture_directory": self.texture_directory,
+            "txd_mode": self.txd_mode,
+            "txd_output_directory": self.txd_output_directory,
+            "maximum_textures_per_txd": self.maximum_textures_per_txd,
+            "neighborhood_cell_size": self.neighborhood_cell_size,
             "skip_lod": self.skip_lod,
             "stream_distance": self.stream_distance,
             "draw_distance": self.draw_distance,
@@ -1615,7 +1747,16 @@ class EXPORT_OT_pawn(bpy.types.Operator, ExportHelper):
             self.report({'ERROR'}, "No exportable meshes found")
             return {'CANCELLED'}
 
-        self.report({'INFO'}, f"Exported {map_exporter.pwn_exporter.total_objects_num} object(s)")
+        summary = map_exporter.pwn_exporter.last_export_summary
+        message = "Exported %d object(s)" % map_exporter.pwn_exporter.total_objects_num
+        if summary.get("generated_txd_count", 0):
+            message += "; generated %d TXD pack(s) with %d texture(s)" % (
+                summary["generated_txd_count"],
+                summary.get("generated_texture_count", 0),
+            )
+        if summary.get("asset_warning_count", 0):
+            message += "; %d asset warning(s) are listed in the manifest and console" % summary["asset_warning_count"]
+        self.report({'INFO'}, message)
         return {'FINISHED'}
 
     def invoke(self, context, event):
@@ -1651,6 +1792,11 @@ class DemonFFNewPawnPanel(bpy.types.Panel):
         pawn_column.operator("scene.pwn_import", text="Import PWN", icon='IMPORT')
         pawn_column.operator("scene.pwn_export", text="Export PWN + artconfig", icon='EXPORT')
         pawn_column.operator(
+            "object.demonff_organize_obj_neighborhoods",
+            text="Organize OBJ Neighborhoods",
+            icon='OUTLINER_COLLECTION',
+        )
+        pawn_column.operator(
             "object.remove_building_for_player",
             text="RemoveBuildingForPlayer",
         )
@@ -1669,11 +1815,54 @@ class DemonFFNewPawnPanel(bpy.types.Panel):
             text="Live Updates",
         )
 
+        player_box = test_box.box()
+        player_box.label(text="Player -> Blender")
+        player_box.prop(
+            context.scene.dff,
+            "samp_player_sync",
+            text="Mirror Player Movement",
+        )
+
+        if context.scene.dff.samp_player_sync:
+            player_box.prop(
+                context.scene.dff,
+                "samp_player_target",
+                text="Ped / Target",
+            )
+            player_box.prop(
+                context.scene.dff,
+                "samp_player_follow_view",
+                text="Follow in 3D View",
+            )
+            player_actions = player_box.row(align=True)
+            player_actions.operator(
+                "scene.demonff_use_active_player_target",
+                text="Use Active Ped",
+                icon='EYEDROPPER',
+            )
+            player_actions.operator(
+                "scene.demonff_create_player_tracker",
+                text="Create Tracker",
+                icon='EMPTY_AXIS',
+            )
+
+            if samp_test.PLAYER_SYNC_ACTIVE:
+                player_box.label(
+                    text=samp_test.get_player_sync_status_text(),
+                    icon='EMPTY_AXIS',
+                )
+                animation_status = samp_test.get_player_animation_status_text()
+                if animation_status:
+                    player_box.label(
+                        text=animation_status,
+                        icon='ACTION',
+                    )
+
         test_button = test_box.column(align=True)
         test_button.scale_y = 1.35
         test_button.operator(
             "scene.demonff_test_selected_model",
-            text="Test Selected Model",
+            text="Test Selected Models",
             icon='PLAY',
         )
 
@@ -1693,6 +1882,11 @@ class DemonFFNewPawnPanel(bpy.types.Panel):
             "scene.demonff_open_local_test_root",
             text="Open Test Files",
             icon='FILE_FOLDER',
+        )
+        test_box.operator(
+            "scene.demonff_clean_test_files",
+            text="Clean Generated Test Files",
+            icon='TRASH',
         )
 
 

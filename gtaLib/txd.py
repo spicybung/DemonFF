@@ -82,6 +82,7 @@ class DeviceType(IntEnum):
     DEVICE_GC   = 3 # probably
     DEVICE_PS2  = 6
     DEVICE_XBOX = 8
+    DEVICE_PSP  = 9
 
 #######################################################
 class ImageEncoder:
@@ -862,6 +863,11 @@ class txd:
                 elif self.device_id == DeviceType.DEVICE_GC:
                     from .native_gc import NativeGCTexture
                     texture = NativeGCTexture.from_mem(self.data[self.pos:], self.rw_version)
+                    self._read(texture.pos - chunk.size)
+
+                elif self.device_id == DeviceType.DEVICE_PSP:
+                    from .native_psp import NativePSPTexture
+                    texture = NativePSPTexture.from_mem(self.data[self.pos:])
                     self._read(texture.pos - chunk.size)
 
                 if texture:

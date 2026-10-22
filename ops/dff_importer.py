@@ -19,22 +19,56 @@
 
 import os
 import bpy
+
+def stampDetectedDffProfile(dff_data):
+    try:
+        profile = str(getattr(dff_data, "source_profile", "") or "")
+        if profile:
+            bpy.context.scene["demonff_detected_dff_profile"] = profile
+    except Exception:
+        pass
+
 import math
 import bmesh
 import mathutils
 
 from collections import OrderedDict
 
-from ..gtaLib import dff
+from ..gtaLib import dff, rw4
 from ..gtaLib.dff import entries
 from .importer_common import (
     link_object, create_collection,
     material_helper, set_object_mode,
-    hide_object)
-from ..ops import txd_importer
+    hide_object, set_material_render_method)
+from ..ops import txd_importer, rw4_importer
 from .col_importer import import_col_mem, unlink_collection_from_scene_root
 from ..ops.ext_2dfx_importer import ext_2dfx_importer
 from ..ops.state import State
+
+
+def _txd_image_lookup(images, texture_name):
+    """Return a TXD image entry using RenderWare-friendly case-insensitive lookup."""
+    if texture_name in images:
+        return images[texture_name]
+    wanted = str(texture_name or "").casefold()
+    for name, value in images.items():
+        if str(name).casefold() == wanted:
+            return value
+    return None
+
+
+def _loaded_image_matches(image, directory, image_name):
+    """Check whether a Blender image datablock points at the file we want.
+
+    Older code compared the directory path with the image's full filepath,
+    which was never equal and caused duplicate image datablocks (.001/.002).
+    """
+    try:
+        expected = os.path.normcase(os.path.normpath(os.path.abspath(os.path.join(directory, image_name))))
+        actual = os.path.normcase(os.path.normpath(bpy.path.abspath(image.filepath)))
+        return expected == actual
+    except (AttributeError, TypeError, ValueError):
+        return False
 
 
 #######################################################
@@ -375,7 +409,7 @@ class dff_importer:
             name = self.generate_material_name(material, name)
             
             mat = bpy.data.materials.new(name)
-            mat.blend_method = 'CLIP'
+            set_material_render_method(mat, 'CLIP')
             helper = material_helper(mat)
             
             helper.set_base_color(material.color)
@@ -385,8 +419,9 @@ class dff_importer:
                 texture = material.textures[0]
                 image   = None
 
-                if texture.name in self.txd_images:
-                    image = self.txd_images[texture.name][0]
+                txd_image = _txd_image_lookup(self.txd_images, texture.name)
+                if txd_image:
+                    image = txd_image[0]
 
                 elif self.image_ext:
                     path    = os.path.dirname(self.file_name)
@@ -394,7 +429,7 @@ class dff_importer:
 
                     # name.None shouldn't exist, lol / Share loaded images among imported materials
                     if (image_name in bpy.data.images and
-                            path == bpy.path.abspath(bpy.data.images[image_name].filepath)):
+                            _loaded_image_matches(bpy.data.images[image_name], path, image_name)):
                         image = bpy.data.images[image_name]
                     else:
                         image = load_image(image_name,
@@ -403,7 +438,7 @@ class dff_importer:
                                         place_holder=True,
                                         check_existing=True
                                         )
-                helper.set_texture(image, texture.name, texture.filters, texture.uv_addressing)
+                helper.set_texture(image, texture.name, texture.filters, texture.uv_addressing, texture.mask)
 
             # Normal Map
             if 'bump_map' in material.plugins:
@@ -423,24 +458,27 @@ class dff_importer:
                     if texture:
                         image = None
 
-                        if texture.name in self.txd_images:
-                            image = self.txd_images[texture.name][0]
+                        txd_image = _txd_image_lookup(self.txd_images, texture.name)
+                        if txd_image:
+                            image = txd_image[0]
 
                         else:
                             path = os.path.dirname(self.file_name)
-                            image_name = "%s.%s" % (texture.name, self.image_ext)
+                            if self.image_ext:
+                                image_name = "%s.%s" % (texture.name, self.image_ext)
 
-                            # see name.None note above / Share loaded images among imported materials
-                            if (image_name in bpy.data.images and
-                                    path == bpy.path.abspath(bpy.data.images[image_name].filepath)):
-                                image = bpy.data.images[image_name]
-                            else:
-                                image = load_image(image_name,
-                                                path,
-                                                recursive=False,
-                                                place_holder=True,
-                                                check_existing=True
-                                               )
+                                # Share an already-loaded image only when it points
+                                # at the exact same source file.
+                                if (image_name in bpy.data.images and
+                                        _loaded_image_matches(bpy.data.images[image_name], path, image_name)):
+                                    image = bpy.data.images[image_name]
+                                else:
+                                    image = load_image(image_name,
+                                                    path,
+                                                    recursive=False,
+                                                    place_holder=True,
+                                                    check_existing=True
+                                                   )
 
                         helper.set_normal_map(image,
                                               texture.name,
@@ -448,6 +486,9 @@ class dff_importer:
                         )
 
             # Surface Properties
+            # Reset for every material; otherwise a material without explicit
+            # properties can accidentally reuse the previous material's values.
+            props = None
             if material.surface_properties is not None:
                 props = material.surface_properties
 
@@ -461,6 +502,10 @@ class dff_importer:
             if 'env_map' in material.plugins:
                 plugin = material.plugins['env_map'][0]
                 helper.set_environment_map(plugin)
+
+            # Dual Texture MatFX
+            if 'dual' in material.plugins:
+                helper.set_dual_map(material.plugins['dual'][0])
 
             # Specular Material
             if 'spec' in material.plugins:
@@ -1104,6 +1149,19 @@ class dff_importer:
 
 #######################################################
 def import_dff(options):
+
+    forced_rw4_profile = options.get('rw4_profile', rw4.PROFILE_AUTO)
+    try:
+        detection = rw4.detect_file(options['file_name'], forced_rw4_profile)
+    except Exception:
+        detection = None
+
+    if detection is not None:
+        return rw4_importer.import_rw4(
+            options['file_name'],
+            forced_profile=forced_rw4_profile,
+            defer_scene_update=bool(options.get('defer_scene_update', False))
+        )
 
     # Shadow function
     dff_importer.load_txd         = options['load_txd']

@@ -77,6 +77,30 @@ class DFF_MT_ToolWheel(bpy.types.Menu):
             text="Import TXD (SAMP)",
             icon='TEXTURE',
         )
+        pie.operator(
+            "export_dff_custom.scene",
+            text="Export DFF",
+            icon='EXPORT',
+        )
+        pie.operator(
+            "scene.pwn_export",
+            text="Export PWN",
+            icon='EXPORT',
+        )
+
+        animation_box = pie.box()
+        animation_column = animation_box.column(align=True)
+        animation_column.label(text="Animation I/O")
+        animation_column.operator(
+            "import_scene.ifp",
+            text="Import IFP",
+            icon='IMPORT',
+        )
+        animation_column.operator(
+            "import_scene.demonff_anim",
+            text="Import ANIM",
+            icon='IMPORT',
+        )
 
 
 def register_keymaps():

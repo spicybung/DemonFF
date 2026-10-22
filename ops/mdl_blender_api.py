@@ -271,6 +271,26 @@ def ensureMeshAttribute(mesh: Any, name: str, data_type: str, domain: str = "POI
     attr = CompatAttribute(mesh, name, data_type_key, domain_key)
     return attr.ensureLength(expected_count)
 
+def updateMeshNormals(mesh: Any) -> None:
+    if mesh is None:
+        return
+    if hasattr(mesh, "calc_normals_split"):
+        try:
+            mesh.calc_normals_split()
+            return
+        except Exception:
+            pass
+    if hasattr(mesh, "calc_normals"):
+        try:
+            mesh.calc_normals()
+            return
+        except Exception:
+            pass
+    try:
+        mesh.update()
+    except Exception:
+        pass
+
 def getOrCreateCornerColorLayer(mesh: Any, name: str = "Col") -> Any:
     if mesh is None:
         return None

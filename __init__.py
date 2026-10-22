@@ -20,17 +20,18 @@
 import bpy
 from .gui import gui, pie_menus
 from .ops import map_importer, img_importer, ide_text_exporter, ipl_text_exporter, samp_test
+from .ops.state import State
 
 from bpy.utils import register_class, unregister_class
 
 bl_info = {
-    "name": "DemonFF",
+    "name": "DemonFF 0.6.9b",
     "author": "SpicyBung",
-    "version": (0, 5, 8),
-    "blender": (2, 80, 0),      # Tested and working on 3.x & 4.x
+    "version": (0, 6, 9),
+    "blender": (2, 80, 0),
     "category": "Import-Export",
     "location": "File > Import/Export",
-    "description": "Importer and Exporter for GTA Formats"
+    "description": "Importer and Exporter for RenderWare and R* Formats"
 }
 
 # Class list to register
@@ -110,6 +111,7 @@ _classes = [
     gui.ExportToIPLOperator,
     gui.ExportToIDEOperator,
     gui.ExportToPawnOperator,
+    gui.OrganizeObjNeighborhoodsOperator,
     gui.IMPORT_OT_pawn,
     gui.EXPORT_OT_pawn,
     ide_text_exporter.EXPORT_OT_demonff_ide,
@@ -133,14 +135,21 @@ _classes = [
     gui.OBJECT_PT_SDFXLightInfoPanel,
     gui.SAEEFFECTS_PT_Panel,
     gui.IMPORT_OT_ifp,
+    gui.IMPORT_OT_anim,
     gui.EXPORT_OT_ifp,
+    gui.EXPORT_OT_animation,
     gui.MESSAGE_OT_missing_bones,
+    gui.SCENE_OT_assign_action_to_object,
+    gui.SCENE_PT_animation_browser,
     gui.DFF_OT_import_from_pie,
     gui.DFF_MT_ToolWheel,
     gui.SCENE_OT_demonff_stop_test_server,
     gui.SCENE_OT_demonff_test_selected_model,
+    gui.SCENE_OT_demonff_use_active_player_target,
+    gui.SCENE_OT_demonff_create_player_tracker,
     gui.SCENE_OT_demonff_open_game_root,
-    gui.SCENE_OT_demonff_open_local_test_root
+    gui.SCENE_OT_demonff_open_local_test_root,
+    gui.SCENE_OT_demonff_clean_test_files
 ]
 
 
@@ -168,6 +177,7 @@ def remove_runtime_properties():
         (bpy.types.Scene, "dff"),
         (bpy.types.Scene, "saeffects_export_path"),
         (bpy.types.Scene, "saeffects_text_export_path"),
+        (bpy.types.Scene, "demonff_animation_search"),
         (bpy.types.Object, "ide"),
         (bpy.types.Object, "ipl"),
         (bpy.types.Object, "dff_map"),
@@ -219,13 +229,22 @@ def register():
         description="Path to export the effects text file",
         subtype='FILE_PATH'
     )
+    bpy.types.Scene.demonff_animation_search = bpy.props.StringProperty(
+        name="Animation Search",
+        description="Filter DemonFF Animation I/O Actions by name",
+        default="",
+    )
 
-    if (2, 80, 0) > bpy.app.version:
-        append_menu_once(bpy.types.INFO_MT_file_import, gui.import_dff_func)
-        append_menu_once(bpy.types.INFO_MT_file_export, gui.export_dff_func)
-    else:
-        append_menu_once(bpy.types.TOPBAR_MT_file_import, gui.import_dff_func)
-        append_menu_once(bpy.types.TOPBAR_MT_file_export, gui.export_dff_func)
+    import_menu = getattr(bpy.types, "TOPBAR_MT_file_import", None)
+    export_menu = getattr(bpy.types, "TOPBAR_MT_file_export", None)
+    if import_menu is None:
+        import_menu = getattr(bpy.types, "INFO_MT_file_import", None)
+    if export_menu is None:
+        export_menu = getattr(bpy.types, "INFO_MT_file_export", None)
+    if import_menu is not None:
+        append_menu_once(import_menu, gui.import_dff_func)
+    if export_menu is not None:
+        append_menu_once(export_menu, gui.export_dff_func)
 
     try:
         pie_menus.unregister_keymaps()
@@ -236,16 +255,28 @@ def register():
     except Exception:
         pass
 
+    State.hook_events()
+    try:
+        State.update_scene()
+        samp_test.refresh_live_player_export_exclusions(bpy.context)
+    except Exception:
+        pass
+
 
 def unregister():
     samp_test.stop_server_process()
+    State.unhook_events()
 
-    if (2, 80, 0) > bpy.app.version:
-        remove_menu_once(bpy.types.INFO_MT_file_import, gui.import_dff_func)
-        remove_menu_once(bpy.types.INFO_MT_file_export, gui.export_dff_func)
-    else:
-        remove_menu_once(bpy.types.TOPBAR_MT_file_import, gui.import_dff_func)
-        remove_menu_once(bpy.types.TOPBAR_MT_file_export, gui.export_dff_func)
+    import_menu = getattr(bpy.types, "TOPBAR_MT_file_import", None)
+    export_menu = getattr(bpy.types, "TOPBAR_MT_file_export", None)
+    if import_menu is None:
+        import_menu = getattr(bpy.types, "INFO_MT_file_import", None)
+    if export_menu is None:
+        export_menu = getattr(bpy.types, "INFO_MT_file_export", None)
+    if import_menu is not None:
+        remove_menu_once(import_menu, gui.import_dff_func)
+    if export_menu is not None:
+        remove_menu_once(export_menu, gui.export_dff_func)
 
     try:
         pie_menus.unregister_keymaps()

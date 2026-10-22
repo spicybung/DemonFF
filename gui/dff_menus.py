@@ -33,7 +33,8 @@ from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
     OBJECT_OT_dff_set_parent_bone, OBJECT_OT_dff_clear_parent_bone
 from .dff_ot import SCENE_OT_dff_frame_move, SCENE_OT_dff_atomic_move, SCENE_OT_dff_update
 from .col_ot import EXPORT_OT_col, IMPORT_OT_col
-from .ifp_ot import IMPORT_OT_ifp
+from .ifp_ot import IMPORT_OT_ifp, EXPORT_OT_ifp
+from .anim_ot import IMPORT_OT_anim, EXPORT_OT_animation
 from .mdl_ot import IMPORT_OT_mdl_custom
 from ..ops import col_importer
 
@@ -70,36 +71,235 @@ def getUniqueMeshData(objects):
     return meshes
 
 
+def collectFaceIslands(bm):
+    remaining = set(face for face in bm.faces if face.is_valid)
+    islands = []
+
+    while remaining:
+        first_face = remaining.pop()
+        island = [first_face]
+        stack = [first_face]
+
+        while stack:
+            face = stack.pop()
+            for edge in face.edges:
+                for linked_face in edge.link_faces:
+                    if linked_face in remaining:
+                        remaining.remove(linked_face)
+                        island.append(linked_face)
+                        stack.append(linked_face)
+
+        islands.append(island)
+
+    return islands
+
+
+def faceIslandIsClosed(island):
+    island_set = set(island)
+
+    for face in island:
+        for edge in face.edges:
+            linked_count = sum(1 for linked_face in edge.link_faces if linked_face in island_set)
+            if linked_count != 2:
+                return False
+
+    return True
+
+
+def getFaceIslandReferenceCenter(island):
+    unique_vertices = {}
+
+    for face in island:
+        for vertex in face.verts:
+            unique_vertices[vertex.index] = vertex
+
+    if not unique_vertices:
+        return mathutils.Vector((0.0, 0.0, 0.0))
+
+    center = mathutils.Vector((0.0, 0.0, 0.0))
+    for vertex in unique_vertices.values():
+        center += vertex.co
+
+    return center / len(unique_vertices)
+
+
+def calculateFaceIslandSignedVolume(island, loop_triangles):
+    island_set = set(island)
+    reference_center = getFaceIslandReferenceCenter(island)
+    signed_volume = 0.0
+
+    for loops in loop_triangles:
+        if not loops or loops[0].face not in island_set:
+            continue
+
+        vertex_0 = loops[0].vert.co - reference_center
+        vertex_1 = loops[1].vert.co - reference_center
+        vertex_2 = loops[2].vert.co - reference_center
+        signed_volume += vertex_0.dot(vertex_1.cross(vertex_2)) / 6.0
+
+    return signed_volume
+
+
+def calculateFaceIslandVolumeEpsilon(island):
+    unique_vertices = {}
+
+    for face in island:
+        for vertex in face.verts:
+            unique_vertices[vertex.index] = vertex.co
+
+    if not unique_vertices:
+        return 1e-12
+
+    coordinates = list(unique_vertices.values())
+    minimum = coordinates[0].copy()
+    maximum = coordinates[0].copy()
+
+    for coordinate in coordinates[1:]:
+        minimum.x = min(minimum.x, coordinate.x)
+        minimum.y = min(minimum.y, coordinate.y)
+        minimum.z = min(minimum.z, coordinate.z)
+        maximum.x = max(maximum.x, coordinate.x)
+        maximum.y = max(maximum.y, coordinate.y)
+        maximum.z = max(maximum.z, coordinate.z)
+
+    diagonal = max((maximum - minimum).length, 1e-6)
+    return max(1e-12, diagonal * diagonal * diagonal * 1e-10)
+
+
+def captureOpenIslandOrientation(island):
+    orientation = {}
+
+    for face in island:
+        area = max(float(face.calc_area()), 0.0)
+        orientation[face.index] = (face.normal.copy(), area)
+
+    return orientation
+
+
+def calculateOpenIslandOrientationAgreement(island, original_orientation):
+    agreement = 0.0
+    total_area = 0.0
+
+    for face in island:
+        original = original_orientation.get(face.index)
+        if original is None:
+            continue
+
+        original_normal, original_area = original
+        area = max(float(face.calc_area()), original_area, 0.0)
+        agreement += float(face.normal.dot(original_normal)) * area
+        total_area += area
+
+    epsilon = max(1e-12, total_area * 1e-10)
+    return agreement, epsilon
+
+
 def recalculateMeshNormals(mesh, inward=False):
     if not mesh.polygons:
-        return False
+        return None
+
+    stats = {
+        "islands": 0,
+        "closed_islands": 0,
+        "open_islands": 0,
+        "ambiguous_islands": 0,
+        "reversed_islands": 0,
+        "custom_normals_cleared": False,
+    }
 
     bm = bmesh.new()
     try:
         bm.from_mesh(mesh)
-        if not bm.faces:
-            return False
+        bm.faces.ensure_lookup_table()
+        bm.edges.ensure_lookup_table()
+        bm.verts.ensure_lookup_table()
+        bm.normal_update()
 
-        bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+        if not bm.faces:
+            return None
+
+        islands = collectFaceIslands(bm)
+        stats["islands"] = len(islands)
+
+        original_open_orientations = {}
+        closed_islands = set()
+
+        for island_index, island in enumerate(islands):
+            if faceIslandIsClosed(island):
+                closed_islands.add(island_index)
+            else:
+                original_open_orientations[island_index] = captureOpenIslandOrientation(island)
+
+        for island in islands:
+            bmesh.ops.recalc_face_normals(bm, faces=island)
+
+        bm.normal_update()
+        loop_triangles = bm.calc_loop_triangles()
+
+        for island_index, island in enumerate(islands):
+            reverse_island = False
+
+            if island_index in closed_islands:
+                stats["closed_islands"] += 1
+                signed_volume = calculateFaceIslandSignedVolume(island, loop_triangles)
+                volume_epsilon = calculateFaceIslandVolumeEpsilon(island)
+
+                if signed_volume < -volume_epsilon:
+                    reverse_island = True
+                elif abs(signed_volume) <= volume_epsilon:
+                    stats["ambiguous_islands"] += 1
+            else:
+                stats["open_islands"] += 1
+                agreement, agreement_epsilon = calculateOpenIslandOrientationAgreement(
+                    island,
+                    original_open_orientations.get(island_index, {}),
+                )
+
+                if agreement < -agreement_epsilon:
+                    reverse_island = True
+                elif abs(agreement) <= agreement_epsilon:
+                    stats["ambiguous_islands"] += 1
+
+            if reverse_island:
+                bmesh.ops.reverse_faces(bm, faces=island)
+                stats["reversed_islands"] += 1
 
         if inward:
-            bmesh.ops.reverse_faces(bm, faces=bm.faces)
+            for island in islands:
+                bmesh.ops.reverse_faces(bm, faces=island)
 
+        bm.normal_update()
         bm.to_mesh(mesh)
-        mesh.update()
-        return True
+
+        stats["custom_normals_cleared"] = clearCustomSplitNormals(mesh)
+        mesh.update(calc_edges=True)
+        return stats
     finally:
         bm.free()
 
 
 def clearCustomSplitNormals(mesh):
+    had_custom_normals = bool(getattr(mesh, "has_custom_normals", False))
+
     if not hasattr(mesh, "normals_split_custom_set"):
-        return
+        return False
 
     try:
         mesh.normals_split_custom_set([(0.0, 0.0, 0.0)] * len(mesh.loops))
+        return had_custom_normals
     except Exception:
-        pass
+        return False
+
+
+def clearImportedNormalOverrides(objects):
+    cleared_count = 0
+
+    for obj in objects:
+        if "bleeds_imported_normals" in obj:
+            del obj["bleeds_imported_normals"]
+            cleared_count += 1
+
+    return cleared_count
 
 
 def makeMeshDoubleSidedFast(mesh):
@@ -512,7 +712,8 @@ def join_similar_named_meshes(context):
 
     for obj in context.scene.objects:
         if obj.type == 'MESH':
-            base_name = obj.name.split('.')[0]
+            match = suffix_pattern.match(obj.name)
+            base_name = match.group(1) if match else obj.name
             base_name_dict.setdefault(base_name, []).append(obj)
 
     for base_name, objects in base_name_dict.items():
@@ -671,42 +872,75 @@ class OBJECT_OT_force_doubleside_mesh(bpy.types.Operator):
             self.report({'INFO'}, "No mesh data-blocks needed double-sided backfaces.")
         return {'FINISHED'}
 #######################################################
+def runRecalculateNormalsOperator(operator, context, inward):
+    objects = getSelectedMeshObjects(context)
+    meshes = getUniqueMeshData(objects)
+
+    if not objects:
+        operator.report({'WARNING'}, "No selected mesh objects were found.")
+        return {'CANCELLED'}
+
+    processed_count = 0
+    island_count = 0
+    closed_island_count = 0
+    open_island_count = 0
+    ambiguous_island_count = 0
+    custom_normal_mesh_count = 0
+
+    for mesh in meshes:
+        stats = recalculateMeshNormals(mesh, inward=inward)
+        if not stats:
+            continue
+
+        processed_count += 1
+        island_count += int(stats["islands"])
+        closed_island_count += int(stats["closed_islands"])
+        open_island_count += int(stats["open_islands"])
+        ambiguous_island_count += int(stats["ambiguous_islands"])
+        custom_normal_mesh_count += int(bool(stats["custom_normals_cleared"]))
+
+    imported_override_count = clearImportedNormalOverrides(objects)
+
+    direction_name = "inward" if inward else "outward"
+    message = (
+        f"Recalculated {direction_name} normals on {processed_count} unique mesh data-block(s), "
+        f"covering {island_count} connected shell(s). "
+        f"Closed shells were resolved by signed volume; open shells kept their dominant existing side "
+        f"before the requested {'inward flip' if inward else 'outward consistency pass'}. "
+        f"Closed: {closed_island_count}; open: {open_island_count}; "
+        f"direction-ambiguous: {ambiguous_island_count}."
+    )
+
+    if custom_normal_mesh_count or imported_override_count:
+        message += (
+            f" Cleared stale imported/custom normal data on "
+            f"{custom_normal_mesh_count} mesh(es) and {imported_override_count} object(s)."
+        )
+
+    operator.report({'INFO'}, message)
+    print(f"DemonFF: {message}")
+    return {'FINISHED'}
+
+
 class OBJECT_OT_recalculate_normals_outward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_outward"
     bl_label = "Recalculate Normals (Outward)"
-    bl_description = "Recalculate normals outward on selected unique mesh data-blocks"
+    bl_description = "Orient every connected mesh shell consistently, force closed shells outward, and clear stale imported custom normals"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        objects = getSelectedMeshObjects(context)
-        meshes = getUniqueMeshData(objects)
-        processed_count = 0
+        return runRecalculateNormalsOperator(self, context, inward=False)
 
-        for mesh in meshes:
-            if recalculateMeshNormals(mesh, inward=False):
-                processed_count += 1
-
-        self.report({'INFO'}, f"Recalculated outward normals on {processed_count} unique mesh data-block(s) from {len(objects)} selected object(s).")
-        return {'FINISHED'}
 
 #######################################################
 class OBJECT_OT_recalculate_normals_inward(bpy.types.Operator):
     bl_idname = "object.recalculate_normals_inward"
     bl_label = "Recalculate Normals (Inward)"
-    bl_description = "Recalculate normals inward on selected unique mesh data-blocks"
+    bl_description = "Orient every connected mesh shell consistently, force closed shells inward, and clear stale imported custom normals"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
-        objects = getSelectedMeshObjects(context)
-        meshes = getUniqueMeshData(objects)
-        processed_count = 0
-
-        for mesh in meshes:
-            if recalculateMeshNormals(mesh, inward=True):
-                processed_count += 1
-
-        self.report({'INFO'}, f"Recalculated inward normals on {processed_count} unique mesh data-block(s) from {len(objects)} selected object(s).")
-        return {'FINISHED'}
+        return runRecalculateNormalsOperator(self, context, inward=True)
 
 
 #######################################################
@@ -1189,7 +1423,7 @@ class MATERIAL_PT_dffMaterials(bpy.types.Panel):
 
         try:
             if bpy.app.version >= (2, 80, 0):
-                prop = context.material.node_tree.nodes["Principled BSDF"].inputs[0]
+                prop = context.material.node_tree.nodes["Principled BSDF"].inputs.get("Base Color")
                 prop_val = "default_value"
             else:
                 prop = context.material
@@ -1226,7 +1460,9 @@ class MATERIAL_PT_dffMaterials(bpy.types.Panel):
 
             if bpy.app.version >= (2, 80, 0):
                 node = context.material.node_tree.nodes["Principled BSDF"]
-                node.inputs[0].default_value = color
+                base_color = node.inputs.get("Base Color")
+                if base_color is not None:
+                    base_color.default_value = color
 
             # Viewport color in Blender 2.8 and Material color in 2.79.
             context.material.diffuse_color = color[:-1]
@@ -1256,8 +1492,10 @@ class DFF_MT_ImportChoice(bpy.types.Menu):
                         text="DemonFF COL (.col)")
         layout.operator(IMPORT_OT_mdl_custom.bl_idname, 
                         text="DemonFF MDL (.mdl)")
-        layout.operator(IMPORT_OT_ifp.bl_idname, 
+        layout.operator(IMPORT_OT_ifp.bl_idname,
                         text="DemonFF IFP (.ifp)")
+        layout.operator(IMPORT_OT_anim.bl_idname,
+                        text="DemonFF ANIM (.anim)")
 
 #######################################################@
 class DFF_MT_ExportChoice(bpy.types.Menu):
@@ -1268,6 +1506,8 @@ class DFF_MT_ExportChoice(bpy.types.Menu):
                              text="DemonFF DFF (.dff/.col)")
         self.layout.operator(EXPORT_OT_col.bl_idname,
                              text="DemonFF Collision (.col)")
+        self.layout.operator(EXPORT_OT_ifp.bl_idname,
+                             text="DemonFF IFP (.ifp)")
 
 #######################################################
 def import_dff_func(self, context):
@@ -1449,6 +1689,19 @@ class OBJECT_PT_dffObjects(bpy.types.Panel):
 #######################################################
 class DFFMaterialProps(bpy.types.PropertyGroup):
     ambient: bpy.props.FloatProperty(name="Ambient Shading", default=1)
+
+    # RenderWare base texture metadata. These values are part of the DFF
+    # Texture struct and must survive import -> Blender -> export unchanged.
+    tex_filters: bpy.props.IntProperty(name="Texture Filter", default=0, min=0, max=255)
+    tex_u_addr: bpy.props.IntProperty(name="Texture U Address", default=0, min=0, max=15)
+    tex_v_addr: bpy.props.IntProperty(name="Texture V Address", default=0, min=0, max=15)
+    tex_mask: bpy.props.StringProperty(name="Texture Mask", default="")
+
+    # MatFX dual-texture state, retained even when the UI does not edit it.
+    export_dual: bpy.props.BoolProperty(name="Dual Texture")
+    dual_texture: bpy.props.StringProperty(default="")
+    dual_src_blend: bpy.props.IntProperty(default=0)
+    dual_dst_blend: bpy.props.IntProperty(default=0)
 
     # Environment Map
     export_env_map: bpy.props.BoolProperty(name="Environment Map")
@@ -2630,34 +2883,73 @@ class COLLECTION_PT_custom_cleanup_panel(bpy.types.Panel):
 
 ####################################################### 
 class SCENE_PT_animation_browser(bpy.types.Panel):
-    bl_label = "DemonFF - Animation Browser"
+    bl_label = "DemonFF - Animation I/O"
     bl_idname = "SCENE_PT_animation_browser"
-    bl_space_type = 'PROPERTIES'
-    bl_region_type = 'WINDOW'
-    bl_context = 'scene'
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "DemonFF"
+    @classmethod
+    def poll(cls, context):
+        # Blender 5 has its own action/animation-list workflow.  DemonFF keeps
+        # this compact browser for the 3.x/4.x versions that lack it.
+        return bpy.app.version < (5, 0, 0)
 
     def draw(self, context):
         layout = self.layout
-        layout.label(text="Available Actions", icon='ACTION')
+
+        import_row = layout.row(align=True)
+        import_row.operator(IMPORT_OT_ifp.bl_idname, text="Import IFP", icon='IMPORT')
+        import_row.operator(IMPORT_OT_anim.bl_idname, text="Import ANIM", icon='IMPORT')
+
+        export_row = layout.row(align=True)
+        export_row.operator(EXPORT_OT_animation.bl_idname, text="Export Animation", icon='EXPORT')
+
+        layout.prop(context.scene, "demonff_animation_search", text="", icon='VIEWZOOM')
+
+        search = str(getattr(context.scene, "demonff_animation_search", "") or "").strip().casefold()
+        actions = list(bpy.data.actions)
+        filtered_actions = [
+            (index, action)
+            for index, action in enumerate(actions)
+            if not search or search in action.name.casefold()
+        ]
+
+        header = layout.row()
+        header.label(text=f"Animations: {len(actions)}", icon='ACTION')
+        if search:
+            header.label(text=f"Shown: {len(filtered_actions)}")
 
         obj = context.object
-        actions = bpy.data.actions
+        can_assign = obj is not None and obj.type == 'ARMATURE'
+        if not can_assign:
+            layout.label(text="Select an armature to preview an action.", icon='INFO')
 
-        if obj and obj.type == 'ARMATURE':
-            for action in actions:
-                row = layout.row()
-                row.prop(action, "name", text="", emboss=False, icon='ANIM')
-                assign = row.operator("scene.assign_action_to_object", text="", icon='FILE_TICK')
-                assign.action_name = action.name
-        else:
-            layout.label(text="Select an armature to assign animations.", icon='INFO')
+        active_action = None
+        if can_assign and obj.animation_data is not None:
+            active_action = obj.animation_data.action
+
+        column = layout.column(align=True)
+        for index, action in filtered_actions:
+            row = column.row(align=True)
+            row.enabled = can_assign
+            row.label(text=str(index))
+            icon = 'PLAY' if action == active_action else 'ACTION'
+            assign = row.operator(
+                SCENE_OT_assign_action_to_object.bl_idname,
+                text=action.name,
+                icon=icon,
+            )
+            assign.action_name = action.name
+
+        if not filtered_actions:
+            layout.label(text="No matching Actions", icon='INFO')
 
 
-#######################################################
 class SCENE_OT_assign_action_to_object(bpy.types.Operator):
     bl_idname = "scene.assign_action_to_object"
-    bl_label = "Assign Action to Armature"
-    
+    bl_label = "Preview Animation"
+    bl_description = "Assign this Action to the selected armature and move the timeline to its first frame"
+
     action_name: bpy.props.StringProperty()
 
     def execute(self, context):
@@ -2665,25 +2957,35 @@ class SCENE_OT_assign_action_to_object(bpy.types.Operator):
         action = bpy.data.actions.get(self.action_name)
 
         if not obj or obj.type != 'ARMATURE':
-            self.report({'WARNING'}, "You must select an armature object.")
+            self.report({'WARNING'}, "Select an armature object first.")
             return {'CANCELLED'}
 
         if action is None:
-            self.report({'WARNING'}, f"Action '{self.action_name}' not found.")
+            self.report({'WARNING'}, f"Action '{self.action_name}' was not found.")
             return {'CANCELLED'}
 
-        # Ensure animation_data exists
         if obj.animation_data is None:
             obj.animation_data_create()
 
+        # Reset basis transforms before switching clips so unkeyed channels in
+        # partial IFP/.anim clips do not inherit the previous action's pose.
+        for pose_bone in obj.pose.bones:
+            try:
+                pose_bone.matrix_basis = mathutils.Matrix.Identity(4)
+            except Exception:
+                pass
+
         obj.animation_data.action = action
 
-        # Optionally reset timeline to match action
-        context.scene.frame_start = int(action.frame_range[0])
-        context.scene.frame_end = int(action.frame_range[1])
-        context.scene.frame_current = int(action.frame_range[0])
+        try:
+            start_frame = int(action.frame_range[0])
+            end_frame = int(action.frame_range[1])
+            context.scene.frame_start = start_frame
+            context.scene.frame_end = max(start_frame, end_frame)
+            context.scene.frame_set(start_frame)
+        except Exception:
+            pass
 
-        self.report({'INFO'}, f"Assigned '{action.name}' to '{obj.name}'")
         return {'FINISHED'}
 
 #######################################################

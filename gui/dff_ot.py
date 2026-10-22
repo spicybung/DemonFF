@@ -24,6 +24,7 @@ import time
 
 from ..ops.state import State
 from ..gtaLib import txd as txd_lib
+from ..gtaLib import rw4
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from ..ops import dff_exporter, dff_importer, col_importer, dff_samp_exporter, txd_importer
 
@@ -136,10 +137,12 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             ('0x31001', "GTA 3 (v3.1.0.1)", "Grand Theft Auto 3 PC/PS2 (v3.1.0.1)"),
             ('0x33002', "GTA 3 (v3.3.0.2)", "Grand Theft Auto 3 PC (v3.3.0.2)"),
             ('0x34003', "GTA VC/MH1 (v3.4.0.3)", "Grand Theft Auto VC/Manhunt PC (v3.4.0.3)"),  # For MH1, see: https://steamcommunity.com/sharedfiles/filedetails/?id=3324829436
-            ('0x34005', "GTA VC Anroid (v3.4.0.5)", "Grand Theft Auto VC Android (v3.4.0.5)"),
+            ('0x34005', "GTA VC Android (v3.4.0.5)", "Grand Theft Auto VC Android (v3.4.0.5)"),
             ('0x34003', "GTA VC/GTA SA (v3.4.0.3)", "Grand Theft Auto VC/SA (v3.4.0.3)"),
             ('0x36003', "GTA SA (v3.6.0.5)", "Grand Theft Auto SA PC (v3.6.0.5)"),
+            ('0x37001', "GTA LCS (3.7.0.1)", "Prototype GTA Stories RenderWare model format; not used by retail GTA LCS/VCS"),
             ('0x37002', "Bully (v3.7.0.2)", "Bully PS2 (v3.7.0.2)"),
+            ('0x40001', "Crackdown (4.0.0.1)", "Crackdown RenderWare 4.0.0.1 DFF export profile"),
             ('custom', "Custom", "Custom RW Version")
         ),
         name="Version Export"
@@ -687,6 +690,16 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
          options={'HIDDEN'}
      )
 
+    rw4_profile: bpy.props.EnumProperty(
+        items=(
+            (rw4.PROFILE_AUTO, "Auto Detect", "Automatically detect RenderWare 3 or RenderWare 4"),
+            (rw4.PROFILE_CRACKDOWN, "Crackdown (4.1.0.1)", "RenderWare 4.1.0.1 Realtime Worlds/Crackdown resources"),
+            (rw4.PROFILE_SPORE, "Spore (4.5.0.1)", "RenderWare 4.5.0.1 Spore resources"),
+        ),
+        name="RW4",
+        default=rw4.PROFILE_AUTO
+    )
+
     load_txd: bpy.props.BoolProperty(
         name="Load TXD file",
         default=True
@@ -808,6 +821,7 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
                     'group_materials': self.group_materials,
                     'import_normals': self.import_normals,
                     'materials_naming' : self.materials_naming,
+                    'rw4_profile': self.rw4_profile,
                 }, 
             )
 
@@ -818,7 +832,10 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
 
             version = importer.version
 
-            if version in ['0x33002', '0x34003', '0x36003', '0x37002']:
+            if version in ('4.1.0.1', '4.5.0.1'):
+                context.scene['custom_imported_version'] = "custom"
+                context.scene['custom_custom_version'] = version
+            elif version in ['0x31001', '0x33002', '0x34003', '0x34005', '0x36003', '0x37001', '0x37002', '0x40001']:
                 context.scene['custom_imported_version'] = version
             else:
                 context.scene['custom_imported_version'] = "custom"

@@ -9572,6 +9572,7 @@ class Mh2MdlReader:
             self.read_header()
             self.read_entry()
             self.read_bones()
+            self.read_animation_bone_bindings()
             self.build_armature()
             self.read_object_infos()
             self.prepare_meshes()
@@ -9709,6 +9710,52 @@ class Mh2MdlReader:
         if self.is_valid_bone_offset(self.root_bone_offset):
             self.read_bone_block(self.root_bone_offset)
 
+    def read_animation_bone_bindings(self):
+        """Resolve MH2 IFP Animation BoneIDs to named MDL bones.
+
+        The MDL animation-data index stores entries as:
+        int16 animationBoneId, int16 boneType, uint32 boneOffset.
+        This is the bridge required to retarget anonymous SEQT BoneIDs onto a
+        differently-numbered GTA RenderWare skeleton.
+        """
+        f = self.file
+        seen_indices = set()
+        for bone_info in self.bone_map.values():
+            idx_off = int(bone_info.get("anim_data_idx_offset", 0) or 0)
+            if not self.is_valid_offset(idx_off, 24) or idx_off in seen_indices:
+                continue
+            seen_indices.add(idx_off)
+            cur = f.tell()
+            try:
+                f.seek(idx_off)
+                raw = f.read(24)
+                if len(raw) != 24:
+                    continue
+                num_bones, unknown, root_bone_off, anim_data_off, bone_transform_off, zero = struct.unpack("<6i", raw)
+                if num_bones <= 0 or num_bones > 4096:
+                    continue
+                if not self.is_valid_offset(anim_data_off, num_bones * 8):
+                    continue
+                f.seek(anim_data_off)
+                for _ in range(num_bones):
+                    row = f.read(8)
+                    if len(row) != 8:
+                        break
+                    anim_bone_id, bone_type, bone_offset = struct.unpack("<hhI", row)
+                    info = self.bone_map.get(int(bone_offset))
+                    if info is None:
+                        continue
+                    info["anim_bone_id"] = int(anim_bone_id)
+                    info["anim_bone_type"] = int(bone_type)
+                    self.log(
+                        f"MH2 animation binding: BoneID {anim_bone_id} -> "
+                        f"'{info.get('name', '')}' (0x{bone_offset:08X}, type {bone_type})"
+                    )
+            except Exception as exc:
+                self.log(f"MH2 animation binding table 0x{idx_off:08X} skipped: {exc}")
+            finally:
+                f.seek(cur)
+
     def build_armature(self):
         import bpy
 
@@ -9764,6 +9811,13 @@ class Mh2MdlReader:
                 target["bleeds_mh2_pc_sibling_offset"] = int(bone_info.get("sibling_offset", 0))
                 target["bleeds_mh2_pc_child_offset"] = int(bone_info.get("subbone_offset", 0))
                 target["bleeds_mh2_pc_anim_data_idx_offset"] = int(bone_info.get("anim_data_idx_offset", 0))
+                if "anim_bone_id" in bone_info:
+                    anim_bone_id = int(bone_info["anim_bone_id"])
+                    target["bleeds_anim_bone_id"] = anim_bone_id
+                    target["bleeds_mh2_anim_bone_id"] = anim_bone_id
+                    target["bleeds_mdl_anim_bone_id"] = anim_bone_id
+                    target["BoneID"] = anim_bone_id
+                    target["bleeds_mh2_anim_bone_type"] = int(bone_info.get("anim_bone_type", 0))
 
         arm_obj["bleeds_model_game"] = "MH2"
         arm_obj["bleeds_mh2_platform"] = "PC"

@@ -23,6 +23,8 @@ import re
 import time
 import ast
 import operator
+import math
+import hashlib
 import mathutils
 
 from ..data import map_data
@@ -32,7 +34,7 @@ from .map_transform import (
     gta_euler_degrees_to_quaternion,
     quaternion_to_gta_euler_degrees,
 )
-from . import dff_importer
+from . import dff_importer, txd_exporter
 from .state import State
 
 
@@ -57,7 +59,9 @@ IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
 
 #######################################################
 def clean_map_name(name):
-    return name.split('.')[0]
+    # Blender duplicate suffixes are .001/.002; legitimate dots in GTA names
+    # must not be discarded.
+    return re.sub(r"\.\d{3,}$", "", str(name or ""))
 
 #######################################################
 def get_metadata_source(obj):
@@ -161,11 +165,17 @@ def get_object_model_name(obj):
 def get_object_txd_name(obj):
     props = get_map_props(obj)
     if props:
-        return str(first_good_txd_value(props.ide_txd_name, props.pawn_txd_name, default=None) or get_custom_prop(obj, "TXD_Name", "default_txd"))
+        value = first_good_txd_value(
+            props.ide_txd_name,
+            props.pawn_txd_name,
+            get_custom_prop(obj, "TXD_Name", None),
+            default=None,
+        )
+        return str(value or "")
     if hasattr(obj, "ide") and obj.ide.txd_name and not is_placeholder_txd_name(obj.ide.txd_name):
         return obj.ide.txd_name
-    custom_value = get_custom_prop(obj, "TXD_Name", "default_txd")
-    return str(custom_value if not is_placeholder_txd_name(custom_value) else "default_txd")
+    custom_value = get_custom_prop(obj, "TXD_Name", None)
+    return "" if is_placeholder_txd_name(custom_value) else str(custom_value)
 
 #######################################################
 def get_pawn_model_name(obj):
@@ -317,6 +327,18 @@ def object_is_primary_empty_child(obj):
     return obj == sorted_children[0]
 
 #######################################################
+def object_is_live_player_only(obj):
+    current = obj
+    while current is not None:
+        try:
+            if bool(current.get("demonff_live_player_only", False)):
+                return True
+        except Exception:
+            pass
+        current = getattr(current, "parent", None)
+    return False
+
+#######################################################
 def object_is_exportable_map_instance(obj):
     if obj.type != 'MESH':
         return False
@@ -346,7 +368,7 @@ def object_is_2dfx_pawn_helper(obj):
         if not name:
             continue
 
-        clean_name = str(name).lower().split('.')[0]
+        clean_name = clean_map_name(name).lower()
         if clean_name.startswith("2dfx_"):
             return True
 
@@ -377,18 +399,26 @@ def get_pawn_rotation(obj):
 
 
 #######################################################
+def strip_blender_numeric_suffix(value):
+    """Remove Blender's duplicate suffix without destroying legitimate dots."""
+    return re.sub(r"\.\d{3,}$", "", str(value or ""))
+
+#######################################################
 def normalize_map_lookup_name(value):
     clean_value = str(value or "").strip().replace('\\', '/')
     clean_value = os.path.basename(clean_value)
-    clean_value = os.path.splitext(clean_value)[0]
-    clean_value = clean_value.split('.')[0]
+    clean_value = strip_blender_numeric_suffix(clean_value)
+    for extension in (".dff", ".txd"):
+        if clean_value.lower().endswith(extension):
+            clean_value = clean_value[:-len(extension)]
+            break
     return clean_value.lower()
 
 #######################################################
 def normalize_export_asset_name(value, extension):
     clean_value = str(value or "").strip().replace('\\', '/')
     clean_value = os.path.basename(clean_value)
-    clean_value = clean_value.split('.')[0]
+    clean_value = strip_blender_numeric_suffix(clean_value)
 
     if extension and clean_value.lower().endswith(extension.lower()):
         clean_value = clean_value[:-len(extension)]
@@ -407,7 +437,8 @@ def make_artconfig_asset_path(directory, name, extension):
     clean_name = normalize_export_asset_name(name, extension)
 
     if not clean_name:
-        clean_name = "default_txd" if extension.lower() == ".txd" else "model"
+        asset_kind = "TXD" if extension.lower() == ".txd" else "model"
+        raise ValueError(f"Missing {asset_kind} asset name; refusing to generate a placeholder path.")
 
     filename = clean_name + extension
     return f"{clean_directory}/{filename}" if clean_directory else filename
@@ -533,7 +564,7 @@ def apply_ide_record_to_object(obj, record, samp_id=None):
         obj,
         record.get("object_id", 0),
         record.get("model_name", clean_map_name(obj.name)),
-        record.get("txd_name", "default_txd"),
+        record.get("txd_name", ""),
         samp_id,
     )
 
@@ -570,7 +601,7 @@ def resolve_export_txd_name(obj, ide_txd_lookup=None):
     if not is_placeholder_txd_name(custom_value):
         return normalize_export_asset_name(custom_value, ".txd")
 
-    return "default_txd"
+    return ""
 
 #######################################################
 def import_ide(filepaths, context):
@@ -720,6 +751,10 @@ def format_ide_objs_line(obj):
     object_id = get_object_ide_id(obj, 0)
     model_name = get_object_model_name(obj)
     txd_name = get_object_txd_name(obj)
+    if not txd_name or is_placeholder_txd_name(txd_name):
+        raise RuntimeError(
+            f"DemonFF IDE export: object '{obj.name}' / model '{model_name}' has no valid TXD mapping."
+        )
     flags = get_object_flags(obj, 0)
     distances = get_object_draw_distances(obj)
     if len(distances) == 1:
@@ -1171,7 +1206,7 @@ def link_object_to_collection(obj, collection):
 def set_pawn_import_props(obj, created, model_info, set_dff_type=True):
     model_id = created['model_id']
     model_name = model_info.get('model_name') if model_info else str(model_id)
-    txd_name = model_info.get('txd_name') if model_info else 'default_txd'
+    txd_name = model_info.get('txd_name') if model_info else ''
     dff_path = model_info.get('dff_path') if model_info else ''
     txd_path = model_info.get('txd_path') if model_info else ''
     base_id = model_info.get('base_id') if model_info else 19379
@@ -1751,6 +1786,7 @@ def prepare_pawn_placement_object(obj, name, created, model_info, template):
         not preserve_special_type,
     )
     obj['DemonFF_Pawn_Model_Source'] = template['dff_path']
+    obj['DemonFF_Pawn_TXD_Source'] = template.get('txd_path') or ''
     obj['DemonFF_Pawn_Model_Key'] = str(
         model_info.get('model_name') or created.get('model_id', '')
     ).lower()
@@ -2087,6 +2123,13 @@ class pwn_importer:
         if not txd_root:
             txd_root = dff_root
 
+        try:
+            bpy.context.scene.dff.pawn_dff_root = dff_root
+            bpy.context.scene.dff.pawn_txd_root = txd_root
+            bpy.context.scene["DemonFF_Last_PWN_File"] = os.path.abspath(filename)
+        except Exception:
+            pass
+
         pwn_importer.update_progress(
             progress_callback,
             started_at,
@@ -2411,11 +2454,602 @@ def import_pawn(options):
         ):
             scene_settings.real_time_update = previous_real_time_update
 
+
+#######################################################
+def sanitize_pawn_asset_basename(value, maximum_length=19, fallback="asset"):
+    clean_value = normalize_export_asset_name(value, "")
+    clean_value = re.sub(r"[^A-Za-z0-9_-]+", "_", clean_value).strip("_-")
+    clean_value = clean_value or fallback
+
+    if len(clean_value) <= maximum_length:
+        return clean_value
+
+    digest = hashlib.sha1(clean_value.encode("utf-8", errors="replace")).hexdigest()[:6]
+    prefix_length = max(1, maximum_length - len(digest) - 1)
+    return "%s_%s" % (clean_value[:prefix_length], digest)
+
+
+#######################################################
+def is_explicit_pawn_model_root(obj):
+    if obj is None or getattr(obj, "type", None) != "EMPTY":
+        return False
+
+    for property_name in (
+        "DFF_Name",
+        "Pawn_DFF_Path",
+        "Pawn_Model_ID",
+        "Pawn_Model_Name",
+        "IDE_Model_Name",
+        "model_name",
+    ):
+        try:
+            value = str(obj.get(property_name, "") or "").strip()
+        except Exception:
+            value = ""
+        if value:
+            return True
+
+    if hasattr(obj, "dff_map"):
+        for property_name in (
+            "model_name",
+            "ide_model_name",
+            "pawn_model_name",
+        ):
+            value = str(getattr(obj.dff_map, property_name, "") or "").strip()
+            if value:
+                return True
+
+    for collection in getattr(obj, "users_collection", []):
+        if re.search(r"\.dff(?:\.\d{3})?$", collection.name, re.IGNORECASE):
+            return True
+
+    return False
+
+
+#######################################################
+def get_pawn_model_texture_objects(obj):
+    if obj is None:
+        return []
+
+    source = get_metadata_source(obj)
+    if is_explicit_pawn_model_root(source):
+        result = []
+        pending = list(source.children)
+        visited = set()
+
+        while pending:
+            child = pending.pop()
+            try:
+                child_key = child.as_pointer()
+            except Exception:
+                child_key = id(child)
+
+            if child_key in visited:
+                continue
+            visited.add(child_key)
+            pending.extend(list(child.children))
+
+            if child.type != "MESH":
+                continue
+            if object_is_lod(child):
+                continue
+            if get_dff_type(child) in {"COL", "SHA", "2DFX"}:
+                continue
+            result.append(child)
+
+        if result:
+            return result
+
+    if obj.type != "MESH":
+        return []
+    if object_is_lod(obj):
+        return []
+    if get_dff_type(obj) in {"COL", "SHA", "2DFX"}:
+        return []
+    return [obj]
+
+
+#######################################################
+def same_blender_data_block(left, right):
+    if left is right:
+        return True
+
+    try:
+        return left.as_pointer() == right.as_pointer()
+    except Exception:
+        return id(left) == id(right)
+
+
+#######################################################
+def collect_pawn_texture_items(objects):
+    texture_map = {}
+    conflicts = []
+
+    for texture_name, image in txd_exporter.txd_exporter.get_used_textures(objects):
+        clean_name = txd_exporter.txd_exporter.normalize_texture_name(texture_name)
+        name_key = clean_name.lower()
+
+        try:
+            width = int(image.size[0])
+            height = int(image.size[1])
+            pixel_count = len(image.pixels)
+        except Exception:
+            width = 0
+            height = 0
+            pixel_count = 0
+
+        if width <= 0 or height <= 0 or pixel_count < width * height * 4:
+            conflicts.append("%s (image pixels unavailable)" % clean_name)
+            continue
+
+        existing = texture_map.get(name_key)
+
+        if existing is None:
+            texture_map[name_key] = (clean_name, image)
+            continue
+
+        existing_image = existing[1]
+        if not same_blender_data_block(existing_image, image):
+            conflicts.append(clean_name)
+
+    return texture_map, sorted(set(conflicts), key=str.lower)
+
+
+#######################################################
+def get_marked_neighborhood_name(obj):
+    for source in (obj, get_metadata_source(obj)):
+        if source is None:
+            continue
+
+        for property_name in ("DemonFF_Neighborhood", "Neighborhood", "Pawn_Neighborhood"):
+            try:
+                value = str(source.get(property_name, "") or "").strip()
+            except Exception:
+                value = ""
+            if value:
+                return value
+
+    visited = set()
+    pending = list(getattr(obj, "users_collection", []))
+
+    while pending:
+        collection = pending.pop()
+        try:
+            collection_key = collection.as_pointer()
+        except Exception:
+            collection_key = id(collection)
+
+        if collection_key in visited:
+            continue
+        visited.add(collection_key)
+
+        try:
+            marked = bool(collection.get("demonff_neighborhood", False))
+        except Exception:
+            marked = False
+
+        if marked:
+            return collection.name
+
+        for possible_parent in bpy.data.collections:
+            try:
+                if collection.name in possible_parent.children.keys():
+                    pending.append(possible_parent)
+            except Exception:
+                continue
+
+    return ""
+
+
+#######################################################
+def get_object_world_bounds_center(obj):
+    try:
+        corners = list(obj.bound_box)
+    except Exception:
+        corners = []
+
+    if corners:
+        minimum = None
+        maximum = None
+
+        for corner in corners:
+            world_corner = obj.matrix_world @ mathutils.Vector(corner)
+            if minimum is None:
+                minimum = world_corner.copy()
+                maximum = world_corner.copy()
+            else:
+                minimum.x = min(minimum.x, world_corner.x)
+                minimum.y = min(minimum.y, world_corner.y)
+                minimum.z = min(minimum.z, world_corner.z)
+                maximum.x = max(maximum.x, world_corner.x)
+                maximum.y = max(maximum.y, world_corner.y)
+                maximum.z = max(maximum.z, world_corner.z)
+
+        if minimum is not None:
+            return (minimum + maximum) * 0.5
+
+    position, rotation, scale = get_export_transform(obj)
+    return position
+
+
+#######################################################
+def build_spatial_neighborhood_assignments(objects, cell_size):
+    assignments = {}
+    positions = []
+
+    for obj in objects:
+        position = get_object_world_bounds_center(obj)
+        positions.append((obj, float(position.x), float(position.y)))
+
+    if not positions:
+        return assignments
+
+    safe_cell_size = max(float(cell_size), 1.0)
+    minimum_x = min(item[1] for item in positions)
+    minimum_y = min(item[2] for item in positions)
+
+    for obj, x_value, y_value in positions:
+        x_index = int(math.floor((x_value - minimum_x) / safe_cell_size))
+        y_index = int(math.floor((y_value - minimum_y) / safe_cell_size))
+        assignments[obj.as_pointer()] = "Neighborhood_%02d_%02d" % (x_index, y_index)
+
+    return assignments
+
+
+#######################################################
+def build_pawn_model_records(objects, neighborhood_cell_size):
+    spatial_assignments = build_spatial_neighborhood_assignments(
+        objects,
+        neighborhood_cell_size,
+    )
+    records = {}
+
+    for obj in objects:
+        model_name = normalize_export_asset_name(get_pawn_model_name(obj), ".dff")
+        model_key = model_name.lower()
+        original_txd_name = normalize_export_asset_name(get_pawn_txd_name(obj), ".txd")
+        neighborhood_name = get_marked_neighborhood_name(obj)
+
+        if not neighborhood_name:
+            neighborhood_name = spatial_assignments.get(
+                obj.as_pointer(),
+                "Neighborhood_00_00",
+            )
+
+        record = records.get(model_key)
+        if record is None:
+            record = {
+                "key": model_key,
+                "model_name": model_name,
+                "objects": [],
+                "texture_items": {},
+                "texture_conflicts": set(),
+                "neighborhood_counts": {},
+                "original_txd_name": original_txd_name,
+            }
+            records[model_key] = record
+
+        record["objects"].append(obj)
+        record["neighborhood_counts"][neighborhood_name] = (
+            record["neighborhood_counts"].get(neighborhood_name, 0) + 1
+        )
+
+        texture_objects = get_pawn_model_texture_objects(obj)
+        texture_items, texture_conflicts = collect_pawn_texture_items(texture_objects)
+        record["texture_conflicts"].update(texture_conflicts)
+
+        for texture_key, texture_item in texture_items.items():
+            existing = record["texture_items"].get(texture_key)
+            if existing is None:
+                record["texture_items"][texture_key] = texture_item
+                continue
+
+            if not same_blender_data_block(existing[1], texture_item[1]):
+                record["texture_conflicts"].add(texture_item[0])
+
+    for record in records.values():
+        record["neighborhood"] = sorted(
+            record["neighborhood_counts"].items(),
+            key=lambda item: (-item[1], item[0].lower(), item[0]),
+        )[0][0]
+
+    return records
+
+
+#######################################################
+def can_merge_texture_maps(left_items, right_items, maximum_textures):
+    combined_count = len(left_items)
+    shared_count = 0
+
+    for texture_key, texture_item in right_items.items():
+        existing = left_items.get(texture_key)
+        if existing is None:
+            combined_count += 1
+            continue
+
+        if not same_blender_data_block(existing[1], texture_item[1]):
+            return False, combined_count, shared_count
+
+        shared_count += 1
+
+    return combined_count <= maximum_textures, combined_count, shared_count
+
+
+#######################################################
+def build_neighborhood_txd_bins(records, maximum_textures):
+    bins = []
+    records_by_neighborhood = {}
+
+    for record in records.values():
+        records_by_neighborhood.setdefault(record["neighborhood"], []).append(record)
+
+    for neighborhood_name in sorted(records_by_neighborhood, key=str.lower):
+        neighborhood_bins = []
+        neighborhood_records = sorted(
+            records_by_neighborhood[neighborhood_name],
+            key=lambda item: (-len(item["texture_items"]), item["model_name"].lower()),
+        )
+
+        for record in neighborhood_records:
+            if record["texture_conflicts"]:
+                continue
+            if len(record["texture_items"]) > maximum_textures:
+                continue
+
+            best_bin = None
+            best_score = None
+
+            for candidate in neighborhood_bins:
+                can_merge, combined_count, shared_count = can_merge_texture_maps(
+                    candidate["texture_items"],
+                    record["texture_items"],
+                    maximum_textures,
+                )
+                if not can_merge:
+                    continue
+
+                added_count = combined_count - len(candidate["texture_items"])
+                score = (shared_count, -added_count, -combined_count)
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_bin = candidate
+
+            if best_bin is None:
+                best_bin = {
+                    "neighborhood": neighborhood_name,
+                    "models": [],
+                    "texture_items": {},
+                }
+                neighborhood_bins.append(best_bin)
+
+            best_bin["models"].append(record)
+            best_bin["texture_items"].update(record["texture_items"])
+
+        bins.extend(neighborhood_bins)
+
+    return bins
+
+
+#######################################################
+def resolve_generated_txd_output_directory(output_file, explicit_directory, model_directory, texture_directory):
+    if explicit_directory:
+        try:
+            resolved = bpy.path.abspath(explicit_directory)
+        except Exception:
+            resolved = explicit_directory
+        return os.path.abspath(resolved)
+
+    output_root = os.path.dirname(os.path.abspath(output_file))
+    asset_subdirectory = normalize_export_directory(texture_directory)
+    if not asset_subdirectory:
+        asset_subdirectory = normalize_export_directory(model_directory)
+
+    if not asset_subdirectory:
+        return output_root
+
+    path_parts = [part for part in asset_subdirectory.split('/') if part not in {"", ".", ".."}]
+    return os.path.join(output_root, *path_parts)
+
+
+#######################################################
+def export_generated_pawn_txds(
+    records,
+    mode,
+    output_directory,
+    maximum_textures,
+):
+    maximum_textures = min(999, max(1, int(maximum_textures)))
+    model_txd_overrides = {}
+    packs = []
+    warnings = []
+
+    if mode == "PER_MODEL":
+        used_names = set()
+
+        for record in sorted(records.values(), key=lambda item: item["model_name"].lower()):
+            if record["texture_conflicts"]:
+                warnings.append(
+                    "%s kept its existing TXD because its texture data could not be packed safely: %s" % (
+                        record["model_name"],
+                        ", ".join(sorted(record["texture_conflicts"], key=str.lower)),
+                    )
+                )
+                continue
+
+            if len(record["texture_items"]) > maximum_textures:
+                warnings.append(
+                    "%s kept its existing TXD because it uses %d textures, above the %d-texture limit." % (
+                        record["model_name"],
+                        len(record["texture_items"]),
+                        maximum_textures,
+                    )
+                )
+                continue
+
+            base_name = sanitize_pawn_asset_basename(record["model_name"], 19, "model")
+            candidate_name = base_name
+            suffix = 2
+            while candidate_name.lower() in used_names:
+                candidate_name = sanitize_pawn_asset_basename(
+                    "%s_%d" % (base_name, suffix),
+                    19,
+                    "model",
+                )
+                suffix += 1
+            used_names.add(candidate_name.lower())
+
+            packs.append({
+                "name": candidate_name,
+                "neighborhood": record["neighborhood"],
+                "models": [record],
+                "texture_items": dict(record["texture_items"]),
+            })
+    elif mode == "NEIGHBORHOOD":
+        neighborhood_bins = build_neighborhood_txd_bins(records, maximum_textures)
+        neighborhood_totals = {}
+        for item in neighborhood_bins:
+            neighborhood_totals[item["neighborhood"]] = neighborhood_totals.get(item["neighborhood"], 0) + 1
+
+        neighborhood_indexes = {}
+        used_names = set()
+        for item in neighborhood_bins:
+            neighborhood_name = item["neighborhood"]
+            neighborhood_indexes[neighborhood_name] = neighborhood_indexes.get(neighborhood_name, 0) + 1
+            index = neighborhood_indexes[neighborhood_name]
+            total = neighborhood_totals[neighborhood_name]
+            readable_name = neighborhood_name if total == 1 else "%s_%02d" % (neighborhood_name, index)
+            base_name = sanitize_pawn_asset_basename(readable_name, 19, "neighborhood")
+            candidate_name = base_name
+            suffix = 2
+            while candidate_name.lower() in used_names:
+                candidate_name = sanitize_pawn_asset_basename(
+                    "%s_%d" % (base_name, suffix),
+                    19,
+                    "neighborhood",
+                )
+                suffix += 1
+            used_names.add(candidate_name.lower())
+
+            packs.append({
+                "name": candidate_name,
+                "neighborhood": neighborhood_name,
+                "models": list(item["models"]),
+                "texture_items": dict(item["texture_items"]),
+            })
+
+        for record in records.values():
+            if record["texture_conflicts"]:
+                warnings.append(
+                    "%s kept its existing TXD because its texture data could not be packed safely: %s" % (
+                        record["model_name"],
+                        ", ".join(sorted(record["texture_conflicts"], key=str.lower)),
+                    )
+                )
+            elif len(record["texture_items"]) > maximum_textures:
+                warnings.append(
+                    "%s kept its existing TXD because it uses %d textures, above the %d-texture limit." % (
+                        record["model_name"],
+                        len(record["texture_items"]),
+                        maximum_textures,
+                    )
+                )
+
+    if not packs:
+        return model_txd_overrides, [], warnings
+
+    os.makedirs(output_directory, exist_ok=True)
+    exported_packs = []
+
+    for pack in packs:
+        output_path = os.path.join(output_directory, pack["name"] + ".txd")
+        texture_items = list(pack["texture_items"].values())
+
+        try:
+            texture_count = txd_exporter.txd_exporter.export_texture_items(
+                texture_items,
+                output_path,
+                version=0x36003,
+            )
+        except Exception as error:
+            warnings.append(
+                "Could not write %s: %s. Its models kept their existing TXD names." % (
+                    output_path,
+                    error,
+                )
+            )
+            continue
+
+        exported_pack = dict(pack)
+        exported_pack["path"] = output_path
+        exported_pack["texture_count"] = texture_count
+        exported_packs.append(exported_pack)
+
+        for record in pack["models"]:
+            model_txd_overrides[record["key"]] = pack["name"]
+
+    return model_txd_overrides, exported_packs, warnings
+
+
+#######################################################
+def write_pawn_asset_manifest(output_file, mode, records, packs, warnings):
+    manifest_path = os.path.splitext(output_file)[0] + "_assets.txt"
+
+    with open(manifest_path, "w", encoding="utf-8", newline="\n") as manifest:
+        manifest.write("DemonFF Pawn asset manifest\n")
+        manifest.write("TXD mode: %s\n" % mode)
+        manifest.write("Models: %d\n" % len(records))
+        manifest.write("Generated TXDs: %d\n\n" % len(packs))
+
+        if packs:
+            manifest.write("[Generated TXD packs]\n")
+            for pack in packs:
+                model_names = ", ".join(
+                    record["model_name"]
+                    for record in sorted(pack["models"], key=lambda item: item["model_name"].lower())
+                )
+                manifest.write(
+                    "%s | neighborhood=%s | textures=%d | models=%s\n" % (
+                        pack["path"],
+                        pack["neighborhood"],
+                        pack["texture_count"],
+                        model_names,
+                    )
+                )
+            manifest.write("\n")
+
+        manifest.write("[Model assignments]\n")
+        assignment_lookup = {}
+        for pack in packs:
+            for record in pack["models"]:
+                assignment_lookup[record["key"]] = pack["name"]
+
+        for record in sorted(records.values(), key=lambda item: item["model_name"].lower()):
+            txd_name = assignment_lookup.get(record["key"], record["original_txd_name"])
+            manifest.write(
+                "%s | neighborhood=%s | txd=%s | textures=%d\n" % (
+                    record["model_name"],
+                    record["neighborhood"],
+                    txd_name,
+                    len(record["texture_items"]),
+                )
+            )
+
+        if warnings:
+            manifest.write("\n[Warnings]\n")
+            for warning in warnings:
+                manifest.write(warning + "\n")
+
+    return manifest_path
+
 #######################################################
 class pwn_exporter:
     only_selected = False
     model_directory = ""
     texture_directory = ""
+    txd_mode = "REFERENCE"
+    txd_output_directory = ""
+    maximum_textures_per_txd = 256
+    neighborhood_cell_size = 600.0
     skip_lod = True
     stream_distance = 300.0
     draw_distance = 300.0
@@ -2425,6 +3059,7 @@ class pwn_exporter:
     z_offset = 0.0
     force_all_worlds_interiors = True
     total_objects_num = 0
+    last_export_summary = {}
 
     @staticmethod
     def collect_objects(context):
@@ -2432,9 +3067,11 @@ class pwn_exporter:
         for obj in context.scene.objects:
             if not object_is_exportable_map_instance(obj):
                 continue
+            if object_is_live_player_only(obj):
+                continue
             if pwn_exporter.only_selected and not obj.select_get():
                 continue
-            if object_is_lod(obj):
+            if pwn_exporter.skip_lod and object_is_lod(obj):
                 continue
             if object_is_synthetic_chunk(obj):
                 continue
@@ -2471,9 +3108,13 @@ class pwn_exporter:
         self = pwn_exporter
         objects = self.collect_objects(bpy.context)
         self.total_objects_num = 0
+        self.last_export_summary = {}
 
         output_file = filename if filename.lower().endswith('.pwn') else filename + '.pwn'
-        artconfig_path = os.path.join(os.path.dirname(output_file), 'artconfig.txt')
+        output_directory = os.path.dirname(os.path.abspath(output_file))
+        os.makedirs(output_directory, exist_ok=True)
+
+        artconfig_path = os.path.join(output_directory, 'artconfig.txt')
         model_directory = self.model_directory.strip().replace('\\', '/')
         texture_directory = self.texture_directory.strip().replace('\\', '/')
         base_model_id = 19379
@@ -2483,8 +3124,43 @@ class pwn_exporter:
         addsimplemodel_written = 0
         addsimplemodel_skipped = 0
         addsimplemodel_conflicts = 0
+        generated_txd_count = 0
+        generated_texture_count = 0
+        asset_manifest_path = ""
+        asset_warnings = []
+        txd_overrides = {}
 
         ide_txd_lookup = collect_ide_txd_lookup(bpy.context, output_file)
+
+        if self.txd_mode in {"PER_MODEL", "NEIGHBORHOOD"} and objects:
+            model_records = build_pawn_model_records(
+                objects,
+                self.neighborhood_cell_size,
+            )
+            generated_txd_directory = resolve_generated_txd_output_directory(
+                output_file,
+                self.txd_output_directory,
+                model_directory,
+                texture_directory,
+            )
+            txd_overrides, generated_packs, asset_warnings = export_generated_pawn_txds(
+                model_records,
+                self.txd_mode,
+                generated_txd_directory,
+                self.maximum_textures_per_txd,
+            )
+            generated_txd_count = len(generated_packs)
+            generated_texture_count = sum(
+                int(pack.get("texture_count", 0))
+                for pack in generated_packs
+            )
+            asset_manifest_path = write_pawn_asset_manifest(
+                output_file,
+                self.txd_mode,
+                model_records,
+                generated_packs,
+                asset_warnings,
+            )
 
         with open(output_file, 'w', encoding='latin-1', newline='\n') as pawn_file, open(artconfig_path, 'w', encoding='latin-1', newline='\n') as artconfig_file:
             pawn_file.write("// Generated by DemonFF\n")
@@ -2492,7 +3168,26 @@ class pwn_exporter:
 
             for obj in objects:
                 model_name = normalize_export_asset_name(get_pawn_model_name(obj), ".dff")
-                txd_name = normalize_export_asset_name(resolve_export_txd_name(obj, ide_txd_lookup), ".txd")
+                if not model_name:
+                    raise RuntimeError(
+                        f"DemonFF Pawn export: object '{obj.name}' has no DFF/model name."
+                    )
+
+                model_key_name = model_name.lower()
+                txd_name = txd_overrides.get(model_key_name)
+                if not txd_name:
+                    txd_name = normalize_export_asset_name(
+                        resolve_export_txd_name(obj, ide_txd_lookup),
+                        ".txd",
+                    )
+
+                if not txd_name or is_placeholder_txd_name(txd_name):
+                    raise RuntimeError(
+                        "DemonFF Pawn export: object '%s' / model '%s' has no valid TXD mapping. "
+                        "Set its Pawn/IDE TXD name or provide an IDE mapping; export was stopped "
+                        "instead of writing default_txd.txd." % (obj.name, model_name)
+                    )
+
                 model_id, current_id = self.get_or_create_model_id(
                     model_name,
                     txd_name,
@@ -2555,26 +3250,54 @@ class pwn_exporter:
                         )
                     )
 
-
                 self.total_objects_num += 1
 
             pawn_file.write("    return 1;\n}\n")
 
+        self.last_export_summary = {
+            "output_file": output_file,
+            "artconfig_file": artconfig_path,
+            "asset_manifest_file": asset_manifest_path,
+            "txd_mode": self.txd_mode,
+            "generated_txd_count": generated_txd_count,
+            "generated_texture_count": generated_texture_count,
+            "asset_warning_count": len(asset_warnings),
+            "addsimplemodel_written": addsimplemodel_written,
+            "addsimplemodel_duplicates_skipped": addsimplemodel_skipped,
+            "addsimplemodel_conflicts": addsimplemodel_conflicts,
+        }
+
+        for warning in asset_warnings:
+            print("DemonFF Pawn asset warning: %s" % warning)
+
         print(
-            "DemonFF Pawn export verify: objects=%d, AddSimpleModel_written=%d, AddSimpleModel_duplicates_skipped=%d, AddSimpleModel_conflicts=%d." % (
+            "DemonFF Pawn export verify: objects=%d, AddSimpleModel_written=%d, AddSimpleModel_duplicates_skipped=%d, AddSimpleModel_conflicts=%d, generated_TXDs=%d, generated_textures=%d." % (
                 self.total_objects_num,
                 addsimplemodel_written,
                 addsimplemodel_skipped,
                 addsimplemodel_conflicts,
+                generated_txd_count,
+                generated_texture_count,
             )
         )
+
 
 #######################################################
 def export_pawn(options):
     pwn_exporter.only_selected = options.get('only_selected', False)
     pwn_exporter.model_directory = options.get('model_directory', '')
     pwn_exporter.texture_directory = options.get('texture_directory', '')
-    pwn_exporter.skip_lod = True
+    pwn_exporter.txd_mode = options.get('txd_mode', 'REFERENCE')
+    pwn_exporter.txd_output_directory = options.get('txd_output_directory', '')
+    pwn_exporter.maximum_textures_per_txd = min(
+        999,
+        max(1, int(options.get('maximum_textures_per_txd', 256))),
+    )
+    pwn_exporter.neighborhood_cell_size = max(
+        1.0,
+        float(options.get('neighborhood_cell_size', 600.0)),
+    )
+    pwn_exporter.skip_lod = options.get('skip_lod', True)
     pwn_exporter.stream_distance = options.get('stream_distance', 300.0)
     pwn_exporter.draw_distance = options.get('draw_distance', 300.0)
     pwn_exporter.model_id_start = min(-1000, max(-30000, int(options.get('model_id_start', -1000))))

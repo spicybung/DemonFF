@@ -69,6 +69,82 @@ def hide_object(object, hide=True):
         object.hide_set(hide)
 
 
+def set_material_render_method(material, legacy_method):
+    if material is None:
+        return
+
+    legacy_method = str(legacy_method or "OPAQUE").upper()
+
+    if hasattr(material, "surface_render_method"):
+        render_method = "BLENDED" if legacy_method == "BLEND" else "DITHERED"
+        try:
+            material.surface_render_method = render_method
+            return
+        except Exception:
+            pass
+
+    if hasattr(material, "blend_method"):
+        try:
+            material.blend_method = legacy_method
+        except Exception:
+            pass
+
+
+def set_material_transparency_overlap(material, enabled=True):
+    if material is None:
+        return
+    if hasattr(material, "use_transparency_overlap"):
+        try:
+            material.use_transparency_overlap = bool(enabled)
+            return
+        except Exception:
+            pass
+    if hasattr(material, "show_transparent_back"):
+        try:
+            material.show_transparent_back = bool(enabled)
+        except Exception:
+            pass
+
+def set_material_raytrace_refraction(material, enabled=False):
+    if material is None:
+        return
+    if hasattr(material, "use_raytrace_refraction"):
+        try:
+            material.use_raytrace_refraction = bool(enabled)
+            return
+        except Exception:
+            pass
+    if hasattr(material, "use_screen_refraction"):
+        try:
+            material.use_screen_refraction = bool(enabled)
+        except Exception:
+            pass
+
+def get_principled_input(node, *names):
+    if node is None:
+        return None
+    inputs = getattr(node, "inputs", None)
+    if inputs is None:
+        return None
+    for name in names:
+        try:
+            socket = inputs.get(name)
+        except Exception:
+            socket = None
+        if socket is not None:
+            return socket
+    return None
+
+def set_principled_specular(node, value):
+    socket = get_principled_input(node, "Specular IOR Level", "Specular")
+    if socket is None:
+        return
+    try:
+        socket.default_value = max(0.0, min(1.0, float(value)))
+    except Exception:
+        pass
+
+
 #######################################################
 class material_helper:
 
@@ -89,7 +165,7 @@ class material_helper:
             self.material.alpha = color[3] / 255
 
     #######################################################
-    def set_texture(self, image, label="", filters=0, uv_addressing=0):
+    def set_texture(self, image, label="", filters=0, uv_addressing=0, mask=""):
 
         if self.principled:
             self.principled.base_color_texture.node_image.label = label
@@ -112,9 +188,10 @@ class material_helper:
             )
             slot.texture.image = image
 
-        self.material.dff.tex_filters = str(filters)
-        self.material.dff.tex_u_addr  = str((uv_addressing >> 4) & 0xF)
-        self.material.dff.tex_v_addr  = str(uv_addressing & 0xF)
+        self.material.dff.tex_filters = int(filters) & 0xFF
+        self.material.dff.tex_u_addr  = (int(uv_addressing) >> 4) & 0xF
+        self.material.dff.tex_v_addr  = int(uv_addressing) & 0xF
+        self.material.dff.tex_mask    = str(mask or "")
 
     #######################################################
     def set_surface_properties(self, props):
@@ -162,6 +239,13 @@ class material_helper:
         self.material.dff.export_env_map       = True
         self.material.dff.env_map_coef         = plugin.coefficient
         self.material.dff.env_map_fb_alpha     = plugin.use_fb_alpha        
+
+    #######################################################
+    def set_dual_map(self, plugin):
+        self.material.dff.export_dual = True
+        self.material.dff.dual_src_blend = int(plugin.src_blend)
+        self.material.dff.dual_dst_blend = int(plugin.dst_blend)
+        self.material.dff.dual_texture = plugin.texture.name if plugin.texture else ""
 
     #######################################################
     def set_specular_material(self, plugin):

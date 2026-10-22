@@ -47,7 +47,37 @@ def clear_extension(string):
     
     k = string.rfind('.')
     return string if k < 0 else string[:k]
-    
+
+#######################################################
+def normalize_texture_name(string):
+    clean_name = "".join(
+        character
+        for character in str(string or "")
+        if character.isalnum() or character in "_-."
+    )
+    return clean_name[:31] or "texture"
+
+#######################################################
+def strip_blender_numeric_suffix(name):
+    """Remove only Blender's duplicate datablock suffix (.001/.002/...)."""
+    return re.sub(r"\.\d{3,}$", "", str(name or ""))
+
+#######################################################
+def texture_name_from_node(node_label, image_name):
+    """Return a stable RenderWare texture name.
+
+    Imported DFF texture names live in the Image Texture node label. For new
+    materials, strip Blender's duplicate suffix first, then a real file
+    extension. This avoids exporting ``foo.dds.001`` as ``foo.dds``.
+    """
+    label = str(node_label or "").strip()
+    if label:
+        return normalize_texture_name(label)
+
+    image_base = strip_blender_numeric_suffix(image_name)
+    image_base = os.path.splitext(image_base)[0]
+    return normalize_texture_name(image_base)
+
 #######################################################
 class material_helper:
 
@@ -70,7 +100,10 @@ class material_helper:
     def get_texture(self):
 
         texture = dff.Texture()
-        texture.filters = 0 # <-- find a way to store this in Blender
+        props = self.material.dff
+        texture.filters = int(getattr(props, "tex_filters", 0)) & 0xFF
+        texture.uv_addressing = ((int(getattr(props, "tex_u_addr", 0)) & 0xF) << 4) | (int(getattr(props, "tex_v_addr", 0)) & 0xF)
+        texture.mask = str(getattr(props, "tex_mask", "") or "")
         
         # 2.8         
         if self.principled:
@@ -79,21 +112,17 @@ class material_helper:
                 node_label = self.principled.base_color_texture.node_image.label
                 image_name = self.principled.base_color_texture.image.name
 
-                # Use node label if it is a substring of image name, else
-                # use image name
-                
-                texture.name = clear_extension(
-                    node_label
-                    if node_label in image_name and node_label != ""
-                    else image_name
-                )
+                # Preserve the original RenderWare texture name recorded by
+                # the importer. Blender image datablock suffixes must not silently
+                # rewrite the DFF texture dictionary lookup key.
+                texture.name = texture_name_from_node(node_label, image_name)
                 return texture
             return None
 
         # Blender Internal
         try:
-            texture.name = clear_extension(
-                self.material.texture_slots[0].texture.image.name
+            texture.name = texture_name_from_node(
+                "", self.material.texture_slots[0].texture.image.name
             )
             return texture
 
@@ -135,14 +164,10 @@ class material_helper:
                 node_label = self.principled.node_normalmap.label
                 image_name = self.principled.normalmap_texture.image.name
 
-                bump_texture.name = clear_extension(
-                    node_label
-                    if node_label in image_name and node_label != ""
-                    else image_name
-                )
+                bump_texture.name = texture_name_from_node(node_label, image_name)
                 intensity = self.principled.normalmap_strength
 
-        height_texture.name = self.material.dff.bump_map_tex
+        height_texture.name = normalize_texture_name(self.material.dff.bump_map_tex) if self.material.dff.bump_map_tex else ""
         if height_texture.name == "":
             height_texture = None
 
@@ -157,15 +182,35 @@ class material_helper:
         if not self.material.dff.export_env_map:
             return None
 
-        texture_name = self.material.dff.env_map_tex
-        coef         = self.material.dff.env_map_coef
-        use_fb_alpha  = self.material.dff.env_map_fb_alpha
+        raw_texture_name = str(self.material.dff.env_map_tex or "").strip()
+        coef = self.material.dff.env_map_coef
+        use_fb_alpha = self.material.dff.env_map_fb_alpha
 
-        texture = dff.Texture()
-        texture.name = texture_name
-        texture.filters = 0
-        
+        texture = None
+        if raw_texture_name:
+            texture = dff.Texture()
+            texture.name = normalize_texture_name(raw_texture_name)
+            texture.filters = 0
+
         return dff.EnvMapFX(coef, use_fb_alpha, texture)
+
+    #######################################################
+    def get_dual_map(self):
+        props = self.material.dff
+        if not getattr(props, "export_dual", False):
+            return None
+
+        texture = None
+        raw_name = str(getattr(props, "dual_texture", "") or "").strip()
+        if raw_name:
+            texture = dff.Texture()
+            texture.name = normalize_texture_name(raw_name)
+
+        return dff.DualFX(
+            int(getattr(props, "dual_src_blend", 0)),
+            int(getattr(props, "dual_dst_blend", 0)),
+            texture,
+        )
 
     #######################################################
     def get_specular_material(self):
@@ -333,11 +378,14 @@ class dff_exporter:
 
         return obj.parent
     
+    @staticmethod
     def truncate_frame_name(name):
+        name = str(name)
         name_bytes = name.encode('utf-8')
-        if len(name_bytes) > 24:
-            return name_bytes[:22].decode('utf-8', 'ignore') 
-        return name
+        if len(name_bytes) <= 24:
+            return name
+
+        return name_bytes[:24].decode('utf-8', 'ignore')
 
     @staticmethod
     def create_frame(obj, append=True, set_parent=True, matrix_local=None):
@@ -348,9 +396,9 @@ class dff_exporter:
         
         # Get rid of everything before the last period
         if self.export_frame_names:
-            frame.name = clear_extension(obj.name)
+            frame.name = strip_blender_numeric_suffix(obj.name)
             if self.truncate_frame_names:
-                frame.name = truncate_frame_name(frame.name)  # Apply truncation
+                frame.name = self.truncate_frame_name(frame.name)  # Apply truncation
 
         # Is obj a bone?
         is_bone = type(obj) is bpy.types.Bone
@@ -402,6 +450,14 @@ class dff_exporter:
 
     #######################################################
     @staticmethod
+    def make_default_material():
+        material = dff.Material()
+        material.color = dff.RGBA._make((255, 255, 255, 255))
+        material.surface_properties = dff.GeomSurfPro._make((1.0, 1.0, 1.0))
+        return material
+
+    #######################################################
+    @staticmethod
     def generate_material_list(obj):
         materials = []
         self = dff_exporter
@@ -409,6 +465,9 @@ class dff_exporter:
         for b_material in obj.data.materials:
 
             if b_material is None:
+                # Polygon material_index refers to slot positions. Skipping an
+                # empty Blender slot shifts every later material index.
+                materials.append(self.make_default_material())
                 continue
             
             material = dff.Material()
@@ -424,6 +483,7 @@ class dff_exporter:
             # Materials
             material.add_plugin('bump_map', helper.get_normal_map())
             material.add_plugin('env_map', helper.get_environment_map())
+            material.add_plugin('dual', helper.get_dual_map())
             material.add_plugin('spec', helper.get_specular_material())
             material.add_plugin('refl', helper.get_reflection_material())
             material.add_plugin('udata', helper.get_user_data())
@@ -434,7 +494,10 @@ class dff_exporter:
                 self.dff.uvanim_dict.append(anim)
                 
             materials.append(material)
-                
+
+        if not materials:
+            materials.append(self.make_default_material())
+
         return materials
 
     #######################################################
@@ -571,10 +634,10 @@ class dff_exporter:
             #######################################################
             if has_prelit_colors:
                 geometry.prelit_colors.append(dff.RGBA._make(
-                    int(col * 255) for col in vertex['vert_cols'][0]))
+                    max(0, min(255, int(round(col * 255)))) for col in vertex['vert_cols'][0]))
             if has_night_colors:
                 extra_vert.colors.append(dff.RGBA._make(
-                    int(col * 255) for col in vertex['vert_cols'][1]))
+                    max(0, min(255, int(round(col * 255)))) for col in vertex['vert_cols'][1]))
 
             # uv layers
             #######################################################
@@ -690,11 +753,6 @@ class dff_exporter:
         skin_plg, bone_groups = self.get_skin_plg_and_bone_groups(obj, mesh)
         dm_entries = self.get_delta_morph_entries(obj, mesh)
 
-        # Clamp vertices if they exceed the limit
-        if len(mesh.vertices) > 0xFFFF:
-            print(f"Clamping vertices in mesh ({obj.name}). Too many vertices: {len(mesh.vertices)}/65535")
-            mesh = self.clamp_mesh_vertices(mesh)
-
         for polygon in mesh.polygons:
             face = {"verts": [], "mat_idx": polygon.material_index}
 
@@ -712,12 +770,19 @@ class dff_exporter:
                 for vert_col in vcols:
                     vert_cols.append(vert_col[loop_index])
 
-                for group in vertex.groups:
-                    if len(bones) >= 4:
-                        break
-
-                    if group.group in bone_groups and group.weight > 0:
-                        bones.append((bone_groups[group.group], group.weight))
+                weighted_bones = [
+                    (bone_groups[group.group], float(group.weight))
+                    for group in vertex.groups
+                    if group.group in bone_groups and group.weight > 0
+                ]
+                weighted_bones.sort(key=lambda item: item[1], reverse=True)
+                weighted_bones = weighted_bones[:4]
+                total_weight = sum(weight for _, weight in weighted_bones)
+                if total_weight > 0:
+                    bones = [
+                        (bone_index, weight / total_weight)
+                        for bone_index, weight in weighted_bones
+                    ]
 
                 if mesh.shape_keys:
                     for kb in mesh.shape_keys.key_blocks:
@@ -728,11 +793,11 @@ class dff_exporter:
 
                 loop_n = convert_export_normal(loop.normal, normal_space)
                 vert_n = convert_export_normal(vertex.normal, normal_space)
-                key = (loop.vertex_index,
-                    tuple(loop_n),
-                    tuple(tuple(uv) for uv in uvs))
-
                 normal = loop_n if obj.dff.export_split_normals else vert_n
+                key = (loop.vertex_index,
+                    tuple(normal),
+                    tuple(tuple(uv) for uv in uvs),
+                    tuple(tuple(color) for color in vert_cols))
 
                 if key not in verts_indices:
                     face['verts'].append(len(vertices_list))
@@ -832,6 +897,27 @@ class dff_exporter:
         return mesh
     
     #######################################################
+    @staticmethod
+    def calculate_geometry_bounding_sphere(vertices):
+        if not vertices:
+            return dff.Sphere._make((0.0, 0.0, 0.0, 0.0))
+
+        points = [mathutils.Vector(vertex) for vertex in vertices]
+        min_corner = mathutils.Vector((
+            min(point.x for point in points),
+            min(point.y for point in points),
+            min(point.z for point in points),
+        ))
+        max_corner = mathutils.Vector((
+            max(point.x for point in points),
+            max(point.y for point in points),
+            max(point.z for point in points),
+        ))
+        center = (min_corner + max_corner) * 0.5
+        radius = max((point - center).length for point in points)
+        return dff.Sphere._make((center.x, center.y, center.z, radius))
+
+    #######################################################
     def populate_atomic(obj, frame_index=None):
         self = dff_exporter
 
@@ -858,17 +944,10 @@ class dff_exporter:
         geometry = dff.Geometry()
         self.populate_geometry_with_mesh_data (obj, geometry)
 
-        # Bounding sphere
-        sphere_center = 0.125 * sum(
-            (mathutils.Vector(b) for b in obj.bound_box),
-            mathutils.Vector()
-        )
-        sphere_center = self.multiply_matrix(obj.matrix_world, sphere_center)
-        sphere_radius = 1.732 * max(*obj.dimensions) / 2
-
-        geometry.bounding_sphere = dff.Sphere._make(
-            list(sphere_center) + [sphere_radius]
-        )
+        # RenderWare geometry bounds are local to the geometry. The frame
+        # already carries object/world placement, so applying matrix_world here
+        # translates the culling sphere twice.
+        geometry.bounding_sphere = self.calculate_geometry_bounding_sphere(geometry.vertices)
 
         geometry.surface_properties = (0,0,0)
         geometry.materials = self.generate_material_list(obj)
@@ -947,54 +1026,96 @@ class dff_exporter:
 
     #######################################################
     @staticmethod
-    def export_armature(obj, parent):
+    def export_armature(obj, parent=None):
         self = dff_exporter
-        
-        for index, bone in enumerate(obj.data.bones):
+        bones = list(obj.data.bones)
 
-            self.validate_bone_for_export (obj, bone)
+        if not bones:
+            raise DffExportException(
+                f"Armature ({obj.name}) contains no bones to export."
+            )
 
-            # Create a special bone (contains information for all subsequent bones)
-            if index == 0:
-                frame = self.create_frame(bone, False)
+        for bone in bones:
+            self.validate_bone_for_export(obj, bone)
 
-                # set the first bone's parent to armature's parent
-                frame.parent = self.frames[parent.name]
+        root_bones = [bone for bone in bones if bone.parent is None]
+        if len(root_bones) != 1:
+            raise DffExportException(
+                f"Armature ({obj.name}) must contain exactly one root bone; "
+                f"found {len(root_bones)}."
+            )
 
+        root_bone = root_bones[0]
+        ordered_bones = []
+        pending_bones = list(bones)
+
+        while pending_bones:
+            exported_in_pass = False
+
+            for bone in list(pending_bones):
+                if bone.parent is not None and bone.parent not in ordered_bones:
+                    continue
+
+                ordered_bones.append(bone)
+                pending_bones.remove(bone)
+                exported_in_pass = True
+
+            if not exported_in_pass:
+                unresolved_names = ", ".join(bone.name for bone in pending_bones)
+                raise DffExportException(
+                    f"Armature ({obj.name}) has an invalid or cyclic bone hierarchy: "
+                    f"{unresolved_names}."
+                )
+
+        root_frame_index = None
+
+        for bone in ordered_bones:
+            if bone == root_bone:
+                frame = self.create_frame(
+                    bone,
+                    append=False,
+                    set_parent=False,
+                )
+                root_frame_index = len(self.dff.frame_list)
                 bone_data = dff.HAnimPLG()
                 bone_data.header = dff.HAnimHeader(
                     0x100,
                     bone["bone_id"],
-                    len(obj.data.bones)
+                    len(bones),
                 )
-                
-                # Make bone array in the root bone
-                for _index, _bone in enumerate(obj.data.bones):
-                    self.validate_bone_for_export (obj, _bone)
 
+                for bone_index, array_bone in enumerate(bones):
                     bone_data.bones.append(
                         dff.Bone(
-                                _bone["bone_id"],
-                                _index,
-                                _bone["type"])
+                            array_bone["bone_id"],
+                            bone_index,
+                            array_bone["type"],
+                        )
                     )
+            else:
+                frame = self.create_frame(
+                    bone,
+                    append=False,
+                    set_parent=True,
+                )
+                bone_data = dff.HAnimPLG()
+                bone_data.header = dff.HAnimHeader(
+                    0x100,
+                    bone["bone_id"],
+                    0,
+                )
 
-                frame.bone_data = bone_data
-                self.dff.frame_list.append(frame)
-                continue
-
-            # Create a regular Bone
-            frame = self.create_frame(bone, False)
-
-            # Set bone data
-            bone_data = dff.HAnimPLG()
-            bone_data.header = dff.HAnimHeader(
-                0x100,
-                bone["bone_id"],
-                0
-            )
             frame.bone_data = bone_data
             self.dff.frame_list.append(frame)
+
+        if root_frame_index is None:
+            raise DffExportException(
+                f"Armature ({obj.name}) did not produce a root frame."
+            )
+
+        self.frame_objects[obj] = root_frame_index
+        self.frames[obj.name] = root_frame_index
+        return root_frame_index
 
     @staticmethod
     def export_empty(obj):
@@ -1048,8 +1169,7 @@ class dff_exporter:
                 
 
             elif obj.type == "ARMATURE":
-                parent = next((child for child in obj.children if child.type == "MESH"), None)
-                self.export_armature(obj, parent)
+                self.export_armature(obj, None)
 
         atomics_data = sorted(atomics_data, key=lambda a: a[0].dff.atomic_index)
 
@@ -1166,7 +1286,9 @@ class dff_exporter:
         if name.lower().endswith('.dff'):
             name = name[:-4]
 
-        return clear_extension(name)
+        # .dff and Blender duplicate suffixes were already handled above;
+        # keep any other legitimate dots in the model name.
+        return name
 
     @staticmethod
     def get_dff_collection_key(collection_name):
@@ -1823,6 +1945,7 @@ class dff_exporter:
     def reset_export_state():
         self = dff_exporter
         self.frame_objects = {}
+        self.frames = {}
         self.bones = {}
         self.parent_queue = {}
 

@@ -21,6 +21,11 @@ import bpy
 import os
 import re
 
+try:
+    import numpy as np
+except Exception:
+    np = None
+
 from ..gtaLib import txd
 from ..gtaLib.txd import ImageEncoder
 from ..gtaLib.dff import NativePlatformType
@@ -29,6 +34,19 @@ from ..gtaLib.dff import NativePlatformType
 def clear_extension(string):
     k = string.rfind('.')
     return string if k < 0 else string[:k]
+
+#######################################################
+def strip_blender_numeric_suffix(name):
+    return re.sub(r"\.\d{3,}$", "", str(name or ""))
+
+#######################################################
+def texture_export_name(label, image_name):
+    label = str(label or "").strip()
+    if label:
+        # Node labels imported from DFF are the authoritative RW lookup name.
+        return label
+    clean = strip_blender_numeric_suffix(image_name)
+    return os.path.splitext(clean)[0]
 
 #######################################################
 class txd_exporter:
@@ -42,55 +60,83 @@ class txd_exporter:
 
     #######################################################
     @staticmethod
-    def _create_texture_native_from_image(image, image_name):
-        pixels = list(image.pixels)
-        width, height = image.size
+    def normalize_texture_name(image_name):
+        clean_name = "".join(
+            character
+            for character in str(image_name or "")
+            if character.isalnum() or character in "_-."
+        )
+        clean_name = clean_name[:31]
+        return clean_name or "texture"
 
+    #######################################################
+    @staticmethod
+    def _read_bgra_pixels(image, width, height):
+        value_count = int(width) * int(height) * 4
+
+        if np is not None:
+            try:
+                rgba = np.empty(value_count, dtype=np.float32)
+                image.pixels.foreach_get(rgba)
+                np.nan_to_num(rgba, copy=False, nan=0.0, posinf=1.0, neginf=0.0)
+                rgba = np.clip(np.rint(rgba * 255.0), 0.0, 255.0).astype(
+                    np.uint8,
+                    copy=False,
+                )
+                rgba = rgba.reshape((height, width, 4))
+                bgra = rgba[::-1, :, [2, 1, 0, 3]]
+                return bgra.tobytes(order="C")
+            except Exception:
+                pass
+
+        pixels = list(image.pixels)
         rgba_data = bytearray()
-        for h in range(height - 1, -1, -1):
-            offset = h * width * 4
+        for row_index in range(height - 1, -1, -1):
+            offset = row_index * width * 4
             row_pixels = pixels[offset:offset + width * 4]
             rgba_data.extend(
                 max(0, min(255, int(round(float(pixel) * 255.0))))
                 for pixel in row_pixels
             )
 
+        return ImageEncoder.rgba_to_bgra8888(rgba_data)
+
+    #######################################################
+    @staticmethod
+    def _create_texture_native_from_image(image, image_name):
+        width, height = (int(image.size[0]), int(image.size[1]))
+        if width <= 0 or height <= 0:
+            raise ValueError("Texture image has no pixel dimensions")
+
         texture_native = txd.TextureNative()
         texture_native.platform_id = NativePlatformType.D3D9
-        texture_native.filter_mode = 0x06  # Linear Mip Linear (Trilinear)
-        texture_native.uv_addressing = 0b00010001  # Wrap for both U and V
-        
-        # Clean texture name - remove invalid characters and limit length
-        clean_name = "".join(c for c in image_name if c.isalnum() or c in "_-.")
-        clean_name = clean_name[:31]  # Limit to 31 chars (32 with null terminator)
-        if not clean_name:
-            clean_name = "texture"
-        texture_native.name = clean_name
+        texture_native.filter_mode = 0x06
+        texture_native.uv_addressing = 0b00010001
+        texture_native.name = txd_exporter.normalize_texture_name(image_name)
         texture_native.mask = ""
-        
-        # Raster format flags for RGBA8888: format type (8888=5) at bit 8-11, no mipmaps, no palette
-        texture_native.raster_format_flags = (txd.RasterFormat.RASTER_8888 << 8) | 0x05
+        texture_native.raster_format_flags = (
+            txd.RasterFormat.RASTER_8888 << 8
+        ) | 0x05
         texture_native.d3d_format = txd.D3DFormat.D3D_8888
         texture_native.width = width
         texture_native.height = height
         texture_native.depth = 32
         texture_native.num_levels = 1
-        texture_native.raster_type = 4  # Texture
-        
-        texture_native.platform_properties = type('PlatformProperties', (), {
-            'alpha': True,
-            'cube_texture': False,
-            'auto_mipmaps': False,
-            'compressed': False
-        })()
-        
-        # No palette for RGBA8888 format
+        texture_native.raster_type = 4
+        texture_native.platform_properties = type(
+            'PlatformProperties',
+            (),
+            {
+                'alpha': True,
+                'cube_texture': False,
+                'auto_mipmaps': False,
+                'compressed': False,
+            },
+        )()
         texture_native.palette = b''
-        
-        # Convert RGBA to BGRA8888 format
-        pixel_data = ImageEncoder.rgba_to_bgra8888(rgba_data)
-        texture_native.pixels = [pixel_data]
-        
+        texture_native.pixels = [
+            txd_exporter._read_bgra_pixels(image, width, height)
+        ]
         return texture_native
 
     #######################################################
@@ -109,6 +155,7 @@ class txd_exporter:
     def get_used_textures(objects_to_scan=None):
         """Collect textures that are used in scene materials"""
         used_textures = set()
+        seen_materials = set()
         
         # Use provided objects or all scene objects
         objects = objects_to_scan if objects_to_scan is not None else bpy.context.scene.objects
@@ -119,13 +166,21 @@ class txd_exporter:
                 if not mat:
                     continue
 
+                try:
+                    material_key = mat.as_pointer()
+                except Exception:
+                    material_key = id(mat)
+                if material_key in seen_materials:
+                    continue
+                seen_materials.add(material_key)
+
                 node_tree = mat.node_tree
                 if not node_tree:
                     continue
 
                 for node in node_tree.nodes:
                     if node.type == 'TEX_IMAGE' and node.image is not None:
-                        texture_name = clear_extension(node.label or node.image.name)
+                        texture_name = texture_export_name(node.label, node.image.name)
                         used_textures.add((texture_name, node.image))
 
         return used_textures
@@ -162,7 +217,7 @@ class txd_exporter:
                 if mipmap_level > 0:
                     continue
 
-                texture_name = clear_extension(texture_name)
+                texture_name = texture_export_name("", texture_name)
                 used_textures.add((texture_name, image))
 
         for texture_name, image in used_textures:
@@ -177,14 +232,88 @@ class txd_exporter:
 
     #######################################################
     @staticmethod
-    def export_textures(objects_to_scan=None, file_name=None):
+    def export_texture_items(
+        texture_items,
+        file_name,
+        version=None,
+        progress_callback=None,
+    ):
         self = txd_exporter
+
+        normalized_items = []
+        seen_names = set()
+        for texture_name, image in texture_items:
+            clean_name = self.normalize_texture_name(texture_name)
+            name_key = clean_name.lower()
+            if name_key in seen_names:
+                continue
+            seen_names.add(name_key)
+
+            if image is None:
+                continue
+            try:
+                width, height = int(image.size[0]), int(image.size[1])
+                pixel_count = len(image.pixels)
+            except Exception:
+                continue
+            if width <= 0 or height <= 0 or pixel_count < width * height * 4:
+                continue
+
+            normalized_items.append((clean_name, image))
+
+        normalized_items.sort(key=lambda item: (item[0].lower(), item[0]))
 
         self.txd = txd.txd()
         self.txd.device_id = txd.DeviceType.DEVICE_D3D9
+        self.txd.native_textures = []
 
-        self.populate_textures(objects_to_scan)
-        self.txd.write_file(file_name or self.file_name, self.version)
+        total = len(normalized_items)
+        for index, (texture_name, image) in enumerate(normalized_items, 1):
+            self.txd.native_textures.append(
+                self._create_texture_native_from_image(image, texture_name)
+            )
+            if progress_callback is not None:
+                progress_callback(index, total, texture_name)
+
+        self.txd.write_file(
+            file_name or self.file_name,
+            self.version if version is None else version,
+        )
+        return len(self.txd.native_textures)
+
+    #######################################################
+    @staticmethod
+    def export_textures(objects_to_scan=None, file_name=None):
+        self = txd_exporter
+
+        if objects_to_scan is not None:
+            used_textures = self.get_used_textures(objects_to_scan)
+        elif self.only_used_textures:
+            used_textures = self.get_used_textures()
+        else:
+            used_textures = set()
+            for image in bpy.data.images:
+                if (
+                    image.name.startswith("//")
+                    or image.name in ["Render Result", "Viewer Node"]
+                    or not image.name.strip()
+                    or image.size[0] == 0
+                    or image.size[1] == 0
+                ):
+                    continue
+
+                texture_name, mipmap_level = self.extract_texture_info_from_name(
+                    image.name
+                )
+                if mipmap_level > 0:
+                    continue
+                used_textures.add((texture_export_name("", texture_name), image))
+
+        return self.export_texture_items(
+            used_textures,
+            file_name or self.file_name,
+            version=self.version,
+        )
 
     #######################################################
     @staticmethod

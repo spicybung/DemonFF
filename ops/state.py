@@ -116,15 +116,23 @@ class State(metaclass=_StateMeta):
     @persistent
     def _onLoad(_):
         State.update_scene()
+        try:
+            from . import samp_test
+            samp_test.refresh_live_player_export_exclusions(bpy.context)
+        except Exception:
+            pass
 
     @classmethod
     def hook_events(cls):
-        if not cls.update_scene in depsgraph_update_post:
+        if cls._onDepsgraphUpdate not in depsgraph_update_post:
             depsgraph_update_post.append(cls._onDepsgraphUpdate)
+        if cls._onLoad not in load_post:
             load_post.append(cls._onLoad)
 
     @classmethod
     def unhook_events(cls):
-        if cls.update_scene in depsgraph_update_post:
+        if cls._onDepsgraphUpdate in depsgraph_update_post:
             depsgraph_update_post.remove(cls._onDepsgraphUpdate)
+        if cls._onLoad in load_post:
             load_post.remove(cls._onLoad)
+

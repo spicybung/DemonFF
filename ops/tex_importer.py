@@ -22,6 +22,7 @@ from typing import List, Dict, Tuple, Optional, Any, Iterable
 
 import numpy as np
 import bpy
+from .importer_common import set_material_render_method, set_material_transparency_overlap, set_material_raytrace_refraction
 
 from ..gtaLib.tex import (
     PspTexHeader,
@@ -231,10 +232,9 @@ def apply_image_to_material(material: bpy.types.Material, image: bpy.types.Image
     try:
         if "Alpha" in existing_node.outputs and "Alpha" in bsdf.inputs:
             links.new(existing_node.outputs["Alpha"], bsdf.inputs["Alpha"])
-            material.blend_method = "BLEND"
-            material.use_screen_refraction = False
-            if hasattr(material, "show_transparent_back"):
-                material.show_transparent_back = True
+            set_material_render_method(material, "BLEND")
+            set_material_raytrace_refraction(material, False)
+            set_material_transparency_overlap(material, True)
     except Exception:
         pass
 

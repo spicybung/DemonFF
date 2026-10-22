@@ -91,11 +91,13 @@ class txd_importer:
             for level in range(num_levels):
                 img = imgs[level]
                 image_name = "%s/%s/%d" % (txd_name, tex.name, level)
-                image = txd_importer._create_image(image_name,
-                                                    img.to_rgba(),
-                                                    img.width,
-                                                    img.height,
-                                                    self.pack)
+                image = bpy.data.images.get(image_name)
+                if not image:
+                    image = txd_importer._create_image(image_name,
+                                                        img.to_rgba(),
+                                                        img.width,
+                                                        img.height,
+                                                        self.pack)
                 images.append(image)
 
             self.images[tex.name] = images
@@ -114,17 +116,31 @@ class txd_importer:
 
     #######################################################
     def check_missing_images():
-        missing_images = []
-        for mat in bpy.data.materials:
-            if mat.name not in txd_importer.images:
-                missing_images.append(mat.name)
+        """Report only material texture references that are absent from this TXD.
 
-        if missing_images:
-            print("Missing images in TXD import for the following materials:")
-            for material_name in missing_images:
-                print(f" - {material_name}")
-        else:
-            print("All required images are present in the TXD.")
+        Material datablock names are not RenderWare texture names, so comparing
+        ``mat.name`` to TXD entries produced false missing-texture warnings.
+        """
+        available = {str(name).casefold() for name in txd_importer.images}
+        missing = set()
+
+        for mat in bpy.data.materials:
+            node_tree = getattr(mat, "node_tree", None)
+            if not node_tree:
+                continue
+            for node in node_tree.nodes:
+                if node.type != 'TEX_IMAGE':
+                    continue
+                ref = str(getattr(node, "label", "") or "").strip()
+                if not ref:
+                    continue
+                if ref.casefold() not in available:
+                    missing.add(ref)
+
+        if missing:
+            print("Texture references not present in the imported TXD:")
+            for texture_name in sorted(missing, key=str.casefold):
+                print(f" - {texture_name}")
 
 #######################################################
 def import_txd(options):
