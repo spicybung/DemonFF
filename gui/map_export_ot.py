@@ -532,12 +532,21 @@ class OrganizeObjNeighborhoodsOperator(bpy.types.Operator):
 class RemoveBuildingForPlayerOperator(bpy.types.Operator):
     bl_idname = "object.remove_building_for_player"
     bl_label = "Remove Building For Player"
-    bl_description = "Print RemoveBuildingForPlayer lines for the selected map objects"
+    bl_description = "Mark selected retail buildings for Pawn removal and print the commands"
     bl_options = {'REGISTER', 'UNDO'}
 
     def execute(self, context):
         objects = [obj for obj in context.selected_objects if map_exporter.object_is_exportable_map_instance(obj)]
-        for line in map_exporter.make_remove_building_lines(objects):
-            print(line)
-        self.report({'INFO'}, f"Printed {len(objects)} RemoveBuildingForPlayer line(s) to the console")
+        catalog = map_exporter.collect_samp_retail_catalog(context)
+        marked = 0
+        for obj in objects:
+            lines = map_exporter.make_remove_building_lines((obj,), catalog)
+            if not lines:
+                continue
+            for line in lines:
+                print(line)
+            source = map_exporter.get_metadata_source(obj)
+            source["DemonFF_RemoveBuilding"] = True
+            marked += 1
+        self.report({'INFO'}, f"Marked {marked} building(s) for Pawn removal and printed their lines")
         return {'FINISHED'}

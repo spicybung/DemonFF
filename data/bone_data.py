@@ -285,3 +285,12 @@ def getCommonBoneParents(game: str = "VCS") -> Dict[str, str]:
     if token == "LCS":
         return dict(commonBoneParentsLCS)
     return dict(commonBoneParentsVCS)
+
+STORIES_ANIM_HASH_NAMES = {
+    0x971E421C: 'player',
+    0xAA7CD741: 'dummy01',
+    0x2F0A0B8B: 'L Hand01',
+    0x631862AB: 'L Toe0',
+    0x5AC40140: 'R Toe0',
+    0xA62E30E2: 'chnsaw',
+}

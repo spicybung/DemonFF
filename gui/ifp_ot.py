@@ -23,6 +23,8 @@ import json
 import math
 import struct
 import zlib
+from datetime import datetime
+from pathlib import Path
 
 from os import SEEK_CUR
 from dataclasses import dataclass
@@ -492,16 +494,16 @@ def findManhuntReferenceArmature(context, target_armature):
         try:
             for source_bone in obj.data.bones:
                 source_id = get_bone_direct_id(source_bone)
-                if source_id is not None and int(source_id) >= 1000:
+                if source_id is not None and int(source_id) in MH2_GTA_HUMANOID_BONES:
                     score += 1
         except Exception:
             continue
 
-        if score > best_score:
+        if score >= 4 and score > best_score:
             best = obj
             best_score = score
 
-    return best if best_score > 0 else None
+    return best if best_score >= 4 else None
 
 
 def is_manhunt_auxiliary_track(ifp_bone, game_version='AUTO'):
@@ -700,7 +702,193 @@ def buildManhuntRestRotationProfile(ifp_data):
     return profile
 
 
-def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarget_mode='AUTO', source_armature=None, source_rest_profile=None):
+def buildManhuntRestTranslationProfile(ifp_data):
+    samples_by_id = {}
+    for animation in getattr(ifp_data, "animations", ()):
+        for track in getattr(animation, "bones", ()):
+            source_id = get_manhunt_track_source_id(track)
+            if source_id != 1000 or not getattr(track, "keyframes", None):
+                continue
+            keyframe_type = str(getattr(track, "keyframe_type", "") or "")
+            if len(keyframe_type) <= 2 or keyframe_type[2] != 'T':
+                continue
+            position = track.keyframes[0].pos
+            values = (float(position.x), float(position.y), float(position.z))
+            samples_by_id.setdefault(source_id, []).append(values)
+
+    profile = {}
+    for source_id, samples in samples_by_id.items():
+        bins = {}
+        for values in samples:
+            key = tuple(round(component, 2) for component in values)
+            bins.setdefault(key, []).append(values)
+        if not bins:
+            continue
+        densest = max(bins.values(), key=len)
+        count = float(len(densest))
+        profile[source_id] = Vector(tuple(
+            sum(sample[index] for sample in densest) / count
+            for index in range(3)
+        ))
+    return profile
+
+
+def sampleIfpTrackRotation(track, time_value):
+    frames = sorted(track.keyframes, key=lambda frame: float(frame.time))
+    if not frames:
+        return Quaternion((1.0, 0.0, 0.0, 0.0))
+    if time_value <= float(frames[0].time):
+        return normalized_quaternion(frames[0].rot)
+    if time_value >= float(frames[-1].time):
+        return normalized_quaternion(frames[-1].rot)
+
+    for index in range(1, len(frames)):
+        end = frames[index]
+        if time_value > float(end.time):
+            continue
+        start = frames[index - 1]
+        begin_time = float(start.time)
+        duration = float(end.time) - begin_time
+        if duration <= 0.0:
+            return normalized_quaternion(end.rot)
+        factor = max(0.0, min(1.0, (time_value - begin_time) / duration))
+        begin_rotation = normalized_quaternion(start.rot)
+        end_rotation = normalized_quaternion(end.rot)
+        return begin_rotation.slerp(end_rotation, factor)
+
+    return normalized_quaternion(frames[-1].rot)
+
+
+def correctManhuntClavicleHierarchy(action, arm_obj, selected_tracks, global_matrix):
+    source_targets = {}
+    for source_track, target_bone, _quality, _source_bone, _score in selected_tracks.values():
+        source_id = get_manhunt_track_source_id(source_track)
+        if source_id is not None:
+            source_targets[source_id] = target_bone
+
+    spine = source_targets.get(1096) or source_targets.get(1095)
+    if spine is None:
+        return 0
+
+    corrected_count = 0
+    for source_id in (1003, 1057):
+        clavicle = source_targets.get(source_id)
+        if clavicle is None or clavicle.parent is None:
+            continue
+        if clavicle.parent == spine:
+            continue
+
+        ancestor = clavicle.parent
+        valid_ancestor = False
+        while ancestor is not None:
+            if ancestor == spine:
+                valid_ancestor = True
+                break
+            ancestor = ancestor.parent
+        if not valid_ancestor:
+            continue
+
+        start = max(0, int(math.floor(action.frame_range[0])))
+        end = max(start, int(math.ceil(action.frame_range[1])))
+        if end - start > 10000:
+            continue
+
+        curve_lookup = {}
+        def get_curve(bone_name, channel, index):
+            key = (bone_name, channel, index)
+            if key not in curve_lookup:
+                path = (POSEDATA_PREFIX % bone_name) + channel
+                curve_lookup[key] = action.fcurves.find(path, index=index)
+            return curve_lookup[key]
+
+        def read_values(bone_name, channel, defaults, frame):
+            values = []
+            for index, default in enumerate(defaults):
+                curve = get_curve(bone_name, channel, index)
+                values.append(float(curve.evaluate(frame)) if curve else default)
+            return values
+
+        def sampled_basis(bone, frame):
+            location = Vector(read_values(bone.name, 'location', (0.0, 0.0, 0.0), frame))
+            rotation = normalized_quaternion(Quaternion(
+                read_values(bone.name, 'rotation_quaternion', (1.0, 0.0, 0.0, 0.0), frame)
+            ))
+            scale = Vector(read_values(bone.name, 'scale', (1.0, 1.0, 1.0), frame))
+            return compose_transform_matrix(location, rotation, scale)
+
+        def sampled_world(bone, frame, matrix_cache):
+            if bone.name in matrix_cache:
+                return matrix_cache[bone.name]
+            local_rest = get_bone_rest_local_matrix(bone, global_matrix)
+            matrix = local_rest @ sampled_basis(bone, frame)
+            if bone.parent is not None:
+                matrix = sampled_world(bone.parent, frame, matrix_cache) @ matrix
+            matrix_cache[bone.name] = matrix
+            return matrix
+
+        original_rest = get_bone_rest_local_matrix(clavicle, global_matrix)
+        expected_rest = spine.matrix_local.copy()
+        if spine.parent is None:
+            expected_rest = global_matrix @ expected_rest
+        clavicle_rest_world = clavicle.matrix_local.copy()
+        if clavicle.parent is None:
+            clavicle_rest_world = global_matrix @ clavicle_rest_world
+
+        sampled_results = []
+        previous_rotation = None
+        for frame in range(start, end + 1):
+            matrix_cache = {}
+            actual_parent_world = sampled_world(clavicle.parent, frame, matrix_cache)
+            expected_parent_world = sampled_world(spine, frame, matrix_cache)
+            original_basis = sampled_basis(clavicle, frame)
+            expected_child_world = (
+                expected_parent_world @ expected_rest.inverted_safe()
+                @ clavicle_rest_world @ original_basis
+            )
+            corrected_basis = (
+                original_rest.inverted_safe()
+                @ actual_parent_world.inverted_safe()
+                @ expected_child_world
+            )
+            rotation = make_quaternion_continuous(
+                normalized_quaternion(corrected_basis.to_quaternion()), previous_rotation
+            )
+            previous_rotation = rotation.copy()
+            sampled_results.append((frame, rotation, corrected_basis.to_translation()))
+
+        group = action.groups.get(clavicle.name)
+        path = POSEDATA_PREFIX % clavicle.name
+        for channel, components in (('rotation_quaternion', 4), ('location', 3)):
+            for index in range(components):
+                existing = action.fcurves.find(path + channel, index=index)
+                if existing is not None:
+                    action.fcurves.remove(existing)
+
+        rotations = [action.fcurves.new(path + 'rotation_quaternion', index=i) for i in range(4)]
+        locations = [action.fcurves.new(path + 'location', index=i) for i in range(3)]
+        for curve in rotations + locations:
+            if group is not None:
+                curve.group = group
+        for frame, rotation, location in sampled_results:
+            set_keyframe(rotations, frame, rotation)
+            set_keyframe(locations, frame, location)
+        corrected_count += 1
+
+    return corrected_count
+
+
+def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarget_mode='AUTO', source_armature=None, source_rest_profile=None, source_position_profile=None):
+    if (str(game_version) == 'MANHUNT_1'
+            and retarget_mode != 'NATIVE'
+            and source_armature is None):
+        target_ids, target_names = build_armature_bone_lookup(arm_obj)
+        if not any(source_id in target_ids for source_id in MH2_GTA_HUMANOID_BONES):
+            from ..ops.manhunt_retarget import createManhuntHumanoidAction
+            return createManhuntHumanoidAction(
+                arm_obj, anim, fps, global_matrix,
+                MH2_GTA_HUMANOID_BONES, build_armature_bone_lookup,
+                source_position_profile,
+            )
     action = bpy.data.actions.new(anim.name)
     # Only the last imported action is assigned to the armature.  Preserve
     # the rest of an imported IFP pack across save/reload as well.
@@ -716,6 +904,7 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
     # triggered Blender's "F-Curve ... already exists" exception.
     selected_tracks = {}
     duplicate_target_count = 0
+    manhunt_spine_tracks = {}
 
     for ifp_bone in anim.bones:
         if not getattr(ifp_bone, 'keyframes', None):
@@ -732,6 +921,13 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
                 "%s [%s]" % (ifp_bone.name, getattr(ifp_bone, "bone_id", "?"))
             )
             continue
+
+        source_id = get_manhunt_track_source_id(ifp_bone)
+        if (str(game_version or '').startswith('MANHUNT')
+                and retarget_mode != 'NATIVE'
+                and source_id in (1095, 1096)
+                and normalizeAnimBoneName(bone.name) == normalizeAnimBoneName('Spine1')):
+            manhunt_spine_tracks[source_id] = ifp_bone
 
         quality = ifp_track_quality(ifp_bone, match_score)
         existing = selected_tracks.get(bone.name)
@@ -811,6 +1007,12 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
 
         previous_rotation = None
 
+        merged_spine_mid = None
+        if (str(game_version or '').startswith('MANHUNT')
+                and retarget_mode != 'NATIVE'
+                and get_manhunt_track_source_id(ifp_bone) == 1096):
+            merged_spine_mid = manhunt_spine_tracks.get(1095)
+
         cross_game_source_less = (
             str(game_version or '').startswith('MANHUNT')
             and source_bone is None
@@ -827,6 +1029,9 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
                 if location_curves is not None
                 else Vector((0.0, 0.0, 0.0))
             )
+            source_id = get_manhunt_track_source_id(ifp_bone)
+            if source_position_profile and source_id in source_position_profile:
+                first_location = source_position_profile[source_id].copy()
             first_rotation = normalized_quaternion(first_keyframe.rot)
             first_scale = (
                 first_keyframe.scl.copy()
@@ -834,7 +1039,6 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
                 else Vector((1.0, 1.0, 1.0))
             )
 
-            source_id = get_manhunt_track_source_id(ifp_bone)
             profiled_rotation = None
             if source_rest_profile:
                 profiled_rotation = source_rest_profile.get(int(source_id))
@@ -856,8 +1060,24 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
                     first_scale,
                 ).inverted_safe()
 
-        for keyframe in ifp_bone.keyframes:
-            frame = float(keyframe.time) * float(fps)
+        source_keyframes = list(ifp_bone.keyframes)
+        if merged_spine_mid is not None:
+            sample_times = sorted(set(
+                float(sample.time)
+                for track in (ifp_bone, merged_spine_mid)
+                for sample in track.keyframes
+            ))
+            source_keyframes = []
+            for sample_time in sample_times:
+                source_keyframes.append(Keyframe(
+                    sample_time,
+                    Vector((0.0, 0.0, 0.0)),
+                    sampleIfpTrackRotation(ifp_bone, sample_time),
+                    Vector((1.0, 1.0, 1.0)),
+                ))
+
+        for keyframe in source_keyframes:
+            frame = max(0.0, float(keyframe.time) * float(fps))
             target_location = (
                 keyframe.pos.copy()
                 if location_curves is not None
@@ -897,6 +1117,13 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
                 basis_matrix = source_first_inverse @ target_local
             else:
                 basis_matrix = rest_inverse @ target_local
+
+            if merged_spine_mid is not None and len(merged_spine_mid.keyframes) > 0:
+                mid_reference = normalized_quaternion(merged_spine_mid.keyframes[0].rot)
+                mid_rotation = sampleIfpTrackRotation(merged_spine_mid, float(keyframe.time))
+                mid_delta = mid_reference.inverted() @ mid_rotation
+                mid_matrix = mid_delta.to_matrix().to_4x4()
+                basis_matrix = mid_matrix @ basis_matrix
             basis_location = basis_matrix.to_translation()
             basis_rotation = normalized_quaternion(basis_matrix.to_quaternion())
             basis_rotation = make_quaternion_continuous(
@@ -921,8 +1148,18 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
             "keyframe_type": str(getattr(source_track, "keyframe_type", "KR00") or "KR00"),
             "use_bone_id": bool(getattr(source_track, "use_bone_id", True)),
         }
+        if (get_manhunt_track_source_id(source_track) == 1096
+                and 1095 in manhunt_spine_tracks):
+            track_metadata[str(target_bone_name)]["merged_source_ids"] = [1095, 1096]
 
-    action["DemonFF_IFP_Retarget_Version"] = 25
+    hierarchy_fixes = 0
+    if str(game_version or '') == 'MANHUNT_2' and retarget_mode != 'NATIVE':
+        hierarchy_fixes = correctManhuntClavicleHierarchy(
+            action, arm_obj, selected_tracks, global_matrix
+        )
+
+    action["DemonFF_IFP_Retarget_Version"] = 26
+    action["DemonFF_IFP_Hierarchy_Corrections"] = hierarchy_fixes
     action["DemonFF_IFP_Missing_Bone_Count"] = len(missing_bones)
     action["DemonFF_IFP_Duplicate_Target_Count"] = duplicate_target_count
     action["DemonFF_IFP_Source_Reference_Used"] = bool(source_armature is not None)
@@ -1151,10 +1388,13 @@ def apply_ifp_to_armature(context, ifp, fps, global_matrix, retarget_mode='AUTO'
     game_version = getattr(ifp, "game_version", "AUTO")
     source_armature = None
     source_rest_profile = None
+    source_position_profile = None
     if str(game_version or '').startswith('MANHUNT') and retarget_mode != 'NATIVE':
         source_armature = findManhuntReferenceArmature(context, arm_obj)
         if source_armature is None:
-            source_rest_profile = buildManhuntRestRotationProfile(ifp.data)
+            if game_version != 'MANHUNT_1':
+                source_rest_profile = buildManhuntRestRotationProfile(ifp.data)
+            source_position_profile = buildManhuntRestTranslationProfile(ifp.data)
 
     for anim in ifp.data.animations:
         act, mb = create_action(
@@ -1163,8 +1403,11 @@ def apply_ifp_to_armature(context, ifp, fps, global_matrix, retarget_mode='AUTO'
             retarget_mode=retarget_mode,
             source_armature=source_armature,
             source_rest_profile=source_rest_profile,
+            source_position_profile=source_position_profile,
         )
         act.name = anim.name
+        act['DemonFF_IFP_Source_Name'] = str(anim.name)
+        act['DemonFF_IFP_Block_Name'] = str(getattr(anim, 'source_block', '') or '')
         act["DemonFF_IFP_Container"] = ifp.version
         act["DemonFF_IFP_Game_Version"] = game_version
         act["DemonFF_IFP_Retarget_Mode"] = retarget_mode
@@ -1173,6 +1416,8 @@ def apply_ifp_to_armature(context, ifp, fps, global_matrix, retarget_mode='AUTO'
             act["DemonFF_IFP_Source_Armature"] = source_armature.name
         created_actions.append(act)
         missing_bones.update(mb)
+
+    ifp.imported_actions = created_actions
 
     playable_action = None
     for action in created_actions:
@@ -1203,7 +1448,8 @@ def buildIfpImportLog(ifp, filepath, context, retarget_mode, result):
     game_label = IFP_GAME_LABELS.get(game_version, game_version)
     arm_obj = getattr(context.view_layer.objects, "active", None)
 
-    lines.append("DemonFF 0.6.9 IFP Import Log")
+    lines.append("DemonFF 0.6.9b IFP Import Log")
+    lines.append("importer_build=ANIMATION-28")
     lines.append(f"file={filepath}")
     lines.append(f"container={getattr(ifp, 'version', 'UNKNOWN')}")
     lines.append(f"detected_game={game_label}")
@@ -1217,32 +1463,40 @@ def buildIfpImportLog(ifp, filepath, context, retarget_mode, result):
     animations = list(getattr(getattr(ifp, "data", None), "animations", ()) or ())
     lines.append(f"animation_count={len(animations)}")
 
-    action_by_name = {}
-    for action in getattr(bpy.data, "actions", ()):
-        try:
-            if str(action.get("DemonFF_IFP_Game_Version", "")) == game_version:
-                action_by_name.setdefault(action.name, action)
-        except Exception:
-            continue
+    imported_actions = list(getattr(ifp, "imported_actions", ()) or ())
 
     for animation_index, animation in enumerate(animations):
         bones = list(getattr(animation, "bones", ()) or ())
-        action = action_by_name.get(str(getattr(animation, "name", "")))
+        action = imported_actions[animation_index] if animation_index < len(imported_actions) else None
         applied_tracks = None
         missing_bones = None
         duplicate_targets = None
         retarget_version = None
+        hierarchy_corrections = None
         if action is not None:
             try:
                 applied_tracks = int(action.get("DemonFF_IFP_Applied_Track_Count", 0))
                 missing_bones = int(action.get("DemonFF_IFP_Missing_Bone_Count", 0))
                 duplicate_targets = int(action.get("DemonFF_IFP_Duplicate_Target_Count", 0))
                 retarget_version = int(action.get("DemonFF_IFP_Retarget_Version", 0))
+                hierarchy_corrections = int(action.get("DemonFF_IFP_Hierarchy_Corrections", 0))
             except Exception:
                 pass
 
+        mapped_targets = {}
+        if action is not None:
+            try:
+                metadata = json.loads(str(action.get("DemonFF_IFP_Track_Metadata", "{}")))
+                for target_name, track in metadata.items():
+                    track_id = track.get("bone_id")
+                    mapped_targets[(str(track.get("source_name", "")), track_id)] = target_name
+                    if 1095 in track.get("merged_source_ids", []):
+                        mapped_targets[("Bone_1095", 1095)] = target_name + " (merged)"
+            except (ValueError, TypeError, AttributeError):
+                pass
+
         lines.append(
-            "animation[{0}] name={1!r} tracks={2} applied={3} missing={4} duplicates={5} retarget_version={6}".format(
+            "animation[{0}] name={1!r} tracks={2} applied={3} missing={4} duplicates={5} retarget_version={6} hierarchy_corrections={7}".format(
                 animation_index,
                 getattr(animation, "name", ""),
                 len(bones),
@@ -1250,25 +1504,46 @@ def buildIfpImportLog(ifp, filepath, context, retarget_mode, result):
                 missing_bones,
                 duplicate_targets,
                 retarget_version,
+                hierarchy_corrections,
             )
         )
+
+        if action is not None:
+            lines.append("  solver=" + str(action.get("DemonFF_IFP_Solver", "LOCAL_TRANSFORMS")))
+            lines.append("  source_rest=" + str(action.get("DemonFF_IFP_Source_Rest", "NATIVE_OR_REFERENCE")))
 
         for bone in bones:
             keyframes = list(getattr(bone, "keyframes", ()) or ())
             sequence_flag = getattr(bone, "sequence_flag", "")
             frame_type = getattr(bone, "frame_type", None)
             lines.append(
-                "  track name={0!r} bone_id={1} type={2} sequence={3} frame_type={4} keys={5}".format(
+                "  track name={0!r} bone_id={1} type={2} sequence={3} frame_type={4} keys={5} target={6!r}".format(
                     getattr(bone, "name", ""),
                     getattr(bone, "bone_id", None),
                     getattr(bone, "keyframe_type", ""),
                     sequence_flag,
                     frame_type,
                     len(keyframes),
+                    mapped_targets.get((str(getattr(bone, "name", "")), getattr(bone, "bone_id", None))),
                 )
             )
 
     return "\n".join(lines)
+
+
+def writeIfpTextLog(filepath, contents):
+    source_path = Path(filepath)
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    log_path = source_path.with_name(
+        source_path.name + ".DemonFF-0.6.9b-ifp-" + timestamp + ".txt"
+    )
+    with log_path.open("x", encoding="utf-8", newline="\n") as output:
+        output.write("Import time: " + datetime.now().isoformat(timespec="microseconds") + "\n")
+        output.write("Imported file: " + str(source_path.resolve()) + "\n")
+        output.write("Saved log: " + str(log_path.resolve()) + "\n\n")
+        output.write(contents)
+        output.write("\n")
+    return log_path
 
 
 class IMPORT_OT_ifp(bpy.types.Operator):
@@ -1281,24 +1556,23 @@ class IMPORT_OT_ifp(bpy.types.Operator):
         options={'HIDDEN'},
     )
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
-    retarget_mode: bpy.props.EnumProperty(
-        name="Retarget Mode",
-        description="How animation tracks are matched to the selected armature",
-        items=IFP_RETARGET_ITEMS,
-        default='AUTO',
-    )
-    print_log: bpy.props.BoolProperty(
-        name="Print Log",
-        description="Print detailed IFP parsing and retarget information to Blender's System Console",
+    print_console_log: bpy.props.BoolProperty(
+        name="Print Console Log",
+        description="Print IFP parsing and armature conversion details to Blender's System Console",
         default=False,
+    )
+    print_txt_log: bpy.props.BoolProperty(
+        name="Print .txt Log",
+        description="Save an IFP import log beside the source file",
+        default=True,
     )
     #######################################################
     def draw(self, context):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        layout.prop(self, "retarget_mode", text="Retarget Mode")
-        layout.prop(self, "print_log")
+        layout.prop(self, "print_console_log")
+        layout.prop(self, "print_txt_log")
     #######################################################
     def execute(self, context):
         try:
@@ -1306,13 +1580,22 @@ class IMPORT_OT_ifp(bpy.types.Operator):
             scene_fps = context.scene.render.fps / max(context.scene.render.fps_base, 1e-8)
             result = apply_ifp_to_armature(
                 context, ifp, scene_fps, Matrix.Identity(4),
-                retarget_mode=self.retarget_mode,
+                retarget_mode='AUTO',
             )
 
-            if self.print_log:
-                print()
-                print(buildIfpImportLog(ifp, self.filepath, context, self.retarget_mode, result))
-                print()
+            if self.print_console_log or self.print_txt_log:
+                log_contents = buildIfpImportLog(
+                    ifp, self.filepath, context, 'AUTO', result
+                )
+                if self.print_console_log:
+                    print("\n" + log_contents + "\n")
+                if self.print_txt_log:
+                    try:
+                        log_path = writeIfpTextLog(self.filepath, log_contents)
+                        self.report({'INFO'}, "IFP log saved: " + str(log_path.resolve()))
+                        print("DemonFF IFP log saved: " + str(log_path.resolve()))
+                    except OSError as log_error:
+                        self.report({'WARNING'}, "Could not save IFP log: " + str(log_error))
 
             if result == {'FINISHED'}:
                 detected_game = getattr(ifp, "game_version", "AUTO")
@@ -1324,12 +1607,17 @@ class IMPORT_OT_ifp(bpy.types.Operator):
                 )
             return result
         except Exception as e:
-            if self.print_log:
-                print()
-                print("DemonFF 0.6.9 IFP Import Log")
-                print(f"file={self.filepath}")
-                print(f"ERROR: {e}")
-                print()
+            if self.print_console_log or self.print_txt_log:
+                error_log = "DemonFF 0.6.9b IFP Import Log\nfile={}\nERROR: {}".format(
+                    self.filepath, e
+                )
+                if self.print_console_log:
+                    print("\n" + error_log + "\n")
+                if self.print_txt_log:
+                    try:
+                        writeIfpTextLog(self.filepath, error_log)
+                    except OSError as log_error:
+                        self.report({'WARNING'}, "Could not save IFP log: " + str(log_error))
             self.report({'ERROR'}, str(e))
             return {'CANCELLED'}
     #######################################################
@@ -1621,13 +1909,12 @@ class AnctSequenceBone(Bone):
                 -qy / 4096.0,
             ))
         else:
-            # MH1 SEQU uses the same signed 12-bit quaternion scale but does
-            # not use the MH2 coordinate-basis conversion.
+            # RenderWare stores the inverse of Blender's local rotation.
             rot = Quaternion((
                 qw / 4096.0,
-                qx / 4096.0,
-                qy / 4096.0,
-                qz / 4096.0,
+                -qx / 4096.0,
+                -qy / 4096.0,
+                -qz / 4096.0,
             ))
 
         if rot.magnitude > 0.000001:
@@ -1962,70 +2249,26 @@ def encodeIfpName(value, size=24):
 
 
 def export_anp3(ifp_data, fd):
-    fd.write(b'ANP3')
-    size_placeholder = fd.tell()
-    fd.write(struct.pack('<I', 0))
-
-    internal_name = encodeIfpName(ifp_data.name, 24)
-    fd.write(internal_name)
-    fd.write(struct.pack('<I', len(ifp_data.animations)))
-
-    for anim in ifp_data.animations:
-        anim_name = encodeIfpName(anim.name, 24)
-        fd.write(anim_name)
-        fd.write(struct.pack('<I', len(anim.bones)))
-
-        keyframe_bytes_pos = fd.tell()
-        fd.write(struct.pack('<I', 0))
-        fd.write(struct.pack('<I', 1))
-
-        keyframe_payload_size = 0
-        for bone in anim.bones:
-            bone_name = encodeIfpName(bone.name, 24)
+    from ..gtaLib.animation_conversion import ConversionClip, ConversionTrack, buildAnp3Bytes
+    from ..gtaLib.anim import AnimExportFrame
+    clips = []
+    for animation in ifp_data.animations:
+        clip = ConversionClip(animation.name)
+        for bone in animation.bones:
+            frames = []
+            for key in bone.keyframes:
+                rotation = normalized_quaternion(key.rot)
+                if len(bone.keyframe_type) > 3 and bone.keyframe_type[3] == 'S':
+                    if any(abs(float(value) - 1.0) > 0.000001 for value in key.scl):
+                        raise ValueError('ANP3 cannot store scale tracks: ' + bone.name)
+                frames.append(AnimExportFrame(float(key.time), (rotation.x, rotation.y, rotation.z, rotation.w), tuple(key.pos), tuple(key.scl)))
+                clip.duration = max(clip.duration, float(key.time))
             has_translation = len(bone.keyframe_type) > 2 and bone.keyframe_type[2] == 'T'
-            frame_type = 4 if has_translation else 3
-            fd.write(bone_name)
-            fd.write(struct.pack('<IIi', frame_type, len(bone.keyframes), int(bone.bone_id)))
+            clip.tracks.append(ConversionTrack(int(bone.bone_id), bone.name, frames, has_translation))
+        clips.append(clip)
+    fd.write(buildAnp3Bytes(clips, ifp_data.name))
 
-            frame_stride = 16 if has_translation else 10
-            keyframe_payload_size += len(bone.keyframes) * frame_stride
 
-            for frame in bone.keyframes:
-                quat = normalized_quaternion(frame.rot)
-                time = max(0, min(65535, int(round(float(frame.time) * 60.0))))
-
-                fd.write(struct.pack(
-                    '<hhhhH',
-                    clampInt16(quat.x * 4096.0),
-                    clampInt16(quat.y * 4096.0),
-                    clampInt16(quat.z * 4096.0),
-                    clampInt16(quat.w * 4096.0),
-                    time,
-                ))
-
-                if has_translation:
-                    fd.write(struct.pack(
-                        '<hhh',
-                        clampInt16(frame.pos.x * 4096.0),
-                        clampInt16(frame.pos.y * 4096.0),
-                        clampInt16(frame.pos.z * 4096.0),
-                    ))
-
-        current_pos = fd.tell()
-        fd.seek(keyframe_bytes_pos)
-        fd.write(struct.pack('<I', keyframe_payload_size))
-        fd.seek(current_pos)
-
-    logical_end = fd.tell()
-    fd.seek(size_placeholder)
-    fd.write(struct.pack('<I', max(0, logical_end - 8)))
-    fd.seek(logical_end)
-
-    padding = (-logical_end) % 2048
-    if padding:
-        fd.write(b'\x00' * padding)
-
-#######################################################
 def getExportBoneId(pose_bone):
     owners = (pose_bone, getattr(pose_bone, "bone", None))
     for owner in owners:
@@ -2080,6 +2323,12 @@ def collect_animation_data(context):
     except Exception:
         source_track_metadata = {}
     old_subframe = getattr(context.scene, "frame_subframe", 0.0)
+    all_frames = [frame for bone in arm_obj.pose.bones for frame in actionBoneFrames(action, bone.name)[0]]
+    origin_frame = min(all_frames) if all_frames else 0.0
+    if action.get('DemonFF_ANIM_Imported_Action'):
+        origin_frame = float(action.get('DemonFF_ANIM_Start_Frame', origin_frame))
+    duration = float(action.get('DemonFF_IFP_Duration', 0.0))
+    end_frame = max(max(all_frames, default=origin_frame), origin_frame + duration * fps)
     bones = []
 
     try:
@@ -2099,21 +2348,16 @@ def collect_animation_data(context):
 
             rest_local = get_bone_rest_local_matrix(pose_bone.bone, Matrix.Identity(4))
             keyframes = []
-            first_frame = float(frames[0])
+            if frames[-1] < end_frame:
+                frames.append(end_frame)
             for frame_number in frames:
-                whole = math.floor(float(frame_number))
-                subframe = float(frame_number) - float(whole)
-                try:
-                    context.scene.frame_set(whole, subframe=subframe)
-                except TypeError:
-                    context.scene.frame_set(whole)
-
-                matrix_basis = pose_bone.matrix_basis.copy()
+                from ..ops.animation_channels import sampleActionBoneBasis
+                matrix_basis = sampleActionBoneBasis(action, pose_bone.name, frame_number, pose_bone.rotation_mode)
                 game_local = rest_local @ matrix_basis
                 rotation = game_local.to_quaternion().normalized()
                 location = game_local.to_translation()
                 scale = game_local.to_scale()
-                time = max(0.0, (float(frame_number) - first_frame) / max(fps, 1e-8))
+                time = max(0.0, (float(frame_number) - origin_frame) / max(fps, 1e-8))
                 keyframes.append(
                     Keyframe(
                         time=time,
@@ -2125,7 +2369,7 @@ def collect_animation_data(context):
 
             bone = Bone(
                 name=source_bone_name,
-                keyframe_type='KRT0' if has_location else 'KR00',
+                keyframe_type=('KRT0' if (len(str(source_metadata.get('keyframe_type', ''))) > 2 and str(source_metadata['keyframe_type'])[2] == 'T') else 'KR00') if source_metadata else ('KRT0' if has_location else 'KR00'),
                 use_bone_id=True,
                 bone_id=direct_id,
                 sibling_x=0,
@@ -2139,6 +2383,16 @@ def collect_animation_data(context):
         except TypeError:
             context.scene.frame_set(int(old_frame))
 
+    from ..data.bone_data import STORIES_ANIM_HASH_NAMES
+    for track in json.loads(str(action.get('DemonFF_ANIM_Unmapped_Tracks', '[]'))):
+        key = int(track['bone_key'])
+        name = STORIES_ANIM_HASH_NAMES.get(key)
+        if name is None:
+            raise ValueError(f'Cannot export unresolved source animation channel 0x{key:08X}')
+        frames = [Keyframe(float(frame[0]), Vector(frame[2]), Quaternion((frame[1][3], *frame[1][:3])), Vector(frame[3])) for frame in track['frames']]
+        flags = int(track['flags'])
+        key_type = 'K' + ('R' if flags & 1 else '0') + ('T' if flags & 2 else '0') + ('S' if flags & 4 else '0')
+        bones.append(Bone(name, key_type, False, -1, 0, 0, frames))
     if not bones:
         raise ValueError("Active Action contains no pose-bone keyframes")
 
@@ -2150,7 +2404,7 @@ def collect_animation_data(context):
     except Exception:
         pass
 
-    return IfpData(name=package_name, animations=[Animation(name=action.name, bones=bones)])
+    return IfpData(name=package_name, animations=[Animation(name=str(action.get('DemonFF_IFP_Source_Name', '') or action.get('DemonFF_ANIM_Source_Name', '') or action.name), bones=bones)])
 
 
 class EXPORT_OT_ifp(bpy.types.Operator):
@@ -2163,8 +2417,9 @@ class EXPORT_OT_ifp(bpy.types.Operator):
     def execute(self, context):
         try:
             ifp_data = collect_animation_data(context)
-            with open(self.filepath, 'wb') as fd:
-                export_anp3(ifp_data, fd)
+            fd = io.BytesIO()
+            export_anp3(ifp_data, fd)
+            Path(self.filepath).write_bytes(fd.getvalue())
             self.report({'INFO'}, f"IFP file exported: {self.filepath}")
             return {'FINISHED'}
         except Exception as e:

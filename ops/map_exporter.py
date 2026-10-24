@@ -27,7 +27,7 @@ import math
 import hashlib
 import mathutils
 
-from ..data import map_data
+from ..data import map_data, samp_data
 from ..ops.importer_common import game_version
 from .map_transform import (
     blender_quaternion_to_ipl,
@@ -54,8 +54,6 @@ def euler_to_degrees(euler):
 #######################################################
 def quat_to_degrees(quat):
     return quaternion_to_gta_euler_degrees(quat)
-
-IDE_TO_SAMP_DL_IDS = {i: 0 + i for i in range(50000)}
 
 #######################################################
 def clean_map_name(name):
@@ -556,6 +554,18 @@ def collect_ide_txd_lookup(context, output_file=None):
         lookup.update(parse_ide_model_records(filepath))
     return lookup
 
+
+def collect_samp_retail_catalog(context, output_file=None):
+    retail_paths = []
+    samp_paths = []
+    for filepath in collect_scene_ide_filepaths(context, output_file):
+        filename = os.path.basename(filepath).lower()
+        if filename in {"samp.ide", "custom.ide"}:
+            samp_paths.append(filepath)
+        else:
+            retail_paths.append(filepath)
+    return samp_data.build_ide_catalog(retail_paths, samp_paths)
+
 #######################################################
 def apply_ide_record_to_object(obj, record, samp_id=None):
     if obj is None or record is None:
@@ -610,82 +620,43 @@ def import_ide(filepaths, context):
             print(f"File not found: {filepath}")
             continue
 
-        try:
-            # Attempt to open and read as UTF-8
-            with open(filepath, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
-        except UnicodeDecodeError:
-            print(f"UTF-8 decoding failed for {filepath}, attempting ASCII decoding.")
-            try:
-                # Fallback to ASCII encoding
-                with open(filepath, 'r', encoding='ascii', errors='replace') as file:
-                    lines = file.readlines()
-            except UnicodeDecodeError:
-                print(f"Error decoding file: {filepath}")
+        records = parse_ide_model_records(filepath)
+        is_samp = os.path.basename(filepath).lower() in {"samp.ide", "custom.ide"}
+        for obj in context.scene.objects:
+            candidates = (
+                normalize_map_lookup_name(get_object_model_name(obj)),
+                normalize_map_lookup_name(obj.name),
+            )
+            record = next((records[name] for name in candidates if name in records), None)
+            if record is None:
                 continue
 
-        obj_data = {}
-        for key, record in parse_ide_model_records(filepath).items():
-            obj_id = record["object_id"]
-            obj_name = record["model_name"]
-            txd_name = record["txd_name"]
-            samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)
-            obj_data[key] = (samp_id, obj_name, txd_name, record)
-
-        for obj in context.scene.objects:
-            base_name = normalize_map_lookup_name(obj.name)
-            if base_name in obj_data:
-                samp_id, obj_name, txd_name, record = obj_data[base_name]
-                set_map_identity_props(obj, abs(int(samp_id)), obj_name, txd_name, samp_id)
-                print(f"Assigned SAMP ID {samp_id} and TXD {txd_name} to {obj.name}")
+            source = get_metadata_source(obj)
+            model_id = int(record["object_id"])
+            if is_samp:
+                source["SAMP_ID"] = model_id
+                source["SAMP_Model"] = record["model_name"]
+                source["SAMP_TXD"] = record["txd_name"]
+                source["SAMP_IDE_File"] = filepath
+                if get_custom_prop(obj, "IPL_Original_ID") is None:
+                    source["DFF_Name"] = record["model_name"]
+                    source["TXD_Name"] = record["txd_name"]
             else:
-                print(f"No matching SAMP ID found for {obj.name}")
+                source["Retail_IDE_ID"] = model_id
+                source["Retail_IDE_Model"] = record["model_name"]
+                source["Retail_IDE_TXD"] = record["txd_name"]
+                source["Retail_IDE_File"] = filepath
+                if get_custom_prop(obj, "IPL_Original_ID") is None:
+                    set_map_identity_props(source, model_id, record["model_name"], record["txd_name"])
+
+            print("DemonFF IDE: %s %s -> %d" % (
+                "SA-MP" if is_samp else "retail", record["model_name"], model_id
+            ))
 
     print("SAMP IDE import completed for all files")
 #######################################################
 def mass_import_samp_ide(filepaths, context):
-    for filepath in filepaths:
-        if not filepath.endswith('.ide'):
-            print(f"Skipped non-IDE file: {filepath}")
-            continue
-
-        print(f"Importing SAMP IDE from {filepath}")
-        if not os.path.isfile(filepath):
-            print(f"File not found: {filepath}")
-            continue
-
-        try:
-            with open(filepath, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
-        except UnicodeDecodeError:
-            print(f"UTF-8 decoding failed for {filepath}, attempting ASCII decoding.")
-            try:
-                with open(filepath, 'r', encoding='ascii', errors='replace') as file:
-                    lines = file.readlines()
-            except UnicodeDecodeError:
-                print(f"Error decoding file: {filepath}")
-                continue
-
-        obj_data = {}
-        for key, record in parse_ide_model_records(filepath).items():
-            obj_id = record["object_id"]
-            obj_name = record["model_name"]
-            txd_name = record["txd_name"]
-            samp_id = IDE_TO_SAMP_DL_IDS.get(obj_id, obj_id)
-            obj_data[key] = (samp_id, obj_name, txd_name, record)
-
-        # Match objects in the scene with the IDE data and apply SAMP ID and TXD name
-        for obj in context.scene.objects:
-            base_name = normalize_map_lookup_name(obj.name)
-            if base_name in obj_data:
-                samp_id, obj_name, txd_name, record = obj_data[base_name]
-                samp_id = -abs(samp_id)
-                set_map_identity_props(obj, abs(int(samp_id)), obj_name, txd_name, samp_id)
-                print(f"Assigned SAMP ID {samp_id} and TXD {txd_name} to {obj.name}")
-            else:
-                print(f"No matching SAMP ID found for {obj.name}")
-
-    print("Mass SAMP IDE import completed")
+    import_ide(filepaths, context)
 #######################################################
 #######################################################
 def collect_ipl_export_objects(context, only_selected=True):
@@ -803,13 +774,70 @@ def export_ide_file(context, filename, skip_lod=False):
     return output_file, len(objs_lines) + len(tobj_lines)
 
 #######################################################
-def make_remove_building_lines(objects):
+def make_remove_building_lines(objects, catalog=None):
     lines = []
+    seen = set()
+    retail_ids = (catalog or {}).get("retail_by_id", {})
+    retail_names = (catalog or {}).get("retail_by_name", {})
+
     for obj in objects:
-        obj_id = get_object_ide_id(obj, -1)
-        position, rotation, scale = get_export_transform(obj)
-        radius = 200.0
-        lines.append(f"RemoveBuildingForPlayer(playerid, {obj_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, {radius:.2f});")
+        original_id = get_custom_prop(obj, "IPL_Original_ID")
+        original_position = get_custom_prop(obj, "IPL_Original_Position")
+        original_name = get_custom_prop(obj, "IPL_Original_Model")
+        if original_id is None:
+            original_id = get_custom_prop(obj, "Retail_IDE_ID")
+        if original_id is None:
+            original_id = get_object_ide_id(obj, -1)
+        if not original_name:
+            original_name = get_custom_prop(obj, "Retail_IDE_Model", get_object_model_name(obj))
+
+        try:
+            model_id = int(original_id)
+        except (TypeError, ValueError):
+            print("DemonFF RemoveBuilding: no original IDE ID for %s" % obj.name)
+            continue
+        if model_id < 0 or model_id >= 18631:
+            print("DemonFF RemoveBuilding: %s is not a retail building ID (%d)" % (obj.name, model_id))
+            continue
+        if (model_id in samp_data.SAMP_CUSTOM_IDE_RANGE
+                and model_id not in retail_ids
+                and get_custom_prop(obj, "Retail_IDE_ID") is None):
+            print("DemonFF RemoveBuilding: custom IDE range requires retail verification for %s" % obj.name)
+            continue
+
+        retail_record = retail_ids.get(model_id)
+        matching_name = retail_names.get(samp_data.normalize_model_name(original_name))
+        if retail_ids and retail_record is None:
+            print("DemonFF RemoveBuilding: retail IDE has no model ID %d (%s)" % (model_id, obj.name))
+            continue
+        if (retail_record
+                and samp_data.normalize_model_name(retail_record["model"]) != samp_data.normalize_model_name(original_name)
+                and not (matching_name and matching_name["id"] == model_id)):
+            print("DemonFF RemoveBuilding: retail IDE ID/name mismatch for %s" % obj.name)
+            continue
+        if matching_name and matching_name["id"] != model_id:
+            print("DemonFF RemoveBuilding: conflicting retail IDE ID for %s" % obj.name)
+            continue
+        if original_position is None:
+            print("DemonFF RemoveBuilding: %s has no original retail IPL position" % obj.name)
+            continue
+
+        if len(original_position) != 3:
+            print("DemonFF RemoveBuilding: %s has invalid original IPL position" % obj.name)
+            continue
+        position = tuple(float(value) for value in original_position)
+
+        radius = float(get_custom_prop(obj, "RemoveBuildingRadius", 0.25))
+        radius = max(0.01, min(200.0, radius))
+        key = (model_id,) + tuple(round(value, 4) for value in position) + (round(radius, 4),)
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(
+            "RemoveBuildingForPlayer(playerid, %d, %.6f, %.6f, %.6f, %.2f);" % (
+                model_id, position[0], position[1], position[2], radius
+            )
+        )
     return lines
 
 #######################################################
@@ -3131,6 +3159,12 @@ class pwn_exporter:
         txd_overrides = {}
 
         ide_txd_lookup = collect_ide_txd_lookup(bpy.context, output_file)
+        retail_catalog = collect_samp_retail_catalog(bpy.context, output_file)
+        removal_objects = [
+            obj for obj in objects
+            if bool(get_custom_prop(obj, "DemonFF_RemoveBuilding", False))
+        ]
+        remove_building_lines = make_remove_building_lines(removal_objects, retail_catalog)
 
         if self.txd_mode in {"PER_MODEL", "NEIGHBORHOOD"} and objects:
             model_records = build_pawn_model_records(
@@ -3164,6 +3198,8 @@ class pwn_exporter:
 
         with open(output_file, 'w', encoding='latin-1', newline='\n') as pawn_file, open(artconfig_path, 'w', encoding='latin-1', newline='\n') as artconfig_file:
             pawn_file.write("// Generated by DemonFF\n")
+            pawn_file.write("#include <a_samp>\n#include <streamer>\n\n")
+            pawn_file.write("main() {}\n\n")
             pawn_file.write("public OnGameModeInit()\n{\n")
 
             for obj in objects:
@@ -3213,8 +3249,8 @@ class pwn_exporter:
                 )
 
                 pawn_file.write(
-                    f"    CreateDynamicObject({model_id}, {position.x:.2f}, {position.y:.2f}, {position.z:.2f}, "
-                    f"{rotation[0]:.2f}, {rotation[1]:.2f}, {rotation[2]:.2f}, "
+                    f"    CreateDynamicObject({model_id}, {position.x:.6f}, {position.y:.6f}, {position.z:.6f}, "
+                    f"{rotation[0]:.6f}, {rotation[1]:.6f}, {rotation[2]:.6f}, "
                     f"{world_id}, {interior}, -1, {self.stream_distance:.2f}, {self.draw_distance:.2f});  // {obj.name}\n"
                 )
 
@@ -3253,6 +3289,11 @@ class pwn_exporter:
                 self.total_objects_num += 1
 
             pawn_file.write("    return 1;\n}\n")
+            if remove_building_lines:
+                pawn_file.write("\npublic OnPlayerConnect(playerid)\n{\n")
+                for line in remove_building_lines:
+                    pawn_file.write("    " + line + "\n")
+                pawn_file.write("    return 1;\n}\n")
 
         self.last_export_summary = {
             "output_file": output_file,
@@ -3265,6 +3306,7 @@ class pwn_exporter:
             "addsimplemodel_written": addsimplemodel_written,
             "addsimplemodel_duplicates_skipped": addsimplemodel_skipped,
             "addsimplemodel_conflicts": addsimplemodel_conflicts,
+            "remove_building_count": len(remove_building_lines),
         }
 
         for warning in asset_warnings:

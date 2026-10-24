@@ -763,6 +763,15 @@ class Map_Import_Operator(bpy.types.Operator):
         obj["IDE_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
         obj["DFF_Name"] = str(model_name)
         obj["TXD_Name"] = str(txd_name)
+        obj["IPL_Original_ID"] = int(inst.id) if str(inst.id).lstrip('-').isdigit() else inst.id
+        obj["IPL_Original_Model"] = str(model_name)
+        obj["IPL_Original_TXD"] = str(txd_name)
+        obj["IPL_Original_Position"] = (
+            float(inst.posX), float(inst.posY), float(inst.posZ)
+        )
+        obj["IPL_Original_Rotation_XYZW"] = (
+            float(inst.rotX), float(inst.rotY), float(inst.rotZ), float(inst.rotW)
+        )
         obj["IPL_Source_Interior"] = source_interior_id
         obj["IPL_Source_Role"] = str(self._map_section_role)
         if source_section is not None:

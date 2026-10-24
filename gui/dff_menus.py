@@ -34,7 +34,7 @@ from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
 from .dff_ot import SCENE_OT_dff_frame_move, SCENE_OT_dff_atomic_move, SCENE_OT_dff_update
 from .col_ot import EXPORT_OT_col, IMPORT_OT_col
 from .ifp_ot import IMPORT_OT_ifp, EXPORT_OT_ifp
-from .anim_ot import IMPORT_OT_anim, EXPORT_OT_animation
+from .anim_ot import IMPORT_OT_anim, EXPORT_OT_animation, CONVERT_OT_animation_file
 from .mdl_ot import IMPORT_OT_mdl_custom
 from ..ops import col_importer
 
@@ -1506,8 +1506,8 @@ class DFF_MT_ExportChoice(bpy.types.Menu):
                              text="DemonFF DFF (.dff/.col)")
         self.layout.operator(EXPORT_OT_col.bl_idname,
                              text="DemonFF Collision (.col)")
-        self.layout.operator(EXPORT_OT_ifp.bl_idname,
-                             text="DemonFF IFP (.ifp)")
+        self.layout.operator(EXPORT_OT_animation.bl_idname,
+                             text="DemonFF Animation (.ifp/.anim)")
 
 #######################################################
 def import_dff_func(self, context):
@@ -2903,6 +2903,8 @@ class SCENE_PT_animation_browser(bpy.types.Panel):
 
         export_row = layout.row(align=True)
         export_row.operator(EXPORT_OT_animation.bl_idname, text="Export Animation", icon='EXPORT')
+
+        layout.operator(CONVERT_OT_animation_file.bl_idname, text="Convert ANIM / IFP", icon='FILE_REFRESH')
 
         layout.prop(context.scene, "demonff_animation_search", text="", icon='VIEWZOOM')
 

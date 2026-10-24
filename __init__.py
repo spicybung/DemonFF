@@ -138,6 +138,7 @@ _classes = [
     gui.IMPORT_OT_anim,
     gui.EXPORT_OT_ifp,
     gui.EXPORT_OT_animation,
+    gui.CONVERT_OT_animation_file,
     gui.MESSAGE_OT_missing_bones,
     gui.SCENE_OT_assign_action_to_object,
     gui.SCENE_PT_animation_browser,
@@ -255,6 +256,8 @@ def register():
     except Exception:
         pass
 
+    from .ops.animation_channels import registerAnimationEvents
+    registerAnimationEvents()
     State.hook_events()
     try:
         State.update_scene()
@@ -266,6 +269,8 @@ def register():
 def unregister():
     samp_test.stop_server_process()
     State.unhook_events()
+    from .ops.animation_channels import unregisterAnimationEvents
+    unregisterAnimationEvents()
 
     import_menu = getattr(bpy.types, "TOPBAR_MT_file_import", None)
     export_menu = getattr(bpy.types, "TOPBAR_MT_file_export", None)

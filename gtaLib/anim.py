@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
-from ..data.bone_data import PED_ANIM_HASH16_TO_DIRECT_ID
+from ..data.bone_data import PED_ANIM_HASH16_TO_DIRECT_ID, STORIES_ANIM_HASH_NAMES
 
 
 class AnimReadError(ValueError):
@@ -466,6 +466,7 @@ class AnimExportBone:
     export_translation: bool = False
     export_scale: bool = False
     direct_id_marker: bool = True
+    extra_flags: int = 0
 
 
 @dataclass
@@ -473,6 +474,7 @@ class AnimExportEntry:
     name: str
     bones: List[AnimExportBone]
     unk0: int = 0
+    total_time: Optional[float] = None
 
 
 def floatToHalfBits(value: float) -> int:
@@ -514,6 +516,19 @@ def buildAnimBytes(entries: Sequence[AnimExportEntry], pad_to_sector: bool = Fal
     for entry in entries:
         if not entry.bones:
             raise ValueError(f'ANIM animation {entry.name!r} has no animated bones')
+        if len(entry.bones) > 65535:
+            raise ValueError('ANIM bone count exceeds 65535')
+        for bone in entry.bones:
+            if len(bone.frames) > 65535:
+                raise ValueError('ANIM frame count exceeds 65535')
+            if not (bone.export_rotation or bone.export_translation or bone.export_scale):
+                raise ValueError('ANIM bone has no enabled channels')
+            for frame in bone.frames:
+                if not math.isfinite(frame.time) or frame.time < 0.0:
+                    raise ValueError('ANIM key time must be finite and non-negative')
+                values = tuple(frame.rotation_xyzw) + tuple(frame.translation_xyz) + tuple(frame.scale_xyz)
+                if not all(math.isfinite(value) and abs(value) <= 65504.0 for value in values):
+                    raise ValueError('ANIM frame value is outside the finite half-float range')
 
     buffer = bytearray(0x20)
     buffer[0:4] = b'mina'
@@ -559,12 +574,11 @@ def buildAnimBytes(entries: Sequence[AnimExportEntry], pad_to_sector: bool = Fal
             frames = sorted(list(bone.frames or ()), key=lambda item: float(item.time))
             if not frames:
                 frames = [AnimExportFrame(0.0, (0.0, 0.0, 0.0, 1.0))]
-            base_time = float(frames[0].time)
             normalized: List[AnimExportFrame] = []
             for frame in frames:
                 normalized.append(
                     AnimExportFrame(
-                        time=max(0.0, float(frame.time) - base_time),
+                        time=max(0.0, float(frame.time)),
                         rotation_xyzw=tuple(float(value) for value in frame.rotation_xyzw),
                         translation_xyz=tuple(float(value) for value in frame.translation_xyz),
                         scale_xyz=tuple(float(value) for value in frame.scale_xyz),
@@ -584,8 +598,10 @@ def buildAnimBytes(entries: Sequence[AnimExportEntry], pad_to_sector: bool = Fal
 
                 current_time = max(previous_time, float(frame.time))
                 delta_time = current_time if frame_index == 0 else current_time - previous_time
+                if delta_time > 65504.0:
+                    raise ValueError('ANIM time delta exceeds the finite half-float range')
                 buffer.extend(packHalf(max(0.0, delta_time)))
-                previous_time = current_time
+                previous_time += halfToFloat(floatToHalfBits(max(0.0, delta_time)))
 
                 if bone.export_translation:
                     buffer.extend(packHalf3(frame.translation_xyz))
@@ -617,11 +633,18 @@ def buildAnimBytes(entries: Sequence[AnimExportEntry], pad_to_sector: bool = Fal
         for frames in normalized_frames[entry_index]:
             if frames:
                 total_time = max(total_time, float(frames[-1].time))
+        if entry.total_time is not None:
+            try:
+                requested_total_time = float(entry.total_time)
+            except (TypeError, ValueError):
+                requested_total_time = total_time
+            if math.isfinite(requested_total_time) and requested_total_time >= 0.0:
+                total_time = max(total_time, requested_total_time)
         struct.pack_into('<f', buffer, record_position + 32, float(total_time))
 
         for bone_index, bone in enumerate(entry.bones):
             bone_position = bone_record_positions[entry_index][bone_index]
-            flags = 0x0010 if bone.direct_id_marker else 0x0000
+            flags = (0x0010 if bone.direct_id_marker else 0x0000) | (int(bone.extra_flags) & ~0x0017)
             if bone.export_rotation:
                 flags |= 0x0001
             if bone.export_translation:
@@ -667,6 +690,10 @@ def resolvePedAnimBoneId(bone: BoneAnim) -> Tuple[Optional[int], str]:
     if int(bone.hash16) in PED_ANIM_HASH16_TO_DIRECT_ID:
         return int(PED_ANIM_HASH16_TO_DIRECT_ID[int(bone.hash16)]), "hash16-ped-id bridge"
     return None, "unresolved"
+
+def resolveAnimBoneName(bone: BoneAnim) -> Optional[str]:
+    return STORIES_ANIM_HASH_NAMES.get(int(bone.bone_key))
+
 
 def formatAnimBoneTarget(bone: BoneAnim) -> str:
     direct_id, reason = resolvePedAnimBoneId(bone)
@@ -778,7 +805,7 @@ def sampleBoneAnimFrameAtTime(bone: BoneAnim, time_value: float) -> Optional[Ani
 
     return frames[-1]
 
-def buildAnimationTimeline(entry: AnimEntry, max_key_times: int = 512) -> List[float]:
+def buildAnimationTimeline(entry: AnimEntry, max_key_times: Optional[int] = None) -> List[float]:
     times = {0.0, max(0.0, float(entry.total_time))}
     for bone in entry.bones:
         for anim_frame in bone.frames:
@@ -786,7 +813,7 @@ def buildAnimationTimeline(entry: AnimEntry, max_key_times: int = 512) -> List[f
             if math.isfinite(value) and value >= 0.0:
                 times.add(round(value, 6))
     ordered = sorted(times)
-    if len(ordered) <= int(max_key_times):
+    if max_key_times is None or len(ordered) <= int(max_key_times):
         return ordered
 
     if int(max_key_times) < 2:

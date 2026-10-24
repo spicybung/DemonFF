@@ -1,0 +1,4 @@
+Required includes:
+
+    a_samp.inc    from the SA-MP 0.3.DL server package
+    streamer.inc  from the same release as plugins\streamer.dll

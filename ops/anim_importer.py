@@ -103,6 +103,11 @@ def buildPoseBoneLookup(armature_object) -> Tuple[Dict[int, object], Dict[int, o
             if table_index is not None:
                 by_table_index.setdefault(table_index, pose_bone)
 
+    import zlib
+    for pose_bone in armature_object.pose.bones:
+        for name in (pose_bone.name, pose_bone.name.strip(), pose_bone.name.strip().replace('_', ' ')):
+            key = zlib.crc32(name.upper().encode('latin-1', errors='replace')) ^ 0xFFFFFFFF
+            by_bone_key.setdefault(key, pose_bone)
     return by_direct_id, by_bone_key, by_hash16, by_table_index, direct_id_source
 
 def findPoseBoneByNameFallback(armature_object, direct_bone_id: int):
@@ -1155,12 +1160,17 @@ def applyAnimEntryToArmature(
         action["DemonFF_ANIM_Source_Name"] = entry.name
         action["DemonFF_ANIM_Source_Index"] = int(entry.index)
         action["DemonFF_ANIM_Total_Time"] = float(entry.total_time)
+        action["DemonFF_ANIM_Start_Frame"] = float(start_frame)
+        action["DemonFF_ANIM_Imported_Action"] = True
         action["DemonFF_ANIM_Pose_Space_Mode"] = str(pose_space_mode)
         action.use_fake_user = True
         armature_object.animation_data.action = action
     else:
         action = armature_object.animation_data.action
 
+    if clear_existing_action:
+        for pose_bone in armature_object.pose.bones:
+            pose_bone.matrix_basis = Matrix.Identity(4)
     lookup = buildPoseBoneLookup(armature_object)
     mapped_count = 0
     keyed_count = 0
@@ -1189,99 +1199,59 @@ def applyAnimEntryToArmature(
             f"MAPPED bone[{bone.table_index:02d}] {formatAnimBoneTarget(bone)} -> {pose_bone.name!r} via {reason}; frames={len(bone.frames)}"
         )
 
+    from .animation_channels import resetUnkeyedActionChannels, writeActionChannel
     mode = str(pose_space_mode).upper()
-    if shouldLogPedWeaponAbsoluteLocalMode(armature_object, entry, mode):
-        log_lines.append("AUTO pose mode: weapon PED animation uses MDL_ABSOLUTE_POSE / recursive absolute MDL-local solver; PLR raw-delta is not forced")
-        mode = "MDL_ABSOLUTE_POSE"
-    if mode in ("MDL_ABSOLUTE_POSE", "ABSOLUTE_POSE", "ABSOLUTE_MDL_POSE"):
-        keyed_count, solver_lines = applyAnimEntryAsAbsolutePose(
-            armature_object,
-            entry,
-            mapped_items,
-            fps=fps,
-            start_frame=start_frame,
-            apply_rotation=apply_rotation,
-            apply_translation=apply_translation,
-            translation_scale=translation_scale,
-            apply_root_motion=apply_root_motion,
-        )
-        log_lines.extend(solver_lines)
-    else:
-        for bone, pose_bone, _reason in mapped_items:
-            rest_source_for_log = None
-            for anim_frame in bone.frames:
-                frame_number = float(start_frame) + float(anim_frame.absolute_time) * float(fps)
-
-                if mode == "RAW_BASIS":
-                    keyed_here = applyPoseFrameRawBasis(
-                        pose_bone,
-                        anim_frame,
-                        bone,
-                        apply_rotation=apply_rotation,
-                        apply_translation=apply_translation,
-                        translation_scale=translation_scale,
-                    )
-                    if apply_rotation and bone.has_rotation:
-                        pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_number)
-                    if apply_translation and bone.has_translation:
-                        pose_bone.keyframe_insert(data_path="location", frame=frame_number)
-                    keyed_count += keyed_here
-                elif mode in ("MDL_REST_DELTA", "DEFAULT", "", "MDL_REST_ROTATION_DELTA", "PED_REST_ROTATION_DELTA", "SAFE_DELTA"):
-                    keyed_here, rest_source = applyPoseFrameRestDelta(
-                        armature_object,
-                        pose_bone,
-                        anim_frame,
-                        bone,
-                        apply_rotation=apply_rotation,
-                        apply_translation=apply_translation,
-                        translation_scale=translation_scale,
-                        apply_root_motion=apply_root_motion,
-                    )
-                    rest_source_for_log = rest_source_for_log or rest_source
-                    if keyed_here:
-                        pose_bone.keyframe_insert(data_path="location", frame=frame_number)
-                        pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_number)
-                        pose_bone.keyframe_insert(data_path="scale", frame=frame_number)
-                        keyed_count += 1
-                elif mode in ("PLR_REST_ROTATION_DELTA", "RAW_REST_ROTATION_DELTA", "DEBUG_PLR_REST_ROTATION_DELTA"):
-                    keyed_here = applyPoseFramePlrRestRotationDelta(
-                        armature_object,
-                        pose_bone,
-                        anim_frame,
-                        bone,
-                        apply_rotation=apply_rotation,
-                        apply_translation=apply_translation,
-                        translation_scale=translation_scale,
-                        apply_root_motion=apply_root_motion,
-                    )
-                    if keyed_here:
-                        if apply_translation and bone.has_translation:
-                            pose_bone.keyframe_insert(data_path="location", frame=frame_number)
-                        if apply_rotation and bone.has_rotation:
-                            pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_number)
-                        pose_bone.keyframe_insert(data_path="scale", frame=frame_number)
-                        keyed_count += keyed_here
-                    rest_source_for_log = rest_source_for_log or "debug PLR/raw rest rotation delta"
-                else:
-                    keyed_here, rest_source = applyPoseFrameRestDelta(
-                        armature_object,
-                        pose_bone,
-                        anim_frame,
-                        bone,
-                        apply_rotation=apply_rotation,
-                        apply_translation=apply_translation,
-                        translation_scale=translation_scale,
-                        apply_root_motion=apply_root_motion,
-                    )
-                    rest_source_for_log = rest_source_for_log or rest_source
-                    if keyed_here:
-                        pose_bone.keyframe_insert(data_path="location", frame=frame_number)
-                        pose_bone.keyframe_insert(data_path="rotation_quaternion", frame=frame_number)
-                        pose_bone.keyframe_insert(data_path="scale", frame=frame_number)
-                        keyed_count += 1
-
-            if rest_source_for_log:
-                log_lines.append(f"    applied using {rest_source_for_log}")
+    if mode in ('DEFAULT', '', 'MDL_REST_ROTATION_DELTA', 'PED_REST_ROTATION_DELTA', 'SAFE_DELTA'):
+        mode = 'MDL_REST_DELTA'
+    for source_bone, pose_bone, reason in mapped_items:
+        rotations = []
+        locations = []
+        scales = []
+        previous_rotation = None
+        direct_id, direct_reason = resolvePedAnimBoneId(source_bone)
+        root_locked = direct_id == 0 and not apply_root_motion
+        for source_frame in source_bone.frames:
+            if mode == 'RAW_BASIS':
+                applyPoseFrameRawBasis(pose_bone, source_frame, source_bone,
+                    apply_rotation=apply_rotation, apply_translation=apply_translation and not root_locked,
+                    translation_scale=translation_scale)
+            elif mode in ('MDL_ABSOLUTE_POSE', 'ABSOLUTE_POSE', 'ABSOLUTE_MDL_POSE'):
+                source_rest, rest_source = getImportedMdlRestLocalMatrix(armature_object, pose_bone)
+                local = composeAnimLocalMatrix(source_frame, source_rest, bone=source_bone,
+                    apply_rotation=apply_rotation, apply_translation=apply_translation and not root_locked,
+                    translation_scale=translation_scale)
+                blender_rest = getBlenderRestLocalMatrix(armature_object, pose_bone)
+                pose_bone.matrix_basis = blender_rest.inverted_safe() @ local
+            elif mode in ('PLR_REST_ROTATION_DELTA', 'RAW_REST_ROTATION_DELTA', 'DEBUG_PLR_REST_ROTATION_DELTA'):
+                applyPoseFramePlrRestRotationDelta(armature_object, pose_bone, source_frame, source_bone,
+                    apply_rotation=apply_rotation, apply_translation=apply_translation,
+                    translation_scale=translation_scale, apply_root_motion=apply_root_motion)
+            else:
+                applyPoseFrameRestDelta(armature_object, pose_bone, source_frame, source_bone,
+                    apply_rotation=apply_rotation, apply_translation=apply_translation,
+                    translation_scale=translation_scale, apply_root_motion=apply_root_motion)
+            frame = float(start_frame) + source_frame.absolute_time * float(fps)
+            location, rotation, scale = pose_bone.matrix_basis.decompose()
+            if previous_rotation is not None and previous_rotation.dot(rotation) < 0.0:
+                rotation.negate()
+            previous_rotation = rotation.copy()
+            if apply_rotation and source_bone.has_rotation:
+                rotations.append((frame, tuple(rotation)))
+            if apply_translation and source_bone.has_translation and not root_locked:
+                locations.append((frame, tuple(location)))
+            if source_bone.has_scale:
+                scales.append((frame, tuple(scale)))
+            keyed_count += 1
+        for channel, samples in (('rotation_quaternion', rotations), ('location', locations), ('scale', scales)):
+            writeActionChannel(action, pose_bone.name, channel, samples)
+    action['DemonFF_ANIM_Pose_Space_Mode'] = mode
+    action['DemonFF_ANIM_Rotation_Applied'] = bool(apply_rotation)
+    action['DemonFF_ANIM_Translation_Applied'] = bool(apply_translation)
+    action['DemonFF_ANIM_Root_Motion_Applied'] = bool(apply_root_motion)
+    action['DemonFF_ANIM_FPS'] = float(fps)
+    action['DemonFF_ANIM_Importer_Version'] = 28
+    resetUnkeyedActionChannels(armature_object, action)
+    log_lines.append('Sparse ANIM import: source bone times retained; linear quaternion channels')
 
     end_frame = float(start_frame) + max(0.0, float(entry.total_time)) * float(fps)
     scene = bpy.context.scene
@@ -1298,6 +1268,13 @@ def applyAnimEntryToArmature(
         action["DemonFF_ANIM_Unk0"] = int(getattr(entry, "unk0", 0))
         action["DemonFF_ANIM_Translation_Scale"] = float(translation_scale)
 
+        mapped_indices = {source_bone.table_index for source_bone, pose_bone, reason in mapped_items}
+        action['DemonFF_ANIM_Unmapped_Tracks'] = json.dumps([
+            {'flags': int(bone.flags), 'bone_key': int(bone.bone_key),
+             'table_index': int(bone.table_index), 'direct_bone_id': bone.direct_bone_id,
+             'frames': [[frame.absolute_time, list(frame.rotation_xyzw), list(frame.translation_xyz), list(frame.scale_xyz)] for frame in bone.frames]}
+            for bone in entry.bones if bone.table_index not in mapped_indices
+        ], separators=(',', ':'))
         track_metadata = {}
         for source_bone, mapped_pose_bone, mapping_reason in mapped_items:
             direct_bone_id, _direct_reason = resolvePedAnimBoneId(source_bone)
@@ -1307,6 +1284,10 @@ def applyAnimEntryToArmature(
                 "direct_bone_id": None if direct_bone_id is None else int(direct_bone_id),
                 "table_index": int(source_bone.table_index),
                 "mapping_reason": str(mapping_reason),
+                "source_frames": [
+                    [float(frame.absolute_time), list(frame.rotation_xyzw), list(frame.translation_xyz), list(frame.scale_xyz)]
+                    for frame in source_bone.frames
+                ],
             }
         action["DemonFF_ANIM_Track_Metadata"] = json.dumps(
             track_metadata,
@@ -1340,26 +1321,38 @@ def buildImportSummary(
     keyed_count: int = 0,
     mapping_lines: Optional[List[str]] = None,
 ) -> str:
-    lines: List[str] = []
-    lines.append(f"Source: {source_path}")
+    from ..gtaLib.anim import resolveAnimBoneName
+
+    lines = [
+        f"File: {source_path}",
+        f"Animation: {entry.name}",
+        f"Duration: {entry.total_time:.3f} seconds",
+    ]
+    metadata = {}
     if armature_object is not None:
-        lines.append(f"Armature: {getattr(armature_object, 'name', '<unknown>')}")
-    lines.append(anim_file.summaryText(include_bones=True))
-    lines.append("")
-    lines.append(f"Selected animation: [{entry.index:02d}] {entry.name}")
-    lines.append(f"Mapped bones: {mapped_count}/{len(entry.bones)}")
-    lines.append(f"Keyed channels: {keyed_count}")
-    if armature_object is not None:
-        lines.append("")
-        lines.append("Hash -> bone_id pipeline diagnostic:")
-        lines.extend(buildMappingDiagnosticLines(armature_object, entry))
-    if mapping_lines:
-        lines.append("")
-        lines.append("Mapping:")
-        lines.extend(mapping_lines)
+        lines.append(f"Model: {armature_object.name}")
+        animation_data = armature_object.animation_data
+        action = animation_data.action if animation_data is not None else None
+        if action is not None and action.get('DemonFF_ANIM_Source_Name') == entry.name:
+            metadata = json.loads(str(action.get('DemonFF_ANIM_Track_Metadata', '{}')))
+        lines.append(f"Bones matched: {mapped_count} of {len(entry.bones)}")
+        lines.append(f"Bone keys imported: {keyed_count}")
+
+    targets = {int(track['table_index']): name.strip() for name, track in metadata.items()}
+    rows = [('File Bone', 'ID', 'Keys', 'Model Bone')]
+    for bone in entry.bones:
+        direct_id, reason = resolvePedAnimBoneId(bone)
+        names = DIRECT_ID_NAME_HINTS.get(direct_id, ())
+        name = resolveAnimBoneName(bone) or (names[0] if names else f"Bone {bone.table_index}")
+        target = targets.get(bone.table_index, 'Not on model' if metadata else 'Not applied')
+        rows.append((name, str(direct_id) if direct_id is not None else '-', str(len(bone.frames)), target))
+    widths = [max(len(row[index]) for row in rows) for index in range(4)]
+    lines.extend(['', 'Bone Matching'])
+    for row in rows:
+        lines.append('  '.join(value.ljust(widths[index]) for index, value in enumerate(row)).rstrip())
+
     if anim_file.log_text:
-        lines.append("")
-        lines.append("Parser log:")
+        lines.extend(['', 'File Details'])
         lines.append(anim_file.log_text)
     return "\n".join(lines)
 

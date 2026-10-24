@@ -17,8 +17,8 @@ from ..data.bone_data import DIRECT_ID_PROPERTY_NAMES, PED_ANIM_HASH16_TO_DIRECT
 
 class IMPORT_OT_anim(Operator, ImportHelper):
     bl_idname = "import_scene.demonff_anim"
-    bl_label = "Import DemonFF ANIM"
-    bl_description = "Import GTA Liberty City Stories / Vice City Stories .anim animation data"
+    bl_label = "Import ANIM"
+    bl_description = "Import animations from GTA Liberty City Stories or Vice City Stories"
     bl_options = {"REGISTER", "UNDO"}
 
     filename_ext = ".anim"
@@ -28,81 +28,99 @@ class IMPORT_OT_anim(Operator, ImportHelper):
         maxlen=255,
     )
 
+    import_all_animations: BoolProperty(
+        name="Import All Animations",
+        description="Create a separate Blender action for each animation in the file",
+        default=True,
+    )
+
+    print_txt_log: BoolProperty(
+        name="Save Text Log",
+        description="Save a dated .txt log next to the animation file",
+        default=False,
+    )
+
     animation_index: IntProperty(
-        name="Animation Index",
-        description="Zero-based animation index inside the ANIM container",
+        name="Animation Number",
+        description="Animation to import; 0 is the first animation in the file",
         default=0,
         min=0,
     )
 
     apply_to_selected_armature: BoolProperty(
-        name="Apply to Selected Armature",
-        description="Create an Action on the selected/imported GTA Stories armature",
+        name="Apply to Selected Model",
+        description="Apply the animation to the selected model or armature; disable to read the file only",
         default=True,
     )
 
     create_text_summary: BoolProperty(
-        name="Create Text Summary",
-        description="Create a Blender Text datablock with parsed animation and mapping information",
+        name="Save Report in Blender",
+        description="Keep an import report in Blender's Text Editor",
         default=True,
     )
 
     apply_rotation: BoolProperty(
-        name="Apply Rotation",
-        description="Key quaternion rotation channels from the ANIM file",
+        name="Bone Rotation",
+        description="Import changes to bone angles",
         default=True,
     )
 
     apply_translation: BoolProperty(
-        name="Apply Translation",
-        description="Key translation channels; normally leave off for weapon/body PED clips",
+        name="Bone Movement",
+        description="Import changes to bone positions",
         default=False,
     )
 
     apply_root_motion: BoolProperty(
-        name="Apply Root Translation",
-        description="Apply ANIM bone-id 0 translation in addition to root rotation",
+        name="Move Whole Model",
+        description="Include movement of the root bone",
         default=False,
     )
 
     pose_space_mode: EnumProperty(
-        name="Pose Space",
-        description="How decoded Stories ANIM local transforms are converted into Blender pose channels",
+        name="Animation Method",
+        description="How the animation is applied to the model's bones",
         items=(
             (
                 "MDL_REST_DELTA",
-                "Blender-Space Rest Delta",
-                "Default for DemonFF/BLeeds Stories ped rigs; solve decoded ANIM transforms against the imported MDL rest pose",
+                "Match Model",
+                "Adjust the animation to the model's original bone positions and angles",
             ),
             (
                 "PLR_REST_ROTATION_DELTA",
-                "Raw ANIM Quaternion Delta",
-                "Debug mode using decoded ANIM rotations as raw rest-relative deltas",
+                "Relative Rotation",
+                "Treat the file's bone rotations as changes from the model's original pose",
             ),
             (
                 "MDL_ABSOLUTE_POSE",
-                "MDL Absolute Pose",
-                "Solve the complete pose recursively through the imported MDL hierarchy",
+                "Use File Pose",
+                "Use the file's bone angles and any enabled movement directly",
             ),
             (
                 "RAW_BASIS",
-                "Raw Blender Basis",
-                "Write decoded ANIM quaternions directly to Blender pose-bone basis channels",
+                "Direct Values",
+                "Apply the animation values directly to Blender's bones",
             ),
         ),
         default="MDL_REST_DELTA",
     )
 
     translation_scale: FloatProperty(
-        name="Translation Scale",
-        description="Multiplier for decoded half-float translation values",
+        name="Movement Scale",
+        description="Scale imported bone movement",
         default=1.0,
         precision=6,
     )
 
+    use_scene_fps: BoolProperty(
+        name="Use Scene Frame Rate",
+        description="Use the scene frame rate so imported seconds play at the correct speed",
+        default=True,
+    )
+
     fps: FloatProperty(
-        name="FPS",
-        description="Seconds-to-Blender-frames multiplier",
+        name="Frame Rate",
+        description="Frame rate used to import the animation",
         default=30.0,
         min=1.0,
         max=240.0,
@@ -110,19 +128,19 @@ class IMPORT_OT_anim(Operator, ImportHelper):
 
     start_frame: FloatProperty(
         name="Start Frame",
-        description="Blender frame used for ANIM time zero",
+        description="Frame where the animation starts",
         default=1.0,
     )
 
     use_name_fallback: BoolProperty(
-        name="Use Name Fallback",
-        description="Use GTA-style bone names when imported numeric ID properties are unavailable",
+        name="Match Bone Names",
+        description="Try bone names when a bone cannot be matched by its number",
         default=True,
     )
 
     use_table_index_fallback: BoolProperty(
-        name="Use Table Index Fallback",
-        description="Use bone-table order only when the destination armature order matches the ANIM table",
+        name="Match Bone Order",
+        description="Try the order of bones in the file when their names and numbers do not match",
         default=False,
     )
 
@@ -133,9 +151,16 @@ class IMPORT_OT_anim(Operator, ImportHelper):
     )
 
     print_log: BoolProperty(
-        name="Print Log",
-        description="Print ANIM parser and mapping diagnostics to Blender's System Console",
+        name="Console Log",
+        description="Write import details to Blender's System Console",
         default=False,
+    )
+
+    show_advanced: BoolProperty(
+        name="Advanced",
+        description="Show animation methods and bone matching options",
+        default=False,
+        options={'SKIP_SAVE'},
     )
 
     def draw(self, context):
@@ -144,32 +169,46 @@ class IMPORT_OT_anim(Operator, ImportHelper):
         layout.use_property_decorate = False
 
         column = layout.column(align=True)
-        column.prop(self, "animation_index")
+        column.prop(self, "import_all_animations")
+        if not self.import_all_animations:
+            column.prop(self, "animation_index")
         column.prop(self, "apply_to_selected_armature")
-        column.prop(self, "create_text_summary")
+        if not self.import_all_animations:
+            column.prop(self, "clear_existing_action")
 
         box = layout.box()
-        box.label(text="Channels")
+        box.label(text="Bone Animation")
         column = box.column(align=True)
         column.prop(self, "apply_rotation")
         column.prop(self, "apply_translation")
-        column.prop(self, "pose_space_mode")
-        column.prop(self, "apply_root_motion")
-        column.prop(self, "translation_scale")
+        movement = column.column(align=True)
+        movement.enabled = self.apply_translation
+        movement.prop(self, "apply_root_motion")
+        movement.prop(self, "translation_scale")
 
         box = layout.box()
-        box.label(text="Timing")
+        box.label(text="Playback")
         column = box.column(align=True)
-        column.prop(self, "fps")
+        column.prop(self, "use_scene_fps")
+        if not self.use_scene_fps:
+            column.prop(self, "fps")
         column.prop(self, "start_frame")
 
         box = layout.box()
-        box.label(text="Mapping")
+        box.label(text="Reports")
         column = box.column(align=True)
-        column.prop(self, "use_name_fallback")
-        column.prop(self, "use_table_index_fallback")
-        column.prop(self, "clear_existing_action")
+        column.prop(self, "create_text_summary")
         column.prop(self, "print_log")
+        column.prop(self, "print_txt_log")
+
+        layout.prop(self, "show_advanced", icon='TRIA_DOWN' if self.show_advanced else 'TRIA_RIGHT', emboss=False)
+        if self.show_advanced:
+            box = layout.box()
+            box.prop(self, "pose_space_mode")
+            box.label(text="Bone Matching")
+            column = box.column(align=True)
+            column.prop(self, "use_name_fallback")
+            column.prop(self, "use_table_index_fallback")
 
     def execute(self, context):
         try:
@@ -189,107 +228,78 @@ class IMPORT_OT_anim(Operator, ImportHelper):
             return {"CANCELLED"}
 
         if not anim_file.animations:
-            self.report({"ERROR"}, "ANIM file parsed but contains no animations")
+            self.report({"ERROR"}, "No animations were found in this file")
             return {"CANCELLED"}
 
-        if self.animation_index >= len(anim_file.animations):
-            self.report(
-                {"ERROR"},
-                f"Animation Index {self.animation_index} is out of range; file has {len(anim_file.animations)} animation(s)",
-            )
-            return {"CANCELLED"}
-
-        entry = anim_file.animations[self.animation_index]
+        if not self.import_all_animations and self.animation_index >= len(anim_file.animations):
+            self.report({'ERROR'}, 'Animation Number must be between 0 and ' + str(len(anim_file.animations) - 1))
+            return {'CANCELLED'}
         selected_armature = anim_importer.findSelectedArmature(context)
-
         if self.apply_to_selected_armature and selected_armature is None:
-            self.report({"ERROR"}, "Select an armature, an imported MDL mesh part, or its imported MDL root")
-            return {"CANCELLED"}
-
+            self.report({'ERROR'}, 'Select a model or armature to animate')
+            return {'CANCELLED'}
         if self.apply_to_selected_armature:
+            selected_game = str(selected_armature.get('bleeds_model_game', '') or '').upper().strip()
+            if selected_game in {'MH2', 'MANHUNT_2', 'MH1', 'MANHUNT', 'MANHUNT_1'}:
+                self.report({'ERROR'}, 'Import Manhunt animations with Import IFP')
+                return {'CANCELLED'}
+        effective_fps = context.scene.render.fps / max(context.scene.render.fps_base, 1e-8) if self.use_scene_fps else self.fps
+        entries = anim_file.animations if self.import_all_animations else [anim_file.animations[self.animation_index]]
+        summaries = ['DemonFF 0.6.9b ANIM Import Log', 'importer_build=ANIMATION-28']
+        created_actions = []
+        mapped_total = 0
+        source_total = sum(len(entry.bones) for entry in entries)
+        try:
+            for entry in entries:
+                mapped_count = 0
+                keyed_count = 0
+                mapping_lines = []
+                if self.apply_to_selected_armature:
+                    mapped_count, keyed_count, mapping_lines = anim_importer.applyAnimEntryToArmature(
+                        selected_armature, entry, self.filepath,
+                        fps=effective_fps, start_frame=self.start_frame,
+                        apply_rotation=self.apply_rotation, apply_translation=self.apply_translation,
+                        translation_scale=self.translation_scale, use_name_fallback=self.use_name_fallback,
+                        use_table_index_fallback=self.use_table_index_fallback,
+                        clear_existing_action=True if self.import_all_animations else self.clear_existing_action,
+                        pose_space_mode=self.pose_space_mode, apply_root_motion=self.apply_root_motion,
+                    )
+                    created_actions.append(selected_armature.animation_data.action)
+                mapped_total += mapped_count
+                summaries.append(anim_importer.buildImportSummary(
+                    anim_file, entry, self.filepath, armature_object=selected_armature,
+                    mapped_count=mapped_count, keyed_count=keyed_count, mapping_lines=mapping_lines))
+            if created_actions:
+                from ..ops.animation_channels import resetUnkeyedActionChannels
+                selected_armature.animation_data.action = created_actions[0]
+                resetUnkeyedActionChannels(selected_armature, created_actions[0])
+                context.scene.frame_set(int(self.start_frame), subframe=self.start_frame - int(self.start_frame))
+        except Exception as error:
+            summaries.append('ERROR: ' + str(error))
+            anim_importer.ensureTextBlock('DemonFF_ANIM_import_failed', '\n\n'.join(summaries))
+            self.report({'ERROR'}, 'Could not apply ANIM: ' + str(error))
+            return {'CANCELLED'}
+        summary = '\n\n'.join(summaries)
+        if self.create_text_summary:
+            anim_importer.ensureTextBlock('DemonFF_ANIM_' + Path(self.filepath).stem[:40], summary)
+        if self.print_log:
+            print(summary)
+        if self.print_txt_log:
+            from datetime import datetime
+            source = Path(self.filepath)
+            stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+            log_path = source.with_name(source.name + '.DemonFF-0.6.9b-anim-' + stamp + '.txt')
             try:
-                selected_game = str(selected_armature.get("bleeds_model_game", "") or "").upper().strip()
-            except Exception:
-                selected_game = ""
-            if selected_game in {"MH2", "MANHUNT_2", "MH1", "MANHUNT", "MANHUNT_1"}:
-                self.report(
-                    {"ERROR"},
-                    "Stories .anim is not a Manhunt animation container. Use DemonFF IFP (.ifp) for Manhunt animations.",
-                )
-                return {"CANCELLED"}
+                with log_path.open('x', encoding='utf-8', newline='\n') as output:
+                    output.write('Import time: ' + datetime.now().isoformat(timespec='microseconds') + '\n')
+                    output.write('Imported file: ' + str(source.resolve()) + '\n\n' + summary + '\n')
+                self.report({'INFO'}, 'ANIM log saved: ' + str(log_path))
+            except OSError as error:
+                self.report({'WARNING'}, 'Could not save ANIM log: ' + str(error))
+        message = f'Imported {len(entries)} animations; matched {mapped_total} of {source_total} bones' if self.apply_to_selected_armature else f'Read {len(entries)} animations'
+        self.report({'INFO'}, message)
+        return {'FINISHED'}
 
-        mapping_lines: List[str] = []
-        mapped_count = 0
-        keyed_count = 0
-
-        if self.apply_to_selected_armature:
-            try:
-                mapped_count, keyed_count, mapping_lines = anim_importer.applyAnimEntryToArmature(
-                    selected_armature,
-                    entry,
-                    self.filepath,
-                    fps=self.fps,
-                    start_frame=self.start_frame,
-                    apply_rotation=self.apply_rotation,
-                    apply_translation=self.apply_translation,
-                    translation_scale=self.translation_scale,
-                    use_name_fallback=self.use_name_fallback,
-                    use_table_index_fallback=self.use_table_index_fallback,
-                    clear_existing_action=self.clear_existing_action,
-                    pose_space_mode=self.pose_space_mode,
-                    apply_root_motion=self.apply_root_motion,
-                )
-            except Exception as exc:
-                summary = anim_importer.buildImportSummary(
-                    anim_file,
-                    entry,
-                    self.filepath,
-                    armature_object=selected_armature,
-                    mapped_count=0,
-                    keyed_count=0,
-                    mapping_lines=["ERROR: " + str(exc)],
-                )
-                anim_importer.ensureTextBlock("DemonFF_ANIM_import_failed", summary)
-                self.report({"ERROR"}, f"Could not apply ANIM: {exc}")
-                return {"CANCELLED"}
-
-        if self.create_text_summary or self.print_log:
-            summary = anim_importer.buildImportSummary(
-                anim_file,
-                entry,
-                self.filepath,
-                armature_object=selected_armature,
-                mapped_count=mapped_count,
-                keyed_count=keyed_count,
-                mapping_lines=mapping_lines,
-            )
-
-            if self.create_text_summary:
-                text_name = "DemonFF_ANIM_" + Path(self.filepath).stem[:40]
-                anim_importer.ensureTextBlock(text_name, summary)
-
-            if self.print_log:
-                print()
-                print("DemonFF 0.6.9 ANIM Import Log")
-                print(summary)
-                print()
-
-        if self.apply_to_selected_armature:
-            unmapped = len(entry.bones) - mapped_count
-            if mapped_count == 0:
-                self.report(
-                    {"WARNING"},
-                    f"Parsed {entry.name}, but mapped 0 bones. Check the DemonFF_ANIM text summary for missing IDs/keys.",
-                )
-            else:
-                self.report(
-                    {"INFO"},
-                    f"Imported {entry.name}: mapped {mapped_count}/{len(entry.bones)} bones, keyed {keyed_count} channels, unmapped {unmapped}",
-                )
-        else:
-            self.report({"INFO"}, f"Parsed {Path(self.filepath).name}; created summary only")
-
-        return {"FINISHED"}
 
 ANIM_BONE_KEY_PROPERTY_NAMES = (
     "bleeds_anim_bone_key",
@@ -405,6 +415,12 @@ def blenderBasisToMdlLocal(armature, pose_bone, basis_matrix):
     if blender_rest is None:
         blender_rest = anim_importer.getBlenderRestLocalMatrix(armature, pose_bone)
 
+    action = armature.animation_data.action if armature.animation_data else None
+    mode = str(action.get("DemonFF_ANIM_Pose_Space_Mode", "MDL_REST_DELTA")) if action else "MDL_REST_DELTA"
+    if mode == 'RAW_BASIS':
+        return basis_matrix.copy()
+    if mode in ('MDL_ABSOLUTE_POSE', 'ABSOLUTE_POSE', 'ABSOLUTE_MDL_POSE'):
+        return anim_importer.getBlenderRestLocalMatrix(armature, pose_bone) @ basis_matrix
     source_rot = anim_importer.rotationOnlyMatrix(mdl_rest)
     blender_rot = anim_importer.rotationOnlyMatrix(blender_rest)
     if source_rot is None or blender_rot is None:
@@ -413,6 +429,9 @@ def blenderBasisToMdlLocal(armature, pose_bone, basis_matrix):
     source_to_blender = anim_importer.safeMatrixInverted(blender_rot) @ source_rot
     blender_to_source = anim_importer.safeMatrixInverted(source_to_blender)
     source_delta = blender_to_source @ basis_matrix @ source_to_blender
+    if mode in ('PLR_REST_ROTATION_DELTA', 'RAW_REST_ROTATION_DELTA', 'DEBUG_PLR_REST_ROTATION_DELTA'):
+        source_delta.translation = basis_matrix.translation
+        return source_delta
     return mdl_rest @ source_delta
 
 
@@ -436,13 +455,34 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
     if abs(imported_translation_scale) <= 1e-8:
         imported_translation_scale = 1.0
 
+    action_frames = []
+    for pose_bone in armature.pose.bones:
+        bone_frames, _has_location_curve, _has_scale_curve = getActionBoneFrames(action, pose_bone.name)
+        action_frames.extend(bone_frames)
+    if not action_frames:
+        raise ValueError("Active Action contains no pose-bone keyframes")
+
+    if bool(action.get("DemonFF_ANIM_Imported_Action", False)):
+        try:
+            export_time_origin_frame = float(action.get("DemonFF_ANIM_Start_Frame", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            export_time_origin_frame = 0.0
+        if not math.isfinite(export_time_origin_frame):
+            export_time_origin_frame = 0.0
+    else:
+        export_time_origin_frame = min(action_frames)
+
     try:
         for pose_bone in armature.pose.bones:
             frames, has_location_curve, has_scale_curve = getActionBoneFrames(action, pose_bone.name)
+            source_metadata = track_metadata.get(str(pose_bone.name), {})
+            if not frames and source_metadata.get('source_frames'):
+                frames = sorted({
+                    export_time_origin_frame + float(sample[0]) * fps
+                    for sample in source_metadata['source_frames']
+                })
             if not frames:
                 continue
-
-            source_metadata = track_metadata.get(str(pose_bone.name), {})
             source_flags = int(source_metadata.get("flags", 0)) if source_metadata else 0
 
             direct_id = source_metadata.get("direct_bone_id") if source_metadata else None
@@ -482,24 +522,27 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
             if not (export_rotation_channel or export_translation_channel or export_scale_channel):
                 continue
 
-            first_frame = float(frames[0])
             export_frames = []
             for frame_number in frames:
-                whole = math.floor(float(frame_number))
-                subframe = float(frame_number) - float(whole)
-                try:
-                    context.scene.frame_set(whole, subframe=subframe)
-                except TypeError:
-                    context.scene.frame_set(whole)
-
-                basis = pose_bone.matrix_basis.copy()
+                from ..ops.animation_channels import sampleActionBoneBasis
+                basis = sampleActionBoneBasis(action, pose_bone.name, frame_number, pose_bone.rotation_mode)
                 mdl_local = blenderBasisToMdlLocal(armature, pose_bone, basis)
                 quaternion = mdl_local.to_quaternion().normalized()
                 location = mdl_local.to_translation()
                 if export_translation_channel and source_metadata:
                     location = location / imported_translation_scale
                 scale = mdl_local.to_scale()
-                time = max(0.0, (float(frame_number) - first_frame) / max(fps, 1e-8))
+                time = max(0.0, (float(frame_number) - export_time_origin_frame) / max(fps, 1e-8))
+                source_frames = source_metadata.get('source_frames', []) if source_metadata else []
+                if source_frames:
+                    nearest = min(source_frames, key=lambda sample: abs(float(sample[0]) - time))
+                    if abs(float(nearest[0]) - time) < 0.0001:
+                        if not bool(action.get('DemonFF_ANIM_Rotation_Applied', True)):
+                            quaternion = anim_importer.normalizeAnimQuaternion(tuple(nearest[1]))
+                        translation_disabled = not bool(action.get('DemonFF_ANIM_Translation_Applied', True))
+                        root_locked = direct_id == 0 and not bool(action.get('DemonFF_ANIM_Root_Motion_Applied', True))
+                        if (translation_disabled or root_locked) and not has_location_curve:
+                            location = anim_importer.Vector(nearest[2])
                 export_frames.append(
                     anim_format.AnimExportFrame(
                         time=time,
@@ -518,6 +561,7 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
                     export_translation=bool(export_translation_channel),
                     export_scale=bool(export_scale_channel),
                     direct_id_marker=bool(source_has_direct_id),
+                    extra_flags=source_flags & ~0x0017,
                 )
             )
     finally:
@@ -526,6 +570,14 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
         except TypeError:
             context.scene.frame_set(int(old_frame))
 
+    unmapped_tracks = json.loads(str(action.get('DemonFF_ANIM_Unmapped_Tracks', '[]')))
+    for track in unmapped_tracks:
+        flags = int(track['flags'])
+        frames = [anim_format.AnimExportFrame(float(frame[0]), tuple(frame[1]), tuple(frame[2]), tuple(frame[3])) for frame in track['frames']]
+        export_bones.append(anim_format.AnimExportBone(
+            int(track['bone_key']), int(track['direct_bone_id'] if track['direct_bone_id'] is not None else -1), frames,
+            bool(flags & 1), bool(flags & 2) and export_translation, bool(flags & 4) and export_scale,
+            bool(flags & 0x10), flags & ~0x17))
     if not export_bones:
         raise ValueError("Active Action has no animated bones with GTA/Stories animation BoneIDs")
 
@@ -534,7 +586,20 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
     except Exception:
         unk0 = 0
     source_name = str(action.get("DemonFF_ANIM_Source_Name", "") or action.name)
-    return anim_format.AnimExportEntry(name=source_name, bones=export_bones, unk0=unk0)
+    total_time_override = None
+    if bool(action.get("DemonFF_ANIM_Imported_Action", False)):
+        try:
+            total_time_override = float(action.get("DemonFF_ANIM_Total_Time", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            total_time_override = None
+        if total_time_override is not None and (not math.isfinite(total_time_override) or total_time_override < 0.0):
+            total_time_override = None
+    return anim_format.AnimExportEntry(
+        name=source_name,
+        bones=export_bones,
+        unk0=unk0,
+        total_time=total_time_override,
+    )
 
 
 class EXPORT_OT_animation(Operator, ExportHelper):
@@ -546,14 +611,24 @@ class EXPORT_OT_animation(Operator, ExportHelper):
     filename_ext = ".ifp"
     filter_glob: StringProperty(default="*.ifp;*.anim", options={"HIDDEN"}, maxlen=255)
 
-    export_format: EnumProperty(
-        name="Format",
-        description="Animation format to write",
+    target_game: EnumProperty(
+        name="Target Game",
+        description="Write the animation format used by the selected game",
         items=(
-            ("IFP", "IFP (.ifp)", "Export GTA RenderWare ANP3 IFP"),
-            ("ANIM", "Stories ANIM (.anim)", "Export GTA LCS/VCS relocatable ANIM"),
+            ('GTA_III', 'GTA III', 'ANPK IFP with named bone tracks'),
+            ('VICE_CITY', 'GTA Vice City', 'ANPK IFP with named bone tracks'),
+            ('SAN_ANDREAS', 'GTA San Andreas', 'ANP3 IFP with tagged and named bone tracks'),
+            ('LCS', 'GTA Liberty City Stories', 'Leeds ANIM'),
+            ('VCS', 'GTA Vice City Stories', 'Leeds ANIM'),
+            ('MANHUNT_1', 'Manhunt', 'ANCT IFP with SEQU tracks and Manhunt Animation BoneIDs'),
         ),
-        default="IFP",
+        default='SAN_ANDREAS',
+    )
+
+    block_name: StringProperty(
+        name='Block Name',
+        description='Animation block name; leave empty to retain the imported block name',
+        default='',
     )
 
     export_translation: BoolProperty(
@@ -578,14 +653,17 @@ class EXPORT_OT_animation(Operator, ExportHelper):
         layout = self.layout
         layout.use_property_split = True
         layout.use_property_decorate = False
-        layout.prop(self, "export_format")
+        layout.prop(self, "target_game")
+        if self.target_game not in ('LCS', 'VCS'):
+            layout.prop(self, 'block_name')
         layout.prop(self, "export_translation")
-        if self.export_format == "ANIM":
-            layout.prop(self, "export_scale")
-            layout.prop(self, "pad_anim_to_sector")
+        if self.target_game in ('GTA_III', 'VICE_CITY', 'LCS', 'VCS'):
+            layout.prop(self, 'export_scale')
+        if self.target_game in ('LCS', 'VCS'):
+            layout.prop(self, 'pad_anim_to_sector')
 
     def check(self, context):
-        wanted = ".ifp" if self.export_format == "IFP" else ".anim"
+        wanted = '.anim' if self.target_game in ('LCS', 'VCS') else '.ifp' 
         current = str(self.filepath or "")
         lowered = current.lower()
         if lowered.endswith(".anim"):
@@ -604,33 +682,65 @@ class EXPORT_OT_animation(Operator, ExportHelper):
             action_name = str(armature.animation_data.action.name or "animation")
             safe_name = "".join(character if character not in '<>:"/\\|?*' else '_' for character in action_name)
             if safe_name:
-                self.filepath = safe_name + (".ifp" if self.export_format == "IFP" else ".anim")
+                self.filepath = safe_name + ('.anim' if self.target_game in ('LCS', 'VCS') else '.ifp')
         return super().invoke(context, event)
 
     def execute(self, context):
         try:
             self.check(context)
-            if self.export_format == "IFP":
-                from .ifp_ot import collect_animation_data, export_anp3
-                ifp_data = collect_animation_data(context)
-                with open(self.filepath, 'wb') as file_stream:
-                    export_anp3(ifp_data, file_stream)
-                self.report({"INFO"}, "Exported IFP: {}".format(self.filepath))
-                return {"FINISHED"}
+            if self.target_game in ('LCS', 'VCS'):
+                entry = collectStoriesAnimEntry(context, self.export_translation, self.export_scale)
+                output = anim_format.buildAnimBytes([entry], pad_to_sector=self.pad_anim_to_sector)
+            else:
+                from ..gtaLib.animation_conversion import ifpDataToConversionClips, buildTargetAnimationBytes
+                if self.target_game == 'MANHUNT_1':
+                    from ..ops.manhunt_retarget import collectManhunt1Clip
+                    clips = [collectManhunt1Clip(context, self.export_translation)]
+                    armature = getAnimationExportArmature(context)
+                    action = armature.animation_data.action
+                    package_name = str(action.get('DemonFF_IFP_Block_Name', '') or action.get('DemonFF_IFP_Package_Name', '') or 'DemonFF')
+                else:
+                    from .ifp_ot import collect_animation_data
+                    data = collect_animation_data(context)
+                    clips = ifpDataToConversionClips(data, self.export_translation, self.export_scale)
+                    package_name = data.name
+                package_name = self.block_name.strip() or package_name
+                output = buildTargetAnimationBytes(clips, self.target_game, package_name)
+            Path(self.filepath).write_bytes(output)
+            self.report({'INFO'}, f'Exported {self.target_game}: {len(output)} bytes')
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, 'Animation export failed: ' + str(error))
+            return {'CANCELLED'}
 
-            entry = collectStoriesAnimEntry(
-                context,
-                export_translation=self.export_translation,
-                export_scale=self.export_scale,
-            )
-            byte_count = anim_format.writeAnimFile(
-                self.filepath,
-                [entry],
-                pad_to_sector=self.pad_anim_to_sector,
-            )
-            self.report({"INFO"}, "Exported Stories ANIM: {} bytes".format(byte_count))
-            return {"FINISHED"}
-        except Exception as exc:
-            self.report({"ERROR"}, "Animation export failed: {}".format(exc))
-            return {"CANCELLED"}
 
+
+class CONVERT_OT_animation_file(Operator, ImportHelper):
+    bl_idname = "demonff.convert_animation_file"
+    bl_label = "Convert Animation File"
+    bl_description = "Convert all clips between Stories ANIM and San Andreas ANP3 IFP without a selected rig"
+    filename_ext = ".anim"
+    filter_glob: StringProperty(default="*.anim;*.ifp", options={'HIDDEN'})
+    from ..gtaLib.animation_conversion import TARGET_GAME_ITEMS
+    target_game: EnumProperty(name='Target Game', items=TARGET_GAME_ITEMS, default='SAN_ANDREAS')
+
+    def draw(self, context):
+        self.layout.prop(self, 'target_game')
+
+    def execute(self, context):
+        from ..gtaLib.animation_conversion import convertAnimationFile
+        source = Path(self.filepath)
+        try:
+            magic = source.read_bytes()[:4]
+            extension = '.anim' if self.target_game in ('LCS', 'VCS') else '.ifp'
+            destination = source.with_name(source.stem + '-converted' + extension)
+            suffix = 2
+            while destination.exists():
+                destination = source.with_name(source.stem + '-converted-' + str(suffix) + extension)
+                suffix += 1
+            count, byte_count = convertAnimationFile(source, destination, self.target_game)
+            self.report({'INFO'}, f'Converted {count} clips: {destination.name}')
+            return {'FINISHED'}
+        except Exception as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
