@@ -88,7 +88,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- Special thanks to the Blender community and contributors.
+- Special thanks to the Blender community and its many contributors, and donators who have kept it alive.
 - The open.mp developer team(iAmir, Ksen, Hual, etc...), for their work in making a new SAMP and increasing its capabilities - creating the inspiration to do this
 - BeckzyBoi, as well as others from the SAMP/open.mp community for their testing & patience along with me.
 - The GTA Mods Wiki for being a huge considerate help in figuring things, such as data structures, out.
