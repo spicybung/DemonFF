@@ -1,11 +1,30 @@
-# DemonFF - GTA Stories .anim import operator
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2027 spicybung
 
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+from ..ops.blender_compat import assignAction
 import json
 import math
 from pathlib import Path
 from typing import List
 
 import bpy
+from ..ops.blender_compat import actionCurves
 from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, IntProperty, StringProperty
@@ -245,7 +264,7 @@ class IMPORT_OT_anim(Operator, ImportHelper):
                 return {'CANCELLED'}
         effective_fps = context.scene.render.fps / max(context.scene.render.fps_base, 1e-8) if self.use_scene_fps else self.fps
         entries = anim_file.animations if self.import_all_animations else [anim_file.animations[self.animation_index]]
-        summaries = ['DemonFF 0.6.9b ANIM Import Log', 'importer_build=ANIMATION-28']
+        summaries = ['DemonFF 0.6.9c ANIM Import Log', 'importer_build=ANIMATION-28']
         created_actions = []
         mapped_total = 0
         source_total = sum(len(entry.bones) for entry in entries)
@@ -271,7 +290,7 @@ class IMPORT_OT_anim(Operator, ImportHelper):
                     mapped_count=mapped_count, keyed_count=keyed_count, mapping_lines=mapping_lines))
             if created_actions:
                 from ..ops.animation_channels import resetUnkeyedActionChannels
-                selected_armature.animation_data.action = created_actions[0]
+                assignAction(selected_armature, created_actions[0])
                 resetUnkeyedActionChannels(selected_armature, created_actions[0])
                 context.scene.frame_set(int(self.start_frame), subframe=self.start_frame - int(self.start_frame))
         except Exception as error:
@@ -288,7 +307,7 @@ class IMPORT_OT_anim(Operator, ImportHelper):
             from datetime import datetime
             source = Path(self.filepath)
             stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-            log_path = source.with_name(source.name + '.DemonFF-0.6.9b-anim-' + stamp + '.txt')
+            log_path = source.with_name(source.name + '.DemonFF-0.6.9c-anim-' + stamp + '.txt')
             try:
                 with log_path.open('x', encoding='utf-8', newline='\n') as output:
                     output.write('Import time: ' + datetime.now().isoformat(timespec='microseconds') + '\n')
@@ -360,12 +379,12 @@ def getAnimationBoneKey(pose_bone, direct_id):
     return ((hash16 & 0xFFFF) << 16) | (int(direct_id) & 0xFFFF)
 
 
-def getActionBoneFrames(action, bone_name):
+def getActionBoneFrames(action, bone_name, owner=None):
     prefix = 'pose.bones["{}"]'.format(str(bone_name).replace('\\', '\\\\').replace('"', '\\"'))
     frames = set()
     has_location = False
     has_scale = False
-    for curve in getattr(action, "fcurves", ()):
+    for curve in actionCurves(action, owner=owner, create=False):
         if not str(getattr(curve, "data_path", "")).startswith(prefix):
             continue
         data_path = str(curve.data_path)
@@ -392,11 +411,11 @@ def loadAnimTrackMetadata(action):
         return {}
 
 
-def actionCurveHasMeaningfulValues(action, bone_name, channel, default_value, epsilon=1e-6):
+def actionCurveHasMeaningfulValues(action, bone_name, channel, default_value, epsilon=1e-6, owner=None):
     prefix = 'pose.bones["{}"]'.format(str(bone_name).replace('\\', '\\\\').replace('"', '\\"'))
     suffix = '.' + str(channel)
     found = False
-    for curve in getattr(action, "fcurves", ()):
+    for curve in actionCurves(action, owner=owner, create=False):
         data_path = str(getattr(curve, "data_path", ""))
         if not data_path.startswith(prefix) or not data_path.endswith(suffix):
             continue
@@ -457,7 +476,7 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
 
     action_frames = []
     for pose_bone in armature.pose.bones:
-        bone_frames, _has_location_curve, _has_scale_curve = getActionBoneFrames(action, pose_bone.name)
+        bone_frames, _has_location_curve, _has_scale_curve = getActionBoneFrames(action, pose_bone.name, armature)
         action_frames.extend(bone_frames)
     if not action_frames:
         raise ValueError("Active Action contains no pose-bone keyframes")
@@ -474,7 +493,7 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
 
     try:
         for pose_bone in armature.pose.bones:
-            frames, has_location_curve, has_scale_curve = getActionBoneFrames(action, pose_bone.name)
+            frames, has_location_curve, has_scale_curve = getActionBoneFrames(action, pose_bone.name, armature)
             source_metadata = track_metadata.get(str(pose_bone.name), {})
             if not frames and source_metadata.get('source_frames'):
                 frames = sorted({
@@ -503,10 +522,10 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
             source_has_direct_id = bool(source_flags & 0x0010) if source_metadata else True
 
             meaningful_location = actionCurveHasMeaningfulValues(
-                action, pose_bone.name, "location", 0.0
+                action, pose_bone.name, "location", 0.0, owner=armature
             )
             meaningful_scale = actionCurveHasMeaningfulValues(
-                action, pose_bone.name, "scale", 1.0
+                action, pose_bone.name, "scale", 1.0, owner=armature
             )
 
             export_rotation_channel = source_has_rotation
@@ -525,7 +544,7 @@ def collectStoriesAnimEntry(context, export_translation=True, export_scale=False
             export_frames = []
             for frame_number in frames:
                 from ..ops.animation_channels import sampleActionBoneBasis
-                basis = sampleActionBoneBasis(action, pose_bone.name, frame_number, pose_bone.rotation_mode)
+                basis = sampleActionBoneBasis(action, pose_bone.name, frame_number, pose_bone.rotation_mode, owner=armature)
                 mdl_local = blenderBasisToMdlLocal(armature, pose_bone, basis)
                 quaternion = mdl_local.to_quaternion().normalized()
                 location = mdl_local.to_translation()

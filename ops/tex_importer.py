@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -214,8 +214,8 @@ def apply_image_to_material(material: bpy.types.Material, image: bpy.types.Image
 
     try:
         existing_node.image = image
-        existing_node.label = "BLeeds Texture"
-        existing_node.name = "BLeeds_Texture_Image"
+        existing_node.label = "DemonFF Texture"
+        existing_node.name = "DemonFF_Texture_Image"
         existing_node["bleeds_auto_texture_node"] = True
         existing_node["bleeds_auto_txd_node"] = True
     except Exception:

@@ -1,6 +1,8 @@
-# DemonFF - GTA Stories ANIM parser
-# Author: spicybung
-# Years: 2025 - 2026
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2027 spicybung
+
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by

@@ -1,5 +1,21 @@
-# DemonFF - Blender scripts for working with Renderware & R*/SA-MP formats in Blender
-# 2023 - 2026 spicybung
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2027 spicybung
+
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bisect
 import hashlib
@@ -19,6 +35,7 @@ from collections import namedtuple
 from pathlib import Path, PurePosixPath
 
 import bpy
+from .blender_compat import actionCurves, actionGroups, assignAction
 import mathutils
 
 from . import dff_samp_exporter, txd_exporter
@@ -2308,7 +2325,7 @@ def get_action_bone_compatibility(action, armature):
     bone_names = {bone.name for bone in armature.pose.bones}
     referenced_names = set()
 
-    for curve in action.fcurves:
+    for curve in actionCurves(action, owner=armature):
         data_path = curve.data_path
         prefix = 'pose.bones["'
         if not data_path.startswith(prefix):
@@ -2338,7 +2355,7 @@ def strip_generated_action_root_motion(action, armature):
         return
 
     prefix = 'pose.bones["'
-    for curve in list(action.fcurves):
+    for curve in list(actionCurves(action, owner=armature)):
         data_path = curve.data_path
         if not data_path.endswith(".location") or not data_path.startswith(prefix):
             continue
@@ -2347,7 +2364,7 @@ def strip_generated_action_root_motion(action, armature):
             continue
         bone_name = data_path[len(prefix):end_index]
         if bone_name in root_bone_names:
-            action.fcurves.remove(curve)
+            actionCurves(action, owner=armature).remove(curve)
 
 
 def find_existing_animation_action(armature, animation_library, animation_name):
@@ -2374,7 +2391,7 @@ def find_existing_animation_action(armature, animation_library, animation_name):
             retarget_version = int(action.get("DemonFF_IFP_Retarget_Version", 0))
         except (TypeError, ValueError, AttributeError, ReferenceError, RuntimeError):
             retarget_version = 0
-        if retarget_version != 2 or len(action.fcurves) == 0:
+        if retarget_version != 2 or len(actionCurves(action, owner=armature)) == 0:
             continue
 
         compatibility = get_action_bone_compatibility(action, armature)
@@ -2542,7 +2559,7 @@ def create_animation_action_from_ifp(armature, animation_library, animation_name
         action["DemonFF_IFP_Missing_Bone_Count"] = len(missing_bones)
         action["DemonFF_Source_File"] = str(ifp_path)
         strip_generated_action_root_motion(action, armature)
-        if len(action.fcurves) == 0:
+        if len(actionCurves(action, owner=armature)) == 0:
             bpy.data.actions.remove(action)
             PLAYER_SYNC_ANIMATION_STATUS = (
                 f"{animation_library}:{animation_name} did not map to any armature bones"
@@ -2553,7 +2570,7 @@ def create_animation_action_from_ifp(armature, animation_library, animation_name
             % (
                 animation_library or "?",
                 animation_name,
-                len(action.fcurves),
+                len(actionCurves(action, owner=armature)),
                 len(missing_bones),
             )
         )
@@ -3160,7 +3177,7 @@ def set_player_animation_action(armature, state, motion_name):
         animation_data = armature.animation_data_create()
 
     reset_player_armature_pose(armature, clear_action=False)
-    animation_data.action = action
+    assignAction(armature, action)
 
     PLAYER_SYNC_ACTION = action
     server_elapsed_seconds = 0.0
@@ -3839,7 +3856,7 @@ def stop_player_sync():
             if animation_data is None and PLAYER_SYNC_ORIGINAL_ACTION is not None:
                 animation_data = armature.animation_data_create()
             if animation_data is not None:
-                animation_data.action = PLAYER_SYNC_ORIGINAL_ACTION
+                assignAction(armature, PLAYER_SYNC_ORIGINAL_ACTION)
         except (ReferenceError, RuntimeError, AttributeError):
             pass
 

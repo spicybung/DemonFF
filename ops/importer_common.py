@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -18,6 +18,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
+from .blender_compat import actionCurves, actionGroups, assignAction
 
 from collections import namedtuple
 
@@ -277,16 +278,15 @@ class material_helper:
             fps = bpy.context.scene.render.fps
 
             action = bpy.data.actions.new(uv_anim.name)
-            anim_data = self.material.node_tree.animation_data_create()
-            anim_data.action = action
+            anim_data = assignAction(self.material.node_tree, action)
 
             fcurves = [
                 None,
-                action.fcurves.new(data_path='nodes["Mapping"].inputs[3].default_value', index=0),
-                action.fcurves.new(data_path='nodes["Mapping"].inputs[3].default_value', index=1),
+                actionCurves(action, owner=self.material.node_tree).new(data_path='nodes["Mapping"].inputs[3].default_value', index=0),
+                actionCurves(action, owner=self.material.node_tree).new(data_path='nodes["Mapping"].inputs[3].default_value', index=1),
                 None,
-                action.fcurves.new(data_path='nodes["Mapping"].inputs[1].default_value', index=0),
-                action.fcurves.new(data_path='nodes["Mapping"].inputs[1].default_value', index=1),
+                actionCurves(action, owner=self.material.node_tree).new(data_path='nodes["Mapping"].inputs[1].default_value', index=0),
+                actionCurves(action, owner=self.material.node_tree).new(data_path='nodes["Mapping"].inputs[1].default_value', index=1),
             ]
 
             for frame_idx, frame in enumerate(uv_anim.frames):

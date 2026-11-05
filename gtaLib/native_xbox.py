@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -179,7 +179,7 @@ class NativeXboxGeometry:
                 geometry.normals.append(normal)
 
         # Generate triangles
-        for split_index, split_header in enumerate(geometry.extensions['split_headers']):
+        for split_index, split_header in enumerate(geometry.split_headers):
             tri_vertices = indices[split_index]
 
             if geometry.flags & rpGEOMETRYTRISTRIP:

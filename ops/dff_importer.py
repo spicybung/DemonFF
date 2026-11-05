@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -121,6 +121,9 @@ class dff_importer:
         self.skin_data = {}
         self.bones = {}
         self.frame_bones = {}
+        self.vertex_sources = {}
+        self.current_collection = None
+        self.version = ""
         self.materials = {}
         self.txd_images = {}
         self.warning = ""
@@ -141,123 +144,93 @@ class dff_importer:
             mat_order = list(OrderedDict.fromkeys(mat_order))
             mat_indices = sorted(range(len(mat_order)), key=lambda i: mat_order[i])
 
-            # Store temporary mesh flags
-            mesh['dragon_normals'] = geom.has_normals
-            mesh['dragon_light'] = (geom.flags & dff.rpGEOMETRYLIGHT) != 0
-            mesh['dragon_modulate_color'] = (geom.flags & dff.rpGEOMETRYMODULATEMATERIALCOLOR) != 0
-            mesh['dragon_triangle_strip'] = (geom.flags & dff.rpGEOMETRYTRISTRIP) != 0
+            try:
+                # Store temporary mesh flags
+                mesh['dragon_normals'] = geom.has_normals
+                mesh['dragon_light'] = (geom.flags & dff.rpGEOMETRYLIGHT) != 0
+                mesh['dragon_modulate_color'] = (geom.flags & dff.rpGEOMETRYMODULATEMATERIALCOLOR) != 0
+                mesh['dragon_triangle_strip'] = (geom.flags & dff.rpGEOMETRYTRISTRIP) != 0
 
-            # Build vertex data
-            for v in geom.vertices:
-                bm.verts.new(v)
+                # Build vertex data
+                source_layer = bm.verts.layers.int.new('dff_source_vertex')
+                for source_index, v in enumerate(geom.vertices):
+                    vertex = bm.verts.new(v)
+                    vertex[source_layer] = source_index
 
-            bm.verts.ensure_lookup_table()
-            bm.verts.index_update()
+                bm.verts.ensure_lookup_table()
+                bm.verts.index_update()
+                original_vertices = list(bm.verts)
 
-            if 'skin' in geom.extensions:
-                if atomic.frame not in self.skin_data:
-                    self.skin_data[atomic.frame] = geom.extensions['skin']
+                if 'skin' in geom.extensions:
+                    if atomic.frame not in self.skin_data:
+                        self.skin_data[atomic.frame] = geom.extensions['skin']
 
-            if 'user_data' in geom.extensions:
-                mesh['dff_user_data'] = geom.extensions['user_data'].to_mem()[12:]
+                if 'user_data' in geom.extensions:
+                    mesh['dff_user_data'] = geom.extensions['user_data'].to_mem()[12:]
 
-            # UV and vertex color setup
-            uv_layers = [bm.loops.layers.uv.new() for _ in geom.uv_layers]
+                # UV and vertex color setup
+                uv_layers = [bm.loops.layers.uv.new() for _ in geom.uv_layers]
 
-            vertex_color = None
-            if geom.flags & dff.rpGEOMETRYPRELIT:
-                vertex_color = bm.loops.layers.color.new()
+                vertex_color = None
+                if geom.flags & dff.rpGEOMETRYPRELIT:
+                    vertex_color = bm.loops.layers.color.new()
 
-            extra_vertex_color = None
-            if 'extra_vert_color' in geom.extensions:
-                extra_vertex_color = bm.loops.layers.color.new()
+                extra_vertex_color = None
+                if 'extra_vert_color' in geom.extensions:
+                    extra_vertex_color = bm.loops.layers.color.new()
 
-            faces = (
-                geom.extensions['mat_split']
-                if (dff_importer.use_mat_split or not geom.triangles) and 'mat_split' in geom.extensions
-                else geom.triangles
-            )
+                faces = (
+                    geom.extensions['mat_split']
+                    if (dff_importer.use_mat_split or not geom.triangles) and 'mat_split' in geom.extensions
+                    else geom.triangles
+                )
 
-            use_face_loops = geom.native_platform_type == dff.NativePlatformType.GC
-            use_custom_normals = geom.has_normals and self.import_normals
-            normals = []
-            vert_index = -1
-            last_face_index = len(faces) - 1
+                use_face_loops = geom.native_platform_type == dff.NativePlatformType.GC
+                use_custom_normals = geom.has_normals and self.import_normals
+                normals = []
+                vert_index = -1
+                last_face_index = len(faces) - 1
 
-            existing_face_keys = set()
+                existing_face_keys = set()
 
-            for fi, f in enumerate(faces):
-                if fi < last_face_index:
-                    next_face = faces[fi + 1]
-                    if set((f.a, f.b, f.c)) == set((next_face.a, next_face.b, next_face.c)):
-                        vert_index += 3
+                for fi, f in enumerate(faces):
+                    indices = (int(f.a), int(f.b), int(f.c))
+                    if len(set(indices)) != 3:
                         continue
-
-                if f.a == f.b or f.b == f.c or f.a == f.c:
-                    continue
-
-                face_key = tuple(sorted((int(f.a), int(f.b), int(f.c))))
-                if face_key in existing_face_keys and not self.create_backfaces:
-                    vert_index += 3
-                    continue
-
-                v1 = bm.verts[f.a]
-                v2 = bm.verts[f.b]
-                v3 = bm.verts[f.c]
-
-                if face_key not in existing_face_keys:
-                    face = bm.faces.new((v1, v2, v3))
+                    if any(index < 0 or index >= len(geom.vertices) for index in indices):
+                        raise ValueError(f'DFF triangle {fi} references a vertex outside geometry {atomic.geometry}')
+                    face_key = tuple(sorted(indices))
+                    if face_key in existing_face_keys and not self.create_backfaces:
+                        continue
+                    vertices = [original_vertices[index] for index in indices]
+                    if face_key in existing_face_keys:
+                        vertices = []
+                        for index in indices:
+                            vertex = bm.verts.new(geom.vertices[index])
+                            vertex[source_layer] = index
+                            vertices.append(vertex)
+                    face = bm.faces.new(vertices)
                     existing_face_keys.add(face_key)
-                else:
-                    duplicate_vertices = (
-                        bm.verts.new(geom.vertices[f.a]),
-                        bm.verts.new(geom.vertices[f.b]),
-                        bm.verts.new(geom.vertices[f.c]),
-                    )
-                    bm.verts.ensure_lookup_table()
-                    bm.verts.index_update()
-                    face = bm.faces.new(duplicate_vertices)
-
-                try:
-
-                    if len(mat_indices) > 0:
-                        face.material_index = mat_indices[f.material]
-
-                    for loop in face.loops:
-                        if use_face_loops:
-                            for i, layer in enumerate(geom.uv_layers):
-                                uv = layer[loop.vert.index]
-                                loop[uv_layers[i]].uv = (uv.u, 1 - uv.v)
-
-
-                    if len(mat_indices) > 0:
-                        face.material_index = mat_indices[f.material]
-
-                    for loop in face.loops:
-                        if use_face_loops:
-                            vert_index += 1
-                        else:
-                            vert_index = loop.vert.index
-
+                    face.material_index = mat_indices[f.material] if 0 <= f.material < len(mat_indices) else 0
+                    for corner, loop in enumerate(face.loops):
+                        index = fi * 3 + corner if use_face_loops else loop.vert[source_layer]
                         for i, layer in enumerate(geom.uv_layers):
-                            uv = geom.uv_layers[i][vert_index]
+                            uv = layer[index]
                             loop[uv_layers[i]].uv = (uv.u, 1 - uv.v)
-
-                        if vertex_color:
-                            loop[vertex_color] = [c / 255.0 for c in geom.prelit_colors[vert_index]]
-
-                        if extra_vertex_color:
-                            loop[extra_vertex_color] = [c / 255.0 for c in geom.extensions['extra_vert_color'].colors[vert_index]]
-
+                        if vertex_color is not None:
+                            loop[vertex_color] = [c / 255.0 for c in geom.prelit_colors[index]]
+                        if extra_vertex_color is not None:
+                            loop[extra_vertex_color] = [c / 255.0 for c in geom.extensions['extra_vert_color'].colors[index]]
                         if use_custom_normals:
-                            normals.append(geom.normals[vert_index])
-
+                            normals.append(geom.normals[index])
                     face.smooth = True
-                except Exception as e:
-                    vert_index += 3
-                    print(f"Face error: {e}")
-
-            bm.to_mesh(mesh)
+                bm.verts.index_update()
+                vertex_sources = [vertex[source_layer] for vertex in bm.verts]
+                bm.verts.layers.int.remove(source_layer)
+                bm.to_mesh(mesh)
+            finally:
+                bm.free()
+            self.vertex_sources[mesh.as_pointer()] = vertex_sources
 
             if normals:
                 mesh.normals_split_custom_set(normals)
@@ -302,7 +275,7 @@ class dff_importer:
 
             # Set vertex groups
             if 'skin' in geom.extensions:
-                self.set_vertex_groups(obj, geom.extensions['skin'])
+                self.set_vertex_groups(obj, geom.extensions['skin'], vertex_sources)
 
             # Store object per atomic frame
             if atomic.frame in self.meshes:
@@ -693,21 +666,20 @@ class dff_importer:
         return (armature, obj)
 
     #######################################################
-    def set_vertex_groups(obj, skin_data):
-
-        # Allocate vertex groups
-        for i in range(skin_data.num_bones):
+    def set_vertex_groups(obj, skin_data, vertex_sources=None):
+        for index in range(skin_data.num_bones):
             obj.vertex_groups.new()
-
-        # vertex_bone_indices stores what 4 bones influence this vertex
-        for i in range(len(skin_data.vertex_bone_indices)):
-
-            for j in range(len(skin_data.vertex_bone_indices[i])):
-
-                bone = skin_data.vertex_bone_indices[i][j]
-                weight = skin_data.vertex_bone_weights[i][j]
-                
-                obj.vertex_groups[bone].add([i], weight, 'ADD')
+        if vertex_sources is None:
+            vertex_sources = range(len(obj.data.vertices))
+        for target, source in enumerate(vertex_sources):
+            if source >= len(skin_data.vertex_bone_indices) or source >= len(skin_data.vertex_bone_weights):
+                raise ValueError('DFF skin data is shorter than its geometry')
+            for bone, weight in zip(skin_data.vertex_bone_indices[source], skin_data.vertex_bone_weights[source]):
+                if weight <= 0:
+                    continue
+                if not 0 <= bone < len(obj.vertex_groups) or not math.isfinite(weight):
+                    raise ValueError('DFF skin contains an invalid bone index or weight')
+                obj.vertex_groups[bone].add([target], weight, 'REPLACE')
 
     #######################################################
     def remove_object_doubles():
@@ -783,9 +755,12 @@ class dff_importer:
                         sk.interpolation = 'KEY_LINEAR'
 
                         positions, normals, prelits, uvs = dm.positions, dm.normals, dm.prelits, dm.uvs
-                        for i, vi in enumerate(dm.indices):
-                            if positions:
-                                sk.data[vi].co = verts[vi].co + mathutils.Vector(positions[i])
+                        if positions:
+                            offsets = {source: mathutils.Vector(positions[i]) for i, source in enumerate(dm.indices)}
+                            sources = self.vertex_sources.get(mesh.data.as_pointer(), range(len(verts)))
+                            for target, source in enumerate(sources):
+                                if source in offsets:
+                                    sk.data[target].co = verts[target].co + offsets[source]
                             # TODO: normals, prelits and uvs
 
             obj = None
@@ -1181,6 +1156,42 @@ def import_dff(options):
     )
     dff_importer.import_collisions = bool(options.get('import_collisions', True))
 
-    dff_importer.import_dff(options['file_name'])
+    object_snapshot = set(bpy.data.objects)
+    mesh_snapshot = set(bpy.data.meshes)
+    material_snapshot = set(bpy.data.materials)
+    image_snapshot = set(bpy.data.images)
+    armature_snapshot = set(bpy.data.armatures)
+    collection_snapshot = set(bpy.data.collections)
+    try:
+        with open(options['file_name'], 'rb') as source:
+            signature = source.read(4)
+        if signature in (b'PMLC', b'Z2HM'):
+            from ..gtaLib import mdl
+            dff_importer._init()
+            mdl.import_mh2(options['file_name'], bpy.context)
+            new_collections = [collection for collection in bpy.data.collections
+                               if collection not in collection_snapshot]
+            if new_collections:
+                dff_importer.current_collection = new_collections[0]
+            dff_importer.version = 'MH2'
+            dff_importer.file_name = options['file_name']
+        elif signature in (b'CLMP', b'MH2Z'):
+            raise ValueError('This is a Manhunt 2 Wii model; its big-endian model layout is not supported yet')
+        else:
+            dff_importer.import_dff(options['file_name'])
+    except Exception:
+        for obj in list(bpy.data.objects):
+            if obj not in object_snapshot:
+                bpy.data.objects.remove(obj, do_unlink=True)
+        for collection in list(bpy.data.collections):
+            if collection not in collection_snapshot:
+                bpy.data.collections.remove(collection)
+        for datablocks, snapshot in ((bpy.data.meshes, mesh_snapshot), (bpy.data.armatures, armature_snapshot),
+                                     (bpy.data.materials, material_snapshot), (bpy.data.images, image_snapshot)):
+            for datablock in list(datablocks):
+                if datablock not in snapshot and datablock.users == 0:
+                    datablocks.remove(datablock)
+        dff_importer.current_collection = None
+        raise
 
     return dff_importer

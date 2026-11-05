@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -18,6 +18,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
+import math
+import re
+from ..gtaLib.binary import writeAtomic
 
 from bpy_extras.io_utils import ExportHelper
 
@@ -67,22 +70,24 @@ class EXPORT_OT_demonff_ide(bpy.types.Operator, ExportHelper):
                 unique[int(obj.get("IDE_ID", 0) or 0)] = obj
             objs = list(unique.values())
 
-        # Write IDE
-        with open(self.filepath, "w", encoding="utf-8") as f:
-            f.write("objs\n")
+        try:
+            lines = ['objs']
             for obj in objs:
-                ide_id = int(obj.get("IDE_ID", 0) or 0)
-                base_name = obj.name.split(".")[0]
-                txd_name = str(obj.get("TXD_Name", "") or "").strip()
-
-                # RenderWare IDE line format: id, model, txd, objtype, drawdist, flags
-                # DemonFF historically uses flags=1 and geometry alpha=0. We'll keep flags=1 for compatibility.
-                drawdist = float(obj.get("DrawDistance", 300.0) or 300.0)
-                flags = int(obj.get("IDE_Flags", 0) or 0)
-
-                f.write(f"{ide_id}, {base_name}, {txd_name}, 1, {drawdist:.6f}, {flags}\n")
-
-            f.write("end\n")
+                ide_id = int(obj.get('IDE_ID', 0) or 0)
+                model_name = str(obj.get('DFF_Name', '') or re.sub(r'\.\d{3,}$', '', obj.name)).strip()
+                txd_name = str(obj.get('TXD_Name', '') or '').strip()
+                if any(character in model_name + txd_name for character in ',\r\n'):
+                    raise ValueError('IDE model and texture names cannot contain commas or line breaks')
+                drawdist = float(obj.get('DrawDistance', 300.0))
+                if not math.isfinite(drawdist) or drawdist < 0:
+                    raise ValueError('IDE draw distance must be finite and nonnegative')
+                flags = int(obj.get('IDE_Flags', 0) or 0)
+                lines.append(f'{ide_id}, {model_name}, {txd_name}, 1, {drawdist:.6f}, {flags}')
+            lines.append('end')
+            writeAtomic(bpy.path.abspath(self.filepath), ('\n'.join(lines) + '\n').encode('latin-1'))
+        except (OSError, ValueError, UnicodeError) as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
 
         self.report({'INFO'}, f"Exported {len(objs)} IDE entries")
         return {'FINISHED'}

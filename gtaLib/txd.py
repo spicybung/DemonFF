@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -17,6 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from .binary import writeAtomic
 from enum import IntEnum
 from math import ceil
 from struct import pack, unpack_from
@@ -508,10 +509,10 @@ class TextureNative:
         levels = list(self.pixels or [])
         num_levels = max(1, int(self.num_levels or len(levels) or 1))
 
-        if len(levels) < num_levels:
-            levels.extend([b""] * (num_levels - len(levels)))
-        elif len(levels) > num_levels:
-            levels = levels[:num_levels]
+        if len(levels) != num_levels or not levels:
+            raise ValueError('TXD mip count does not match the stored pixel levels')
+        if not 0 < self.width <= 65535 or not 0 < self.height <= 65535 or num_levels > 255:
+            raise ValueError('Invalid TXD texture dimensions or mip count')
 
         data = pack(
             "<IHH32s32sIIHHBBBB",
@@ -671,8 +672,12 @@ class TextureNative:
 
     #######################################################
     def read_pixels(self, data, offset):
-        pixels_len = unpack_from("<I", data, offset)[0]
-        return data[offset+4:offset+4+pixels_len]
+        if offset < 0 or offset + 4 > len(data):
+            raise ValueError('Truncated TXD pixel length')
+        pixels_len = unpack_from('<I', data, offset)[0]
+        if pixels_len > len(data) - offset - 4:
+            raise ValueError('TXD pixel data exceeds its texture structure')
+        return data[offset + 4:offset + 4 + pixels_len]
 
     #######################################################
     def read_palette(self, data, offset):
@@ -680,14 +685,17 @@ class TextureNative:
 
         if palette_format != PaletteType.PALETTE_NONE:
             if palette_format == PaletteType.PALETTE_8:
-                return data[offset:offset+1024]
+                size = 1024
 
             else:
                 if self.depth == 4:
-                    return data[offset:offset+64]
+                    size = 64
+                else:
+                    size = 128
 
-                return data[offset:offset+128]
-
+            if offset < 0 or offset + size > len(data):
+                raise ValueError('Truncated TXD palette')
+            return data[offset:offset + size]
         return b''
 
     #######################################################
@@ -723,7 +731,7 @@ class TextureNative:
         ) = unpack_from("<IHH32s32s", data, pos)
         pos += 72
 
-        self.name = self.name.decode("utf-8").replace('\0', '')
+        self.name = self.name.split(b'\0', 1)[0].decode('utf-8', errors='replace')
         try:
             self.mask = self.mask.decode("utf-8").replace('\0', '')
         except UnicodeDecodeError:
@@ -741,6 +749,8 @@ class TextureNative:
         self.palette = self.read_palette(data, pos)
         pos += len(self.palette)
 
+        if self.width == 0 or self.height == 0 or self.num_levels == 0:
+            raise ValueError('TXD texture has no dimensions or mip levels')
         self.pixels = []
         for _ in range(self.num_levels):
             pixels = self.read_pixels(data, pos)
@@ -805,161 +815,117 @@ class txd:
     #######################################################
     def _read(self, size):
         current_pos = self.pos
+        if size < 0 or current_pos < 0 or current_pos + size > min(len(self.data), self.limit):
+            raise ValueError('TXD read outside file at offset %d' % current_pos)
         self.pos += size
-
         return current_pos
 
-    #######################################################
     def raw(self, size, offset=None):
+        offset = self.pos if offset is None else offset
+        if size < 0 or offset < 0 or offset + size > len(self.data):
+            raise ValueError('Truncated TXD data at offset %d' % offset)
+        return self.data[offset:offset + size]
 
-        if offset is None:
-            offset = self.pos
-
-        return self.data[offset:offset+size]
-
-    #######################################################
-    def read_chunk(self):
+    def read_chunk(self, parent_end=None):
+        end = len(self.data) if parent_end is None else min(parent_end, len(self.data))
+        if self.pos < 0 or self.pos + 12 > end:
+            raise ValueError('Truncated TXD chunk header at offset %d' % self.pos)
         chunk = Sections.read(Chunk, self.data, self._read(12))
+        if chunk.size > end - self.pos:
+            raise ValueError('TXD chunk exceeds its container')
         return chunk
 
-    #######################################################
     def read_texture_native(self, parent_chunk):
-
-        chunk_end = self.pos + parent_chunk.size
-
-        while self.pos < chunk_end:
-            chunk = self.read_chunk()
-
-            # STRUCT
-            if chunk.type == types["Struct"]:
-                platform_id = unpack_from("<I", self.data, self.pos)[0]
+        end = self.pos + parent_chunk.size
+        while self.pos < end:
+            chunk = self.read_chunk(end)
+            start = self.pos
+            child_end = start + chunk.size
+            if chunk.type == types['Struct']:
+                if chunk.size < 4:
+                    raise ValueError('TXD native texture is missing its platform')
+                platform = unpack_from('<I', self.data, start)[0]
+                device = self.device_id
                 texture = None
-
-                if self.device_id == DeviceType.DEVICE_NONE:
-                    if platform_id in (NativePlatformType.D3D8, NativePlatformType.D3D9):
-                        texture = TextureNative.from_mem(
-                                self.data[self.pos:self.pos+chunk.size]
-                        )
-                    elif platform_id == NativePlatformType.PS2FOURCC:
-                        from .native_ps2 import NativePS2Texture
-                        texture = NativePS2Texture.from_mem(self.data[self.pos:])
-                        self._read(texture.pos - chunk.size)
-
-                    elif (platform_id >> 24) == NativePlatformType.GC:
-                        from .native_gc import NativeGCTexture
-                        texture = NativeGCTexture.from_mem(self.data[self.pos:], self.rw_version)
-                        self._read(texture.pos - chunk.size)
-
-                elif self.device_id in (DeviceType.DEVICE_D3D8, DeviceType.DEVICE_D3D9):
-                    texture = TextureNative.from_mem(
-                            self.data[self.pos:self.pos+chunk.size]
-                    )
-
-                elif self.device_id == DeviceType.DEVICE_PS2:
+                if device in (DeviceType.DEVICE_D3D8, DeviceType.DEVICE_D3D9) or (
+                    device == DeviceType.DEVICE_NONE and platform in (NativePlatformType.D3D8, NativePlatformType.D3D9)):
+                    texture = TextureNative.from_mem(self.data[start:child_end])
+                elif device == DeviceType.DEVICE_PS2 or (device == DeviceType.DEVICE_NONE and platform == NativePlatformType.PS2FOURCC):
                     from .native_ps2 import NativePS2Texture
-                    texture = NativePS2Texture.from_mem(self.data[self.pos:])
-                    self._read(texture.pos - chunk.size)
-
-                elif self.device_id == DeviceType.DEVICE_GC:
+                    texture = NativePS2Texture.from_mem(self.data[start:end])
+                    child_end = start + texture.pos
+                elif device == DeviceType.DEVICE_GC or (device == DeviceType.DEVICE_NONE and platform >> 24 == NativePlatformType.GC):
                     from .native_gc import NativeGCTexture
-                    texture = NativeGCTexture.from_mem(self.data[self.pos:], self.rw_version)
-                    self._read(texture.pos - chunk.size)
-
-                elif self.device_id == DeviceType.DEVICE_PSP:
+                    texture = NativeGCTexture.from_mem(self.data[start:end], self.rw_version)
+                    child_end = start + texture.pos
+                elif device == DeviceType.DEVICE_PSP:
                     from .native_psp import NativePSPTexture
-                    texture = NativePSPTexture.from_mem(self.data[self.pos:])
-                    self._read(texture.pos - chunk.size)
-
-                if texture:
-                    self.native_textures.append(texture)
-
-            elif chunk.type == types["Extension"]:
-                pass
-
-            self._read(chunk.size)
+                    texture = NativePSPTexture.from_mem(self.data[start:end])
+                    child_end = start + texture.pos
+                if texture is None:
+                    raise ValueError('Unsupported TXD native texture platform %d' % platform)
+                if not start <= child_end <= end:
+                    raise ValueError('TXD native texture exceeds its container')
+                self.native_textures.append(texture)
+            self.pos = child_end
 
     #######################################################
     def read_image(self, parent_chunk):
-
-        chunk = self.read_chunk()
-
-        # Read an image
-        image = Image.from_mem(
-            self.data[self.pos:self.pos+chunk.size]
-        )
-
+        end = self.pos + parent_chunk.size
+        chunk = self.read_chunk(end)
+        if chunk.type != types['Struct'] or chunk.size < 16:
+            raise ValueError('TXD image is missing its structure')
+        image = Image.from_mem(self.raw(chunk.size))
         self._read(chunk.size)
-
-        # Pixels
+        if image.width <= 0 or image.height <= 0 or image.depth not in (4, 8, 16, 24, 32):
+            raise ValueError('Invalid TXD image dimensions or depth')
         pixels_len = image.pitch * image.height
+        palette_len = 1024 if image.depth == 8 else 64 if image.depth == 4 else 0
+        if pixels_len + palette_len > end - self.pos:
+            raise ValueError('TXD image pixels or palette exceed their container')
         image.pixels = self.raw(pixels_len)
         self._read(pixels_len)
-
-        # Palette
-        palette_len = 0
-        if image.depth == 8:
-            palette_len = 1024
-        elif image.depth == 4:
-            palette_len = 64
-
         image.palette = self.raw(palette_len)
         self._read(palette_len)
-
+        self.pos = end
         return image
 
-    #######################################################
     def read_texture(self, parent_chunk):
-
-        chunk = self.read_chunk()
-
-        # Read a texture
-        texture = Texture.from_mem(
-            self.data[self.pos:self.pos+chunk.size]
-        )
-
-        self._read(chunk.size)
-
-        # Texture Name
-        chunk = self.read_chunk()
-        texture.name = self.raw(
-            strlen(self.data, self.pos)
-        ).decode("utf-8")
-
-        self._read(chunk.size)
-
-        # Mask Name
-        chunk = self.read_chunk()
-        texture.mask = self.raw(
-            strlen(self.data, self.pos)
-        ).decode("utf-8")
-
-        self._read(chunk.size)
-
+        end = self.pos + parent_chunk.size
+        structure = self.read_chunk(end)
+        if structure.type != types['Struct'] or structure.size < 4:
+            raise ValueError('TXD texture is missing its structure')
+        texture = Texture.from_mem(self.raw(structure.size))
+        self._read(structure.size)
+        for field in ('name', 'mask'):
+            chunk = self.read_chunk(end)
+            if chunk.type != types['String']:
+                raise ValueError('TXD texture is missing its %s string' % field)
+            value = self.raw(chunk.size).split(b'\0', 1)[0].decode('utf-8', errors='replace')
+            setattr(texture, field, value)
+            self._read(chunk.size)
+        self.pos = end
         return texture
 
     #######################################################
     def read_texture_dictionary(self, root_chunk):
-
-        chunk_end = self.pos + root_chunk.size
-
-        while self.pos < chunk_end:
-            chunk = self.read_chunk()
-
-            # STRUCT
-            if chunk.type == types["Struct"]:
-
-                text_dict = Sections.read(TexDict, self.data, self._read(chunk.size))
-                self.device_id = text_dict.device_id
-
-                for _ in range(text_dict.texture_count):
-                    chunk = self.read_chunk()
-
-                    # TEXTURENATIVE
-                    if chunk.type == types["Texture Native"]:
-                        self.read_texture_native(chunk)
-
-            else:
-                self._read(chunk.size)
+        end = self.pos + root_chunk.size
+        structure = self.read_chunk(end)
+        if structure.type != types['Struct'] or structure.size < 4:
+            raise ValueError('TXD dictionary is missing its structure')
+        header = Sections.read(TexDict, self.raw(structure.size))
+        self._read(structure.size)
+        self.device_id = header.device_id
+        if header.texture_count > (end - self.pos) // 12:
+            raise ValueError('TXD texture count exceeds its dictionary')
+        for index in range(header.texture_count):
+            chunk = self.read_chunk(end)
+            if chunk.type != types['Texture Native']:
+                raise ValueError('TXD is missing a declared native texture')
+            self.read_texture_native(chunk)
+        while self.pos < end:
+            chunk = self.read_chunk(end)
+            self._read(chunk.size)
 
     #######################################################
     def read_pi_texture_dictionary(self, root_chunk):
@@ -994,15 +960,22 @@ class txd:
 
     #######################################################
     def load_memory(self, data):
-        self.data = data
+        self.clear()
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise TypeError('TXD data must be bytes')
+        self.data = bytes(data)
+        self.limit = len(self.data)
 
         chunk = self.read_chunk()
         self.rw_version = Sections.get_rw_version(chunk.version)
+        self.limit = self.pos + chunk.size
 
         if chunk.type == types["Texture Dictionary"]:
             self.read_texture_dictionary(chunk)
         elif chunk.type == types["PI Texture Dictionary"]:
             self.read_pi_texture_dictionary(chunk)
+        else:
+            raise ValueError('No RenderWare texture dictionary found')
 
     #######################################################
     def clear(self):
@@ -1010,6 +983,7 @@ class txd:
         self.textures        = []
         self.images          = []
         self.pos             = 0
+        self.limit           = 0
         self.data            = ""
         self.rw_version      = ""
         self.device_id       = DeviceType.DEVICE_NONE
@@ -1042,8 +1016,7 @@ class txd:
 
     #######################################################
     def write_file(self, filename, version):
-        with open(filename, mode="wb") as file:
-            file.write(self.write_memory(version))
+        writeAtomic(filename, self.write_memory(version))
 
     #######################################################
     def __init__(self):

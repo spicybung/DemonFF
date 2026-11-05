@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -18,6 +18,8 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
+from ..ops.mdl_blender_api import getMeshAttribute
+from ..ops.blender_compat import builtinShader, drawOverlayBatch
 import os
 import gpu
 import random
@@ -643,9 +645,9 @@ class DFFSceneProps(bpy.types.PropertyGroup):
         if not bpy.context.scene.dff.draw_facegroups:
             return
         o = bpy.context.active_object
-        if o and o.select_get() and o.type == 'MESH' and o.data.attributes.get('face group'):
+        if o and o.select_get() and o.type == 'MESH' and getMeshAttribute(o.data, 'face group'):
             mesh = bpy.context.active_object.data
-            attr = mesh.attributes['face group'].data
+            attr = getMeshAttribute(mesh, 'face group').data
             if len(attr) == 0:
                 return
             mesh.calc_loop_triangles()
@@ -675,7 +677,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
                 vertex_colors[idx+2] = color
                 idx += 3
 
-            shader = gpu.shader.from_builtin('FLAT_COLOR')
+            shader = builtinShader('FLAT_COLOR')
             batch = batch_for_shader(
                 shader, 'TRIS',
                 {"pos": vertices, "color": vertex_colors},
@@ -685,13 +687,7 @@ class DFFSceneProps(bpy.types.PropertyGroup):
             # Draw the overlay over the existing collision object faces. There will be z-fighting as the object
             # location falls further from the origin, which it especially does for map objects. Unfortunate, but
             # probably fine for a simple visualization of the face groups.
-            gpu.state.depth_test_set('LESS_EQUAL')
-            gpu.state.depth_mask_set(True)
-            gpu.matrix.push()
-            gpu.matrix.multiply_matrix(bpy.context.active_object.matrix_local)
-            batch.draw(shader)
-            gpu.matrix.pop()
-            gpu.state.depth_mask_set(False)
+            drawOverlayBatch(batch, shader, bpy.context.active_object.matrix_world)
 
     #######################################################
     def register():

@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -35,10 +35,15 @@ class State(metaclass=_StateMeta):
     def update_scene(cls, scene=None):
 
         def append_frame_object(ob):
-            if ob.parent and ob.parent not in frame_objects_set:
-                append_frame_object(ob.parent)
-            frame_objects_set.add(ob)
-            ordered_frame_objcets.append(ob)
+            ancestors = []
+            visiting = set()
+            while ob is not None and ob not in frame_objects_set and ob not in visiting:
+                visiting.add(ob)
+                ancestors.append(ob)
+                ob = ob.parent
+            for ancestor in reversed(ancestors):
+                frame_objects_set.add(ancestor)
+                ordered_frame_objects.append(ancestor)
 
         def update_frame_status(ob):
             is_frame, is_frame_locked = ob.dff.is_frame, False
@@ -55,6 +60,8 @@ class State(metaclass=_StateMeta):
             return is_frame
 
         scene = scene or bpy.context.scene
+        if scene is None or not hasattr(scene, 'dff'):
+            return
         frame_objects, atomic_objects = [], []
 
         for ob in scene.objects:
@@ -74,11 +81,11 @@ class State(metaclass=_StateMeta):
         frame_objects.sort(key=lambda ob: ob.dff.frame_index)
         atomic_objects.sort(key=lambda ob: ob.dff.atomic_index)
 
-        ordered_frame_objcets, frame_objects_set = [], set()
+        ordered_frame_objects, frame_objects_set = [], set()
         for ob in frame_objects:
             if ob not in frame_objects_set:
                 append_frame_object(ob)
-        frame_objects = ordered_frame_objcets
+        frame_objects = ordered_frame_objects
 
         scene.dff.frames.clear()
         for i, ob in enumerate(frame_objects):
@@ -107,8 +114,8 @@ class State(metaclass=_StateMeta):
 
     @staticmethod
     @persistent
-    def _onDepsgraphUpdate(scene):
-        if scene.dff.real_time_update:
+    def _onDepsgraphUpdate(scene, depsgraph=None):
+        if getattr(scene, 'dff', None) is not None and scene.dff.real_time_update:
             if scene == bpy.context.scene and time.time() - State.last_export_refresh > 0.3:
                 State.update_scene(scene)
 
@@ -124,15 +131,17 @@ class State(metaclass=_StateMeta):
 
     @classmethod
     def hook_events(cls):
-        if cls._onDepsgraphUpdate not in depsgraph_update_post:
-            depsgraph_update_post.append(cls._onDepsgraphUpdate)
-        if cls._onLoad not in load_post:
-            load_post.append(cls._onLoad)
+        cls.unhook_events()
+        depsgraph_update_post.append(cls._onDepsgraphUpdate)
+        load_post.append(cls._onLoad)
 
     @classmethod
     def unhook_events(cls):
-        if cls._onDepsgraphUpdate in depsgraph_update_post:
-            depsgraph_update_post.remove(cls._onDepsgraphUpdate)
-        if cls._onLoad in load_post:
-            load_post.remove(cls._onLoad)
-
+        for handlers, callback in ((depsgraph_update_post, cls._onDepsgraphUpdate),
+                                   (load_post, cls._onLoad)):
+            for existing in list(handlers):
+                if existing == callback or (
+                    getattr(existing, '__module__', None) == callback.__module__ and
+                    getattr(existing, '__name__', None) == callback.__name__
+                ):
+                    handlers.remove(existing)

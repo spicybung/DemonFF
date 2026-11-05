@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -19,11 +19,13 @@
 
 import os
 import bpy
+from .blender_compat import actionCurves, actionGroups
 import bmesh
 import os.path
 import re
 import mathutils
 
+from .dff_clamping import DFF_VERTEX_LIMIT, select_clamped_geometry
 from ..gtaLib import dff
 from .col_exporter import export_col
 from collections import defaultdict
@@ -264,7 +266,7 @@ class material_helper:
                 fps = bpy.context.scene.render.fps
                 
                 if anim_data:
-                    for curve in anim_data.action.fcurves:
+                    for curve in actionCurves(anim_data.action):
 
                         # Rw doesn't support Z texture coordinate.
                         if curve.array_index > 1:
@@ -336,6 +338,8 @@ class DffExportException(Exception):
 #######################################################
 class dff_exporter:
 
+    clamp_reports = []
+
     selected = False
     preserve_positions = True
     mass_export = False
@@ -350,6 +354,19 @@ class dff_exporter:
     export_coll = False
     coll_ext_type = 39056122
 
+
+    @staticmethod
+    def record_clamp(selection, label):
+        self = dff_exporter
+        report = {
+            'object': label,
+            'omitted_vertices': selection.omitted_vertices,
+            'omitted_faces': selection.omitted_faces,
+            'kept_vertices': len(selection.vertex_indices),
+            'kept_faces': len(selection.face_indices),
+        }
+        self.clamp_reports.append(report)
+        print('DemonFF DFF clamping: ' + selection.report(label))
 
     #######################################################
     @staticmethod
@@ -565,15 +582,14 @@ class dff_exporter:
         dm_entries = []
         self = dff_exporter
 
-        if mesh.shape_keys and len(mesh.shape_keys.key_blocks) > 1:
-            for kb in mesh.shape_keys.key_blocks[1:]:
+        if obj.data.shape_keys and len(obj.data.shape_keys.key_blocks) > 1:
+            for kb in obj.data.shape_keys.key_blocks[1:]:
                 min_corner = mathutils.Vector(min(v.co[i] for v in kb.data) for i in range(3))
                 max_corner = mathutils.Vector(max(v.co[i] for v in kb.data) for i in range(3))
                 dimensions = mathutils.Vector(max_corner[i] - min_corner[i] for i in range(3))
 
                 sphere_center = 0.5 * (min_corner + max_corner)
-                sphere_center = self.multiply_matrix(obj.matrix_world, sphere_center)
-                sphere_radius = 1.732 * max(*dimensions) / 2
+                sphere_radius = max((vertex.co - sphere_center).length for vertex in kb.data)
 
                 entrie = dff.DeltaMorph()
                 entrie.name = kb.name
@@ -613,7 +629,6 @@ class dff_exporter:
         # If obj.dff.uv_map2 is set (i.e second UV map WILL be exported), the
         # maximum will be 2. If obj.dff.uv_map1 is NOT set, the maximum cannot
         # be greater than 0.
-        max_uv_layers = (obj.dff.uv_map2 + 1) * obj.dff.uv_map1
         max_uv_layers = (obj.dff.uv_map2 + 1) * obj.dff.uv_map1
 
         extra_vert = None
@@ -666,7 +681,7 @@ class dff_exporter:
                 sk_cos = vertex['sk_cos']
                 for index, co in enumerate(sk_cos[1:]):
                     pos = mathutils.Vector(co) - mathutils.Vector(sk_cos[0])
-                    if sum(pos) == 0.0:
+                    if pos.length_squared == 0.0:
                         continue
 
                     entrie = dm_entries[index]
@@ -739,162 +754,169 @@ class dff_exporter:
         self = dff_exporter
 
         mesh = self.convert_to_mesh(obj)
-        self.triangulate_mesh(mesh)
+        try:
+            self.triangulate_mesh(mesh)
 
-        # Ensure compatibility with Blender versions
-        if bpy.app.version < (4, 0, 0) and hasattr(mesh, 'calc_loop_triangles'):
-            mesh.calc_loop_triangles()
+            # Ensure compatibility with Blender versions
+            if bpy.app.version < (4, 0, 0) and hasattr(mesh, 'calc_loop_triangles'):
+                mesh.calc_loop_triangles()
 
-        vcols = self.get_vertex_colors(mesh)
-        verts_indices = {}
-        vertices_list = []
-        faces_list = []
+            vcols = self.get_vertex_colors(mesh)
+            verts_indices = {}
+            vertices_list = []
+            faces_list = []
 
-        skin_plg, bone_groups = self.get_skin_plg_and_bone_groups(obj, mesh)
-        dm_entries = self.get_delta_morph_entries(obj, mesh)
+            skin_plg, bone_groups = self.get_skin_plg_and_bone_groups(obj, mesh)
+            dm_entries = self.get_delta_morph_entries(obj, mesh)
 
-        for polygon in mesh.polygons:
-            face = {"verts": [], "mat_idx": polygon.material_index}
+            for polygon in mesh.polygons:
+                face = {"verts": [], "mat_idx": polygon.material_index}
 
-            for loop_index in polygon.loop_indices:
-                loop = mesh.loops[loop_index]
-                vertex = mesh.vertices[loop.vertex_index]
-                uvs = []
-                vert_cols = []
-                bones = []
-                sk_cos = []
+                for loop_index in polygon.loop_indices:
+                    loop = mesh.loops[loop_index]
+                    vertex = mesh.vertices[loop.vertex_index]
+                    uvs = []
+                    vert_cols = []
+                    bones = []
+                    sk_cos = []
 
-                for uv_layer in mesh.uv_layers:
-                    uvs.append(uv_layer.data[loop_index].uv)
+                    for uv_layer in mesh.uv_layers[:(int(obj.dff.uv_map2) + 1) * int(obj.dff.uv_map1)]:
+                        uvs.append(uv_layer.data[loop_index].uv)
 
-                for vert_col in vcols:
-                    vert_cols.append(vert_col[loop_index])
+                    for vert_col in vcols:
+                        vert_cols.append(vert_col[loop_index])
 
-                weighted_bones = [
-                    (bone_groups[group.group], float(group.weight))
-                    for group in vertex.groups
-                    if group.group in bone_groups and group.weight > 0
-                ]
-                weighted_bones.sort(key=lambda item: item[1], reverse=True)
-                weighted_bones = weighted_bones[:4]
-                total_weight = sum(weight for _, weight in weighted_bones)
-                if total_weight > 0:
-                    bones = [
-                        (bone_index, weight / total_weight)
-                        for bone_index, weight in weighted_bones
+                    weighted_bones = [
+                        (bone_groups[group.group], float(group.weight))
+                        for group in vertex.groups
+                        if group.group in bone_groups and group.weight > 0
                     ]
+                    weighted_bones.sort(key=lambda item: item[1], reverse=True)
+                    weighted_bones = weighted_bones[:4]
+                    total_weight = sum(weight for _, weight in weighted_bones)
+                    if total_weight > 0:
+                        bones = [
+                            (bone_index, weight / total_weight)
+                            for bone_index, weight in weighted_bones
+                        ]
 
-                if mesh.shape_keys:
-                    for kb in mesh.shape_keys.key_blocks:
-                        sk_cos.append(kb.data[loop.vertex_index].co)
+                    if obj.data.shape_keys:
+                        for kb in obj.data.shape_keys.key_blocks:
+                            sk_cos.append(kb.data[loop.vertex_index].co)
 
 
-                normal_space = getattr(obj.dff, "export_normal_space", 'OPENGL')
+                    normal_space = getattr(obj.dff, "export_normal_space", 'OPENGL')
 
-                loop_n = convert_export_normal(loop.normal, normal_space)
-                vert_n = convert_export_normal(vertex.normal, normal_space)
-                normal = loop_n if obj.dff.export_split_normals else vert_n
-                key = (loop.vertex_index,
-                    tuple(normal),
-                    tuple(tuple(uv) for uv in uvs),
-                    tuple(tuple(color) for color in vert_cols))
+                    loop_n = convert_export_normal(loop.normal, normal_space)
+                    vert_n = convert_export_normal(vertex.normal, normal_space)
+                    normal = loop_n if obj.dff.export_split_normals else vert_n
+                    key = (loop.vertex_index,
+                        tuple(normal) if obj.dff.export_normals else (),
+                        tuple(tuple(uv) for uv in uvs),
+                        tuple(tuple(color) for index, color in enumerate(vert_cols)
+                              if (index == 0 and obj.dff.day_cols) or (index == 1 and obj.dff.night_cols)))
 
-                if key not in verts_indices:
-                    face['verts'].append(len(vertices_list))
-                    verts_indices[key] = len(vertices_list)
-                    vertices_list.append({"idx": loop.vertex_index,
-                                        "co": vertex.co,
-                                        "normal": normal,
-                                        "uvs": uvs,
-                                        "vert_cols": vert_cols,
-                                        "bones": bones,
-                                        "sk_cos": sk_cos})
-                else:
-                    face['verts'].append(verts_indices[key])
+                    if key not in verts_indices:
+                        face['verts'].append(len(vertices_list))
+                        verts_indices[key] = len(vertices_list)
+                        vertices_list.append({"idx": loop.vertex_index,
+                                            "co": vertex.co,
+                                            "normal": normal,
+                                            "uvs": uvs,
+                                            "vert_cols": vert_cols,
+                                            "bones": bones,
+                                            "sk_cos": sk_cos})
+                    else:
+                        face['verts'].append(verts_indices[key])
 
-            faces_list.append(face)
+                faces_list.append(face)
 
-        # Check vertices count after deduplication and clamp if necessary
-        if len(vertices_list) > 0xFFFF:
-            print(f"Clamping deduplicated vertices in mesh ({obj.name}). Too many vertices: {len(vertices_list)}/65535")
-            vertices_list = vertices_list[:0xFFFF]
-            faces_list = self.clamp_faces_to_vertices(faces_list, len(vertices_list))
+            selection = select_clamped_geometry(len(vertices_list), [face['verts'] for face in faces_list])
+            vertices_list = [vertices_list[index] for index in selection.vertex_indices]
+            retained_faces = []
+            for source_index, vertices in zip(selection.face_indices, selection.faces):
+                face = faces_list[source_index].copy()
+                face['verts'] = list(vertices)
+                retained_faces.append(face)
+            faces_list = retained_faces
+            if selection.omitted_vertices or selection.omitted_faces:
+                self.record_clamp(selection, obj.name)
 
-        self.populate_geometry_from_vertices_data(
-            vertices_list, skin_plg, dm_entries, mesh, obj, geometry, len(vcols))
+            self.populate_geometry_from_vertices_data(
+                vertices_list, skin_plg, dm_entries, mesh, obj, geometry, len(vcols))
 
-        self.populate_geometry_from_faces_data(faces_list, geometry)
+            self.populate_geometry_from_faces_data(faces_list, geometry)
+
+        finally:
+            bpy.data.meshes.remove(mesh)
 
     #######################################################
     @staticmethod
-    def clamp_mesh_vertices(mesh):
-        """
-        Clamps vertices to the first 65535.
-        """
+    def clamp_mesh_vertices(mesh, max_vertices=DFF_VERTEX_LIMIT):
+        selection = select_clamped_geometry(len(mesh.vertices), [tuple(polygon.vertices) for polygon in mesh.polygons], max_vertices)
+        kept = set(selection.vertex_indices)
         new_mesh = mesh.copy()
-        new_mesh.vertices.foreach_set('select', [False] * len(new_mesh.vertices))  # Deselect all vertices
-
-        for i in range(65535):
-            new_mesh.vertices[i].select = True
-
-        # Return clamped mesh
+        bm = bmesh.new()
+        try:
+            bm.from_mesh(new_mesh)
+            bm.verts.index_update()
+            removed = [vertex for vertex in bm.verts if vertex.index not in kept]
+            if removed:
+                bmesh.ops.delete(bm, geom=removed, context='VERTS')
+            bm.to_mesh(new_mesh)
+            new_mesh.update()
+        except Exception:
+            bpy.data.meshes.remove(new_mesh)
+            raise
+        finally:
+            bm.free()
         return new_mesh
 
     #######################################################
     @staticmethod
     def clamp_faces_to_vertices(faces_list, max_vertices):
-        """
-        Clamps faces to use vertices within the max_vertices range.
-        """
-        clamped_faces = []
-        for face in faces_list:
-            clamped_verts = [v for v in face['verts'] if v < max_vertices]
-            if len(clamped_verts) == len(face['verts']):
-                clamped_faces.append(face)  # Only add if all vertices are within range
-        return clamped_faces
+        return [face for face in faces_list if len(face['verts']) >= 3 and
+                all(isinstance(index, int) and 0 <= index < max_vertices for index in face['verts'])]
 
         
     
     #######################################################
     @staticmethod
     def convert_to_mesh(obj):
-
-        """ 
-        A Blender 2.8 <=> 2.7 compatibility function for bpy.types.Object.to_mesh
-        """
-        
-        # Temporarily disable armature
-        disabled_modifiers = []
-        for modifier in obj.modifiers:
-            if modifier.type == 'ARMATURE':
+        states = [(modifier, modifier.show_viewport) for modifier in obj.modifiers if modifier.type == 'ARMATURE']
+        keys = obj.data.shape_keys
+        values = [(key, key.value) for key in keys.key_blocks] if keys else []
+        active_key = obj.active_shape_key_index
+        pinned = obj.show_only_shape_key
+        evaluated = None
+        try:
+            if keys and len(keys.key_blocks) > 1:
+                unsupported = [modifier.name for modifier in obj.modifiers if modifier.type != 'ARMATURE' and modifier.show_viewport]
+                if unsupported:
+                    raise DffExportException(f'{obj.name}: disable non-armature modifiers or bake them into every shape key before DFF export: ' + ', '.join(unsupported))
+            for modifier, enabled in states:
                 modifier.show_viewport = False
-                disabled_modifiers.append(modifier)
-
-        # Temporarily reset key shape values
-        key_shape_values = {}
-        if obj.data.shape_keys:
-            for kb in obj.data.shape_keys.key_blocks:
-                key_shape_values[kb] = kb.value
-                kb.value = 0.0
-
-        if bpy.app.version < (2, 80, 0):
-            mesh = obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
-        else:
-            
-            depsgraph   = bpy.context.evaluated_depsgraph_get()
-            object_eval = obj.evaluated_get(depsgraph)
-            mesh        = object_eval.to_mesh(preserve_all_data_layers=True, depsgraph=depsgraph)
-            
-
-        # Re enable disabled modifiers
-        for modifier in disabled_modifiers:
-            modifier.show_viewport = True
-
-        # Restore key shape values
-        for kb, v in key_shape_values.items():
-            kb.value = v
-
-        return mesh
+            for key, value in values:
+                key.value = 0.0
+            if values:
+                obj.active_shape_key_index = 0
+                obj.show_only_shape_key = True
+            if bpy.app.version < (2, 80, 0):
+                return obj.to_mesh(bpy.context.scene, True, 'PREVIEW')
+            bpy.context.view_layer.update()
+            depsgraph = bpy.context.evaluated_depsgraph_get()
+            evaluated = obj.evaluated_get(depsgraph)
+            temporary = evaluated.to_mesh(preserve_all_data_layers=True, depsgraph=depsgraph)
+            return temporary.copy()
+        finally:
+            if evaluated is not None:
+                evaluated.to_mesh_clear()
+            for modifier, enabled in states:
+                modifier.show_viewport = enabled
+            for key, value in values:
+                key.value = value
+            obj.active_shape_key_index = active_key
+            obj.show_only_shape_key = pinned
     
     #######################################################
     @staticmethod
@@ -951,7 +973,10 @@ class dff_exporter:
 
         geometry.surface_properties = (0,0,0)
         geometry.materials = self.generate_material_list(obj)
+        geometry.triangles = [triangle if 0 <= triangle.material < len(geometry.materials) else triangle._replace(material=0)
+                              for triangle in geometry.triangles]
 
+        geometry.export_flags['triangle_strip'] = bool(getattr(self, 'export_tristrips', False) or obj.dff.triangle_strip)
         geometry.export_flags['export_normals'] = obj.dff.export_normals
         geometry.export_flags['write_mesh_plg'] = obj.dff.export_binsplit
         geometry.export_flags['light'] = obj.dff.light
@@ -2017,7 +2042,9 @@ class dff_exporter:
                 
 #######################################################
 def export_dff(options):
+    dff_exporter.clamp_reports = []
     # Setup options for export without changing directory structures
+    dff_exporter.export_tristrips = bool(options.get('export_tristrips', False))
     dff_exporter.selected = options['selected']
     dff_exporter.export_frame_names = options['export_frame_names']
     dff_exporter.truncate_frame_names = options.get('truncate_frame_names', False)
@@ -2028,12 +2055,5 @@ def export_dff(options):
     dff_exporter.export_coll = options['export_coll']
     dff_exporter.coll_ext_type = options.get('coll_ext_type', 39056122)
 
-    # Normalize and attempt forced read on file path without directory checks
     file_path = os.path.normpath(options['file_name'])
-
-    try:
-        # Bypass directory check and attempt to read directly
-        dff_exporter.export_dff(file_path)
-    except FileNotFoundError:
-        # Provide a clear notice for a missing file
-        print(f"Path '{file_path}' could not be accessed. Ensure file and directory are accessible.")
+    dff_exporter.export_dff(file_path)

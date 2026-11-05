@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -17,9 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
+from .binary import writeAtomic
+from .model_checks import validateGeometry
 import struct
 
-from mathutils import Vector
 from enum import Enum, IntEnum
 from collections import namedtuple
 from struct import unpack_from, calcsize, pack
@@ -881,7 +883,7 @@ class UVAnim:
         _data = unpack_from("<4xiiif4x32s", data)
         self.type_id, num_frames, self.flags, self.duration, self.name = _data
 
-        _data = unpack_from("8f", data, 56)
+        _data = unpack_from("<8f", data, 56)
         self.node_to_uv = list(_data)
 
         for pos in range(88, 88 + num_frames * 32, 32):
@@ -1055,7 +1057,7 @@ class SkinPLG:
                 self = geometry.extensions.get("skin", self)
                 from .native_wdgl import NativeOGLSkin
                 NativeOGLSkin.unpack(self, data[16:])
-            elif platform == NativePlatformType.PS2:
+            elif platform in (NativePlatformType.PS2, NativePlatformType.PS2FOURCC):
                 from .native_ps2 import NativePS2Skin
                 NativePS2Skin.unpack(self, data[16:], geometry)
             elif platform == NativePlatformType.XBOX:
@@ -1891,7 +1893,7 @@ class Extension2dfx:
 
     #######################################################
     def is_empty(self):
-        return len(self.entries) == 0
+        return not self.entries
 
     #######################################################
     @staticmethod
@@ -2231,7 +2233,7 @@ class Geometry:
     #######################################################
     def is_empty(self):
         global entries
-        return len(self.entries) == 0
+        return not self.vertices and not self.triangles
     
     #######################################################
     @staticmethod
@@ -2378,7 +2380,7 @@ class Geometry:
         data = b''
 
         # Write Bin Mesh PLG
-        if self.export_flags['write_mesh_plg'] or self.export_flags['exclude_geo_faces']:
+        if self.export_flags['write_mesh_plg'] or self.export_flags.get('exclude_geo_faces', False):
             data += self.write_bin_split()
         
         for extension in self.extensions:
@@ -2395,6 +2397,7 @@ class Geometry:
         
     #######################################################
     def to_mem(self, extra_extensions = []):
+        validateGeometry(self)
 
         # Set flags
         flags = rpGEOMETRYPOSITIONS
@@ -2467,12 +2470,11 @@ class dff:
 
     #######################################################
     def _read(self, size):
-        # Clamp size to available data
-        size = min(size, len(self.data) - self.pos)
-    
-        current_pos = self.pos
+        current = self.pos
+        if size < 0 or current < 0 or current + size > len(self.data):
+            raise ValueError(f'DFF read outside file at offset {current}: {size} bytes requested')
         self.pos += size
-        return current_pos
+        return current
     
 
     #######################################################
@@ -2484,220 +2486,151 @@ class dff:
         return self.data[offset:offset+size]
 
     #######################################################
-    def read_chunk(self):
-        # Clamp position to ensure it's within bounds
-        self.pos = min(self.pos, len(self.data))
-
-        try:
-            # Try reading a normal 12-byte chunk
-            if self.pos + 12 > len(self.data):
-                clamped_size = len(self.data) - self.pos
-                chunk_data = self.data[self.pos:self.pos + clamped_size]
-                chunk_data += b'\x00' * (12 - len(chunk_data))
-                chunk = Sections.read(Chunk, chunk_data, 0)
-            else:
-                offset = self.pos
-                self._read(12)
-                chunk = Sections.read(Chunk, self.data, offset)
-
-        except struct.error as e:
-            print(f"Chunk read failed at {self.pos}, retrying 8 bytes earlier: {e}")
-
-            # Move back 8 bytes and try again
-            self.pos = max(self.pos - 8, 0)
-
-            try:
-                if self.pos + 12 > len(self.data):
-                    clamped_size = len(self.data) - self.pos
-                    chunk_data = self.data[self.pos:self.pos + clamped_size]
-                    chunk_data += b'\x00' * (12 - len(chunk_data))
-                    chunk = Sections.read(Chunk, chunk_data, 0)
-                else:
-                    offset = self.pos
-                    self._read(12)
-                    chunk = Sections.read(Chunk, self.data, offset)
-            except struct.error as e2:
-                print(f"Chunk retry also failed at {self.pos}: {e2}")
-                raise
-
-        # Clamp chunk size to avoid overflow
-        chunk_size = min(chunk.size, len(self.data) - self.pos)
-        chunk = chunk._replace(size=chunk_size)
-
+    def read_chunk(self, parent_end=None):
+        limit = len(self.data) if parent_end is None else min(parent_end, len(self.data))
+        offset = self.pos
+        if offset < 0 or offset + 12 > limit:
+            raise ValueError(f'Truncated DFF chunk header at offset {offset}')
+        chunk = Sections.read(Chunk, self.data, self._read(12))
+        if chunk.size > limit - self.pos:
+            raise ValueError(f'DFF chunk 0x{chunk.type:X} at offset {offset} exceeds its container')
         return chunk
 
     #######################################################
     def read_frame_list(self, parent_chunk):
-
-        parent_end       = self.pos + parent_chunk.size
-        chunk            = self.read_chunk()
-        frame_list_start = self.pos
-
-        # read frames count
-        frames_count = unpack_from("<I", self.data, self._read(4))[0]
-
-        for i in range(frames_count):
-            frame = Frame.from_mem(self.data[self.pos:])
-            self.frame_list.append(frame)
+        end = self.pos + parent_chunk.size
+        structure = self.read_chunk(end)
+        if structure.type != types['Struct'] or structure.size < 4:
+            raise ValueError('DFF frame list is missing its structure')
+        structure_end = self.pos + structure.size
+        count = unpack_from('<I', self.data, self._read(4))[0]
+        if count * Frame.size() > structure_end - self.pos:
+            raise ValueError('Truncated DFF frame list')
+        first_frame = len(self.frame_list)
+        for frame_index in range(count):
+            frame = Frame.from_mem(self.raw(Frame.size()))
             self._read(Frame.size())
-
-        self.pos = frame_list_start+chunk.size  # just in case
-
-        # read names
-        i = 0
-        while self.pos < parent_end:
-
-            chunk     = self.read_chunk()
-            chunk_end = self.pos + chunk.size
-            
-            while self.pos < chunk_end:
-                chunk = self.read_chunk()
-
-                name = None
-                bone_data = None
-                user_data = None
-
-                if chunk.type == types["Frame"]:
-                    name = self.raw(strlen(self.data,self.pos)).decode("utf-8")
-                    
-                elif chunk.type == types["HAnim PLG"]:
-                    bone_data = HAnimPLG.from_mem(self.raw(chunk.size))
-
-                elif chunk.type == types["User Data PLG"]:
-                    user_data = UserData.from_mem(self.raw(chunk.size))
-
-                self._read(chunk.size)
-                if name is not None:
-                    self.frame_list[i].name = name
-                if bone_data is not None:
-                    self.frame_list[i].bone_data = bone_data
-                if user_data is not None:
-                    self.frame_list[i].user_data = user_data
-
-            if self.frame_list[i].name is None:
-                self.frame_list[i].name = "unnamed"
-            i += 1
-            
+            self.frame_list.append(frame)
+        self.pos = structure_end
+        frame_index = 0
+        while self.pos < end:
+            extension = self.read_chunk(end)
+            extension_end = self.pos + extension.size
+            if extension.type != types['Extension']:
+                self.pos = extension_end
+                continue
+            if frame_index >= count:
+                raise ValueError('DFF has more frame extensions than frames')
+            frame = self.frame_list[first_frame + frame_index]
+            while self.pos < extension_end:
+                plugin = self.read_chunk(extension_end)
+                payload = self.raw(plugin.size)
+                if plugin.type == types['Frame']:
+                    frame.name = payload.split(b'\0', 1)[0].decode('utf-8', errors='replace')
+                elif plugin.type == types['HAnim PLG']:
+                    frame.bone_data = HAnimPLG.from_mem(payload)
+                elif plugin.type == types['User Data PLG']:
+                    frame.user_data = UserData.from_mem(payload)
+                self._read(plugin.size)
+            frame_index += 1
+        for frame in self.frame_list[first_frame:]:
+            if frame.name is None:
+                frame.name = 'unnamed'
 
     #######################################################
     def read_native_data_plg(self, parent_chunk, geometry):
-        native_chunk = self.read_chunk()
-
-        if native_chunk.type == types["Struct"]:
-            chunk_size = parent_chunk.size - 16
-            platform = unpack_from("<I", self.data, self._read(4))[0]
-
-            if platform == NativePlatformType.PS2:
+        start = self.pos
+        end = start + parent_chunk.size
+        if parent_chunk.size < 12:
+            raise ValueError('Truncated DFF native geometry header')
+        native_chunk = Sections.read(Chunk, self.data, start)
+        if native_chunk.type == types['Struct']:
+            if parent_chunk.size < 16:
+                raise ValueError('DFF native geometry is missing its platform')
+            platform = unpack_from('<I', self.data, start + 12)[0]
+            payload = self.data[start + 16:end]
+            if platform in (NativePlatformType.PS2, NativePlatformType.PS2FOURCC):
                 from .native_ps2 import NativePS2Geometry
-                NativePS2Geometry.unpack(geometry, self.raw(chunk_size))
+                NativePS2Geometry.unpack(geometry, payload)
+                platform = NativePlatformType.PS2
             elif platform == NativePlatformType.XBOX:
                 from .native_xbox import NativeXboxGeometry
-                NativeXboxGeometry.unpack(geometry, self.raw(chunk_size))
+                NativeXboxGeometry.unpack(geometry, payload)
             elif platform == NativePlatformType.GC:
                 from .native_gc import NativeGCGeometry
-                NativeGCGeometry.unpack(geometry, self.raw(chunk_size))
+                NativeGCGeometry.unpack(geometry, payload)
             elif platform == NativePlatformType.PSP:
                 from .native_psp import NativePSPGeometry
-                NativePSPGeometry.unpack(geometry, self.raw(chunk_size))
+                NativePSPGeometry.unpack(geometry, payload)
             else:
-                print("Unsupported native platform %d" % platform)
-
+                raise ValueError('Unsupported DFF native geometry platform %d' % platform)
             geometry.native_platform_type = platform
         else:
-            chunk_size = parent_chunk.size
-            self.pos -= 12
             from .native_wdgl import NativeWDGLGeometry
-            NativeWDGLGeometry.unpack(geometry, self.data[self.pos:])
-
-        self._read(chunk_size)
+            NativeWDGLGeometry.unpack(geometry, self.data[start:end])
+        self.pos = end
 
     #######################################################
     def read_mesh_plg(self, parent_chunk, geometry):
+        end = self.pos + parent_chunk.size
+        if parent_chunk.size < 12:
+            raise ValueError('DFF material splits are missing their header')
+        flags, split_count, total_indices = unpack_from('<III', self.data, self._read(12))
+        header_bytes = split_count * 8
+        remaining = end - self.pos
+        if header_bytes > remaining:
+            raise ValueError('Truncated DFF material split headers')
+
+        index_bytes = remaining - header_bytes
+        native = bool(geometry.flags & rpGEOMETRYNATIVE)
+        if native and index_bytes == 0:
+            index_size = 0
+        elif index_bytes == total_indices * 4:
+            index_size = 4
+        elif index_bytes == total_indices * 2:
+            index_size = 2
+        else:
+            raise ValueError('DFF material split indices do not match their declared count')
+
+        split_type = namedtuple('MaterialSplit', 'indices_count material')
+        geometry.split_headers = []
         triangles = []
-        
-        _Header      = namedtuple("_Header","flags mesh_count total_indices")
-        _SplitHeader = namedtuple("_SplitHeader","indices_count material")
-        _Triangle    = namedtuple("_Triangle", "a b c")
-        
-        header = _Header._make(unpack_from("<III", self.data, self._read(12)))
-
-        # calculate if the indices are stored in 32 bit or 16 bit
-        calculated_size = 12 + header.mesh_count * 8 + (header.total_indices * 2)
-        opengl = calculated_size >= parent_chunk.size
-        
-        is_tri_strip = header.flags == 1
-        for i in range(header.mesh_count):
-            
-            # Read header
-            split_header = _SplitHeader._make(unpack_from("<II",
-                                                          self.data,
-                                                          self._read(8)))
-
-            unpack_format = "<H" if opengl else "<H2x"
-            total_iterations = split_header.indices_count
-            
-            # Read 3 integers instead of 1 incase of triangle lists
-            if not is_tri_strip: 
-                unpack_format = "<" + (unpack_format[1:] * 3)
-                total_iterations //= 3
-
-            previous_vertices = []
-            for j in range(total_iterations):
-
-                # Read Triangle Strip
-                if is_tri_strip:
-
-                    vertex = unpack_from(
-                        unpack_format,
-                        self.data,
-                        self._read(2 if opengl else 4)
-                    )[0]
-
-                    if len(previous_vertices) < 2:
-                        previous_vertices.append(vertex)
+        read_indices = 0
+        for split_index in range(split_count):
+            if self.pos + 8 > end:
+                raise ValueError('Truncated DFF material split')
+            count, material = unpack_from('<II', self.data, self._read(8))
+            geometry.split_headers.append(split_type(count, material))
+            read_indices += count
+            if read_indices > total_indices:
+                raise ValueError('DFF material split exceeds the total index count')
+            if not index_size:
+                continue
+            if self.pos + count * index_size > end:
+                raise ValueError('Truncated DFF material split indices')
+            code = 'I' if index_size == 4 else 'H'
+            indices = unpack_from('<%d%s' % (count, code), self.data,
+                                  self._read(count * index_size))
+            if flags == 1:
+                for index in range(count - 2):
+                    a, b, c = indices[index:index + 3]
+                    if a == b or b == c or a == c:
                         continue
-
-                    if(j % 2 == 0):
-                        triangle = Triangle(
-                            previous_vertices[1],
-                            previous_vertices[0],
-                            split_header.material,
-                            vertex
-                        )
-                    else:
-                        triangle = Triangle(
-                            previous_vertices[0],
-                            previous_vertices[1],
-                            split_header.material,
-                            vertex
-                        )
-                
-                    previous_vertices[0] = previous_vertices[1]
-                    previous_vertices[1] = vertex
-
-                # Read Triangle List
-                else:
-
-                    _triangle = _Triangle._make(
-                        unpack_from(
-                            unpack_format,
-                            self.data,
-                            self._read(6 if opengl else 12)
-                        )
-                    )
-
-                    triangle = Triangle._make(
-                        (
-                            _triangle.b,
-                            _triangle.a,
-                            split_header.material,
-                            _triangle.c
-                        )
-                    )
-
-                triangles.append(triangle)
-
-        geometry.extensions['mat_split'] = triangles
+                    if index % 2:
+                        a, b = b, a
+                    triangles.append(Triangle(b, a, material, c))
+            else:
+                if count % 3:
+                    raise ValueError('DFF triangle list has an incomplete triangle')
+                for index in range(0, count, 3):
+                    a, b, c = indices[index:index + 3]
+                    triangles.append(Triangle(b, a, material, c))
+        if read_indices != total_indices or self.pos != end:
+            raise ValueError('DFF material split totals do not match their data')
+        if index_size:
+            geometry.extensions['mat_split'] = triangles
+        else:
+            geometry.extensions.pop('mat_split', None)
 
     #######################################################
     def read_matfx_bumpmap(self):
@@ -2801,226 +2734,155 @@ class dff:
 
     #######################################################
     def read_texture(self):
-        chunk = self.read_chunk() 
-
-        # Read a  texture
-        texture = Texture.from_mem(
-            self.data[self.pos:self.pos+chunk.size]
-        )
-        
-        self._read(chunk.size)
-        
-        # Texture Name
         chunk = self.read_chunk()
-        texture.name = self.raw(
-            strlen(self.data,self.pos)
-        ).decode("utf-8")
-        
+        if chunk.type != types['Struct'] or chunk.size < 4:
+            raise ValueError('DFF texture is missing its structure')
+        texture = Texture.from_mem(self.raw(chunk.size))
         self._read(chunk.size)
-        
-        # Mask Name
-        chunk = self.read_chunk()  
-        texture.mask = self.raw(
-            strlen(self.data,self.pos)
-        ).decode("utf-8")
-        
-        self._read(chunk.size)
+        for attribute in ('name', 'mask'):
+            chunk = self.read_chunk()
+            if chunk.type != types['String']:
+                raise ValueError('DFF texture is missing its ' + attribute + ' string')
+            setattr(texture, attribute, self.raw(chunk.size).split(b'\0', 1)[0].decode('utf-8'))
+            self._read(chunk.size)
         return texture
         
     #######################################################
     def read_material_list(self, parent_chunk):
-        list_end = parent_chunk.size + self.pos
-        chunk = self.read_chunk()
+        end = self.pos + parent_chunk.size
+        chunk = self.read_chunk(end)
+        if chunk.type != types['Struct'] or chunk.size < 4:
+            raise ValueError('DFF material list is missing its structure')
+        structure_end = self.pos + chunk.size
+        count = unpack_from('<I', self.data, self._read(4))[0]
+        if count > (structure_end - self.pos) // 4:
+            raise ValueError('Truncated DFF material-reference table')
+        references = unpack_from('<%di' % count, self.data, self._read(count * 4))
+        self.pos = structure_end
+        materials = []
+        for reference in references:
+            if reference != -1:
+                if not 0 <= reference < len(materials):
+                    raise ValueError('DFF material reference must point to a previous slot')
+                materials.append(materials[reference])
+            else:
+                chunk = self.read_chunk(end)
+                if chunk.type != types['Material']:
+                    raise ValueError('DFF material list is missing a declared material')
+                materials.append(self.read_material(chunk))
+        self.geometry_list[-1].materials.extend(materials)
+        self.pos = end
 
-        if chunk.type == types["Struct"]:
-            materials_count = unpack_from("<I", self.data, self._read(4))[0]
-            materials_indices = []
 
-            for i in range(materials_count):
-
-                materials_indices.append
-                (
-                    unpack_from
-                    (
-                        "<i",
-                        self.data,
-                        self._read(4)
-                    )[0]
-                )
-                
-            while self.pos < list_end:
-
-                chunk = self.read_chunk()
-                chunk_end = self.pos + chunk.size
-
-                if chunk.type == types["Material"]:
-                    chunk = self.read_chunk()
-
-                    # Read header
-                    if chunk.type == types["Struct"]:
-                        material = Material.from_mem(
-                            self.data[self.pos:self.pos+chunk.size]
-                        )
-                        self.pos += chunk.size
-
-                    # Read textures and extensions
-                    while self.pos < chunk_end:
-                        chunk = self.read_chunk()
-                        
-                        if chunk.type == types["Texture"]:
-
-                            _chunk_end = self.pos + chunk.size
-                            texture = self.read_texture()
-
-                            material.textures.append(texture)
-                            self.pos = _chunk_end
-
-                        elif chunk.type == types["Extension"]:
-                            if chunk.size > 0:
-                                _chunk_end = chunk.size + self.pos
-
-                                # Read extensions
-                                while self.pos < _chunk_end:
-                                    chunk = self.read_chunk()
-                                    __chunk_end = self.pos + chunk.size
-                                    
-                                    if chunk.type == types["Material Effects PLG"]:
-                                        self.read_matfx(material, chunk)
-
-                                    if chunk.type == types["Specular Material"]:
-
-                                        material.add_plugin(
-                                            "spec",
-                                            Sections.read(SpecularMat,
-                                                          self.data,
-                                                          self.pos)
-                                        )
-
-                                    if chunk.type == types["Reflection Material"]:
-                                        material.add_plugin(
-                                            "refl",
-                                            Sections.read(ReflMat,
-                                                          self.data,
-                                                          self.pos)
-                                        )
-
-                                    if chunk.type == types["User Data PLG"]:
-                                        material.add_plugin (
-                                            "udata",
-                                            UserData.from_mem(self.data[self.pos:]))
-                                        
-                                    if chunk.type == types["UV Animation PLG"]:
-
-                                        chunk = self.read_chunk()
-                                        
-                                        anim_count = unpack_from("<I",
-                                                                 self.data,
-                                                                 self._read(4))
-
-                                        # Read n animations
-                                        for i in range(anim_count[0]):
-                                            material.add_plugin('uv_anim',
-                                                                self.raw(
-                                                                    strlen(
-                                                                        self.data,
-                                                                        self.pos
-                                                                    ),
-                                                                    self._read(32)
-                                                                ).decode('ascii')
-                                            )
-                                            
-                                    self.pos = __chunk_end
-                                    
-                                    
-                            self._read(chunk.size)
-                            
-                        else:
-                            self._read(chunk.size)
-
-                    self.geometry_list[-1].materials.append(material)
-                    
-                self.pos = chunk_end
+    def read_material(self, parent_chunk):
+        end = self.pos + parent_chunk.size
+        chunk = self.read_chunk(end)
+        if chunk.type != types['Struct'] or chunk.size < 16:
+            raise ValueError('DFF material is missing its structure')
+        material = Material.from_mem(self.raw(chunk.size))
+        self._read(chunk.size)
+        while self.pos < end:
+            chunk = self.read_chunk(end)
+            child_end = self.pos + chunk.size
+            if chunk.type == types['Texture']:
+                material.textures.append(self.read_texture())
+            elif chunk.type == types['Extension']:
+                while self.pos < child_end:
+                    plugin = self.read_chunk(child_end)
+                    plugin_end = self.pos + plugin.size
+                    payload = self.raw(plugin.size)
+                    if plugin.type == types['Material Effects PLG']:
+                        self.read_matfx(material, plugin)
+                    elif plugin.type == types['Specular Material']:
+                        material.add_plugin('spec', Sections.read(SpecularMat, payload))
+                    elif plugin.type == types['Reflection Material']:
+                        material.add_plugin('refl', Sections.read(ReflMat, payload))
+                    elif plugin.type == types['User Data PLG']:
+                        material.add_plugin('udata', UserData.from_mem(payload))
+                    elif plugin.type == types['UV Animation PLG']:
+                        structure = self.read_chunk(plugin_end)
+                        structure_end = self.pos + structure.size
+                        if structure.type != types['Struct'] or structure.size < 4:
+                            raise ValueError('Invalid DFF UV animation structure')
+                        mask = unpack_from('<I', self.data, self._read(4))[0]
+                        count = bin(mask).count('1')
+                        if count * 32 > structure_end - self.pos:
+                            raise ValueError('Truncated DFF UV animation names')
+                        for index in range(count):
+                            name = self.raw(32, self._read(32)).split(b'\0', 1)[0].decode('ascii')
+                            material.add_plugin('uv_anim', name)
+                    if self.pos > plugin_end:
+                        raise ValueError('DFF material plugin exceeds its declared size')
+                    self.pos = plugin_end
+            if self.pos > child_end:
+                raise ValueError('DFF material child exceeds its declared size')
+            self.pos = child_end
+        return material
 
     #######################################################
     def read_geometry_list(self, parent_chunk):
-
-        chunk = self.read_chunk()
-
-        if chunk.type == types["Struct"]:
-            geometries = unpack_from("<I", self.data, self._read(4))[0]
-
-            # Read geometries
-            for i in range(geometries):
-                chunk = self.read_chunk()
-
-                # GEOMETRY
-                if chunk.type == types["Geometry"]:  
-                    chunk_end = self.pos + chunk.size
-
-                    chunk = self.read_chunk()
-                    geometry = Geometry.from_mem(self.data[self.pos:], parent_chunk)
-
-                    self._read(chunk.size)
-
-                    self.geometry_list.append(geometry)
-
-                    while self.pos < chunk_end:
-
-                        chunk = self.read_chunk()
-
-                        if chunk.type == types["Material List"]:  
-                            self.read_material_list(chunk)
-
-                        elif chunk.type == types["Extension"]:
-                            pass
-
-                        elif chunk.type == types["Delta Morph PLG"]:
-                            delta_morph = DeltaMorphPLG.from_mem(self.data[self.pos:])
-                            geometry.extensions["delta_morph"] = delta_morph
-
-                            self._read(chunk.size)
-
-                        elif chunk.type == types["Skin PLG"]:
-                            
-                            skin = SkinPLG.from_mem(self.data[self.pos:], geometry)
-                            geometry.extensions["skin"] = skin
-                            
-                            self._read(chunk.size)
-
-                        elif chunk.type == types["Extra Vert Color"]:
-                            
-                            geometry.extensions['extra_vert_color'] = \
-                                ExtraVertColorExtension.from_mem (
-                                    self.data, self._read(chunk.size), geometry
-                                )
-
-                        elif chunk.type == types["User Data PLG"]:
-                            geometry.extensions['user_data'] = \
-                                UserData.from_mem(self.data[self.pos:])
-
-                            self._read(chunk.size)
-
-                        elif chunk.type == types["2d Effect"]:
-                            self.ext_2dfx += Extension2dfx.from_mem(
-                                self.data,
-                                self._read(chunk.size),
-                                chunk.size
-                            )
+        end = self.pos + parent_chunk.size
+        chunk = self.read_chunk(end)
+        if chunk.type != types['Struct'] or chunk.size < 4:
+            raise ValueError('DFF geometry list is missing its structure')
+        count = unpack_from('<I', self.data, self.pos)[0]
+        self._read(chunk.size)
+        if count > (end - self.pos) // 12:
+            raise ValueError('Truncated DFF geometry list')
+        for index in range(count):
+            chunk = self.read_chunk(end)
+            if chunk.type != types['Geometry']:
+                raise ValueError('DFF geometry list is missing a declared geometry')
+            self.read_geometry(chunk)
+        self.pos = end
 
 
-                            
-                        elif chunk.type == types["Bin Mesh PLG"]: 
-                           self.read_mesh_plg(chunk,geometry)
+    def read_geometry(self, parent_chunk):
+        end = self.pos + parent_chunk.size
+        chunk = self.read_chunk(end)
+        if chunk.type != types['Struct']:
+            raise ValueError('DFF geometry is missing its structure')
+        geometry = Geometry.from_mem(self.raw(chunk.size), chunk)
+        self._read(chunk.size)
+        self.geometry_list.append(geometry)
+        deferred = []
 
-                        elif chunk.type == types["Native Data PLG"]:
-                            self.read_native_data_plg(chunk, geometry)
+        def read_children(container_end):
+            while self.pos < container_end:
+                child = self.read_chunk(container_end)
+                child_end = self.pos + child.size
+                if child.type == types['Material List']:
+                    self.read_material_list(child)
+                elif child.type == types['Extension']:
+                    read_children(child_end)
+                elif child.type == types['Bin Mesh PLG']:
+                    self.read_mesh_plg(child, geometry)
+                elif child.type in (types['Native Data PLG'], types['Skin PLG']):
+                    deferred.append((child, self.pos))
+                elif child.type == types['Delta Morph PLG']:
+                    geometry.extensions['delta_morph'] = DeltaMorphPLG.from_mem(self.raw(child.size))
+                elif child.type == types['Extra Vert Color']:
+                    geometry.extensions['extra_vert_color'] = ExtraVertColorExtension.from_mem(self.data, self.pos, geometry)
+                elif child.type == types['User Data PLG']:
+                    geometry.extensions['user_data'] = UserData.from_mem(self.raw(child.size))
+                elif child.type == types['2d Effect']:
+                    self.ext_2dfx += Extension2dfx.from_mem(self.data, self.pos, child.size)
+                if self.pos > child_end:
+                    raise ValueError('DFF geometry plugin exceeds its declared size')
+                self.pos = child_end
 
-                        else:
-                            self._read(chunk.size)
+        read_children(end)
+        for plugin_type in (types['Native Data PLG'], types['Skin PLG']):
+            for child, offset in deferred:
+                if child.type != plugin_type:
+                    continue
+                self.pos = offset
+                if plugin_type == types['Native Data PLG']:
+                    self.read_native_data_plg(child, geometry)
+                else:
+                    geometry.extensions['skin'] = SkinPLG.from_mem(self.raw(child.size), geometry)
+        self.pos = end
 
-                    self.pos = chunk_end
-
-    
     #######################################################
     def read_2dfx(self, data, offset, context):
         """
@@ -3144,96 +3006,59 @@ class dff:
 
     #######################################################
     def read_atomic(self, parent_chunk):
-
-        chunk_end = self.pos + parent_chunk.size
-
+        end = self.pos + parent_chunk.size
         atomic = None
-
-        while self.pos < chunk_end:
-            chunk = self.read_chunk()
-
-            # STRUCT
-            if chunk.type == types["Struct"]:
-                atomic = Atomic.from_mem(
-                    self.data[self.pos:self.pos+chunk.size]
-                )
-                self.pos += chunk.size
-
-            elif chunk.type == types["Geometry"]:
+        while self.pos < end:
+            chunk = self.read_chunk(end)
+            child_end = self.pos + chunk.size
+            if chunk.type == types['Struct']:
+                atomic = Atomic.from_mem(self.raw(chunk.size))
+            elif chunk.type == types['Geometry']:
+                if atomic is None:
+                    raise ValueError('DFF atomic geometry precedes its structure')
                 self.read_geometry(chunk)
                 atomic.geometry = len(self.geometry_list) - 1
-
-            elif chunk.type == types["Extension"]:
-                _chunk_end = chunk.size + self.pos
-
-                while self.pos < _chunk_end:
-                    chunk = self.read_chunk()
-
-                    if chunk.type == types["Right to Render"]:
-                        right_to_render = Sections.read(RightToRender, self.data, self._read(chunk.size))
-                        atomic.extensions["right_to_render"] = right_to_render
-
-                    elif chunk.type == types["Pipeline Set"]:
-                        pipeline = unpack_from("<I", self.data, self._read(chunk.size))[0]
-                        atomic.extensions["pipeline"] = pipeline
-
-                    else:
-                        self._read(chunk.size)
-
-                self.pos = _chunk_end
-
-            else:
-                self.pos += chunk.size
-
-        if atomic:
-            self.atomic_list.append(atomic)
+            elif chunk.type == types['Extension']:
+                while self.pos < child_end:
+                    plugin = self.read_chunk(child_end)
+                    payload = self.raw(plugin.size)
+                    if atomic is None:
+                        raise ValueError('DFF atomic extension precedes its structure')
+                    if plugin.type == types['Right to Render']:
+                        atomic.extensions['right_to_render'] = Sections.read(RightToRender, payload)
+                    elif plugin.type == types['Pipeline Set']:
+                        atomic.extensions['pipeline'] = unpack_from('<I', payload)[0]
+                    self._read(plugin.size)
+            self.pos = child_end
+        if atomic is None:
+            raise ValueError('DFF atomic is missing its structure')
+        self.atomic_list.append(atomic)
 
     #######################################################
     def read_clump(self, root_chunk):
-        chunk = self.read_chunk()
-        root_end = self.pos + root_chunk.size
-
-        # STRUCT
-        if chunk.type == types["Struct"]:  
-
-            # read clump data
-            self._read(12)
-            if Sections.get_rw_version(chunk.version) < 0x33000:
-                self._read(-8)
-                        
-            while self.pos < root_end-12:
-                chunk = self.read_chunk()
-
-                # FRAMELIST
-                if chunk.type == types["Frame List"]:  
-                    self.read_frame_list(chunk)
-
-                # GEOMETRYLIST
-                elif chunk.type == types["Geometry List"]:  
-                    self.read_geometry_list(chunk)
-                
-                # 2d Effect
-                elif chunk.type == types["2d Effect"]:  
-                    self.ext_2dfx += Extension2dfx.from_mem(self.data, self.pos, chunk.size)
-                    self.pos += chunk.size
-
-                # ATOMIC
-                elif chunk.type == types["Atomic"]:  
-                    self.read_atomic(chunk)
-
-                elif chunk.type in (types["Collision Model"], types["SAMP Collision Model"]):
-                    self.collisions.append(
-                        ExtensionColl(chunk.type, self.data[self.pos:self.pos + chunk.size])
-                    )
-                    self.pos += chunk.size
-                    
-                #Not incrementing the position here to read the next extensions
-                #in the same loop
-                elif chunk.type == types["Extension"]: 
-                    pass
-
-                else:
-                    self.pos += chunk.size
+        end = self.pos + root_chunk.size
+        chunk = self.read_chunk(end)
+        if chunk.type != types['Struct'] or chunk.size < 4:
+            raise ValueError('DFF clump is missing its structure')
+        self._read(chunk.size)
+        while self.pos < end:
+            chunk = self.read_chunk(end)
+            if chunk.type == types['Frame List']:
+                self.read_frame_list(chunk)
+            elif chunk.type == types['Geometry List']:
+                self.read_geometry_list(chunk)
+            elif chunk.type == types['Atomic']:
+                self.read_atomic(chunk)
+            elif chunk.type == types['2d Effect']:
+                self.ext_2dfx += Extension2dfx.from_mem(self.data, self.pos, chunk.size)
+                self._read(chunk.size)
+            elif chunk.type in (types['Collision Model'], types['SAMP Collision Model']):
+                self.collisions.append(ExtensionColl(chunk.type, self.raw(chunk.size)))
+                self._read(chunk.size)
+            elif chunk.type != types['Extension']:
+                self._read(chunk.size)
+        if self.pos != end:
+            raise ValueError('DFF clump exceeds its declared size')
 
     #######################################################
     def read_uv_anim_dict(self):
@@ -3256,36 +3081,56 @@ class dff:
             
     #######################################################
     def load_memory(self, data):
-
-        self.data = data
+        self.clear()
+        if not isinstance(data, (bytes, bytearray, memoryview)):
+            raise TypeError('DFF data must be bytes')
+        self.data = bytes(data)
         self.source_rw_version = 0
         self.source_library_id = 0
-        self.source_profile = ""
-        if len(data) >= 12:
-            try:
-                root_type, root_size, root_library_id = unpack_from("<III", data, 0)
-                self.source_library_id = int(root_library_id)
-                self.source_rw_version = int(Sections.get_rw_version(root_library_id))
-                # The supplied early LCS DFF set uses the 0x1003FFFF library ID
-                # (decoded RW 3.4.0.3) while belonging to the prototype Stories
-                # asset family.  Detection is deliberately input-only and does
-                # not alter normal RenderWare parsing.
-                if int(root_type) == types["Clump"] and int(root_library_id) == 0x1003FFFF:
-                    self.source_profile = "LCS_PROTOTYPE_DFF"
-            except Exception:
-                self.source_rw_version = 0
-                self.source_library_id = 0
-                self.source_profile = ""
+        self.source_profile = ''
+        found_clump = False
+        try:
+            while self.pos < len(self.data):
+                chunk = self.read_chunk()
+                end = self.pos + chunk.size
+                if chunk.type == types['Clump']:
+                    self.read_clump(chunk)
+                    self.rw_version = Sections.get_rw_version(chunk.version)
+                    self.source_rw_version = self.rw_version
+                    self.source_library_id = chunk.version
+                    if chunk.version == 0x1003FFFF:
+                        self.source_profile = 'LCS_PROTOTYPE_DFF'
+                    found_clump = True
+                elif chunk.type == types['UV Animation Dictionary']:
+                    self.read_uv_anim_dict()
+                if self.pos > end:
+                    raise ValueError('DFF reader exceeded a top-level chunk')
+                self.pos = end
+            if not found_clump:
+                raise ValueError('No RenderWare DFF clump found')
+            self.validate_references()
+        except struct.error as error:
+            raise ValueError(f'Truncated DFF data near offset {self.pos}: {error}') from error
 
-        while self.pos < len(data) - 12:
-            chunk = self.read_chunk()
 
-            if chunk.type == types["Clump"]:
-                self.read_clump(chunk)
-                self.rw_version = Sections.get_rw_version(chunk.version)
-
-            elif chunk.type == types["UV Animation Dictionary"]:
-                self.read_uv_anim_dict()
+    def validate_references(self):
+        for index, atomic in enumerate(self.atomic_list):
+            if not 0 <= atomic.geometry < len(self.geometry_list):
+                raise ValueError(f'DFF atomic {index} references invalid geometry {atomic.geometry}')
+            if self.frame_list and not 0 <= atomic.frame < len(self.frame_list):
+                raise ValueError(f'DFF atomic {index} references invalid frame {atomic.frame}')
+        resolved = set()
+        for index in range(len(self.frame_list)):
+            current = index
+            chain = set()
+            while current != -1 and current not in resolved:
+                if not 0 <= current < len(self.frame_list):
+                    raise ValueError(f'DFF frame {index} references invalid parent {current}')
+                if current in chain:
+                    raise ValueError(f'DFF frame hierarchy contains a cycle at frame {current}')
+                chain.add(current)
+                current = self.frame_list[current].parent
+            resolved.update(chain)
                 
 
     #######################################################
@@ -3495,10 +3340,7 @@ class dff:
         return data
     #######################################################
     def write_file(self, filename, version):
-
-        with open(filename, mode='wb') as file:
-            content = self.write_memory(version)
-            file.write(content)
+        writeAtomic(filename, self.write_memory(version))
     #######################################################
     def __init__(self):
         self.source_rw_version = 0

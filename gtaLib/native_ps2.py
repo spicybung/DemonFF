@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -21,9 +21,9 @@
 
 from struct import unpack_from, calcsize, pack
 
-from dff import ExtraVertColorExtension
-from txd import TextureNative, RasterFormat, PaletteType
-from dff import Chunk, RGBA, Sections, TexCoords, Triangle, Vector
+from .dff import ExtraVertColorExtension
+from .txd import TextureNative, RasterFormat, PaletteType
+from .dff import Chunk, RGBA, Sections, TexCoords, Triangle, Vector
 
 
 #######################################################
@@ -74,29 +74,38 @@ class NativePS2Skin:
         weights = geometry._vertex_bone_weights
         indices = []
 
-        if not geometry.normals and not geometry.uv_layers[0] and not geometry.prelit_colors:
+        if not geometry.normals and not any(geometry.uv_layers) and not geometry.prelit_colors:
             index_div = 3
         else:
             index_div = 4
 
-        for _, wg in enumerate(weights):
-            ig = []
-            for j in range(4):
-                index = pack("<f", wg[j])[0]
-                if index > 0:
-                    index = index // index_div - 1
-                    ig.append(index)
-            indices.append(ig)
+        decoded_weights = []
+        for vertex_weights in weights:
+            vertex_indices = []
+            clean_weights = []
+            for weight in vertex_weights:
+                encoded = unpack_from('<I', pack('<f', weight))[0]
+                bone_code = encoded & 255
+                bone_index = bone_code // index_div - 1 if bone_code else 0
+                clean_weight = unpack_from('<f', pack('<I', encoded & 0xFFFFFF00))[0]
+                if clean_weight > 0 and not 0 <= bone_index < skin.num_bones:
+                    raise ValueError('PS2 DFF skin references a bone outside its skeleton')
+                vertex_indices.append(max(0, bone_index))
+                clean_weights.append(clean_weight)
+            indices.append(vertex_indices)
+            decoded_weights.append(clean_weights)
 
         skin.vertex_bone_indices = indices
-        skin.vertex_bone_weights = weights
+        skin.vertex_bone_weights = decoded_weights
 
 #######################################################
 class NativePS2Geometry:
     __slots__ = [
         "_pos",
         "_indices",
-        "_vertex_index"
+        "_vertex_index",
+        "data_end",
+        "split_end"
     ]
 
     #######################################################
@@ -104,11 +113,17 @@ class NativePS2Geometry:
         self._pos = 0
         self._indices = []
         self._vertex_index = 0
+        self.data_end = 0
+        self.split_end = 0
 
     #######################################################
     @staticmethod
     def unpack(geometry, data):
         self = NativePS2Geometry()
+        self.data_end = len(data)
+        self.split_end = len(data)
+        if not geometry.split_headers:
+            raise ValueError('PS2 DFF geometry is missing its material splits')
 
         geometry.normals = []
         geometry.prelit_colors = []
@@ -130,13 +145,17 @@ class NativePS2Geometry:
 
         read_types = []
 
-        for split_index, split_header in enumerate(geometry.extensions['split_headers']):
+        for split_index, split_header in enumerate(geometry.split_headers):
+            self.split_end = len(data)
             split_size, no_pointers = unpack_from("<II", data, self._read(8))
 
             self._indices.append([])
 
             split_start = self._pos
             split_end = split_start + split_size
+            if split_end > len(data):
+                raise ValueError('PS2 DFF split extends beyond its native geometry')
+            self.split_end = split_end
 
             section_a_last, section_b_last = False, False
             data_a_read = False
@@ -145,7 +164,7 @@ class NativePS2Geometry:
 
                 # Section A
                 reached_end = False
-                while not reached_end and not section_a_last:
+                while self._pos < split_end and not reached_end and not section_a_last:
                     chunk8 = unpack_from("16B", data, self._pos)
                     chunk32 = unpack_from("<4I", data, self._read(16))
 
@@ -155,7 +174,7 @@ class NativePS2Geometry:
                         # other blocks
                         if data_a_read:
                             # skip dummy data
-                            self._pos += 16
+                            self._read(16)
                             continue
 
                         old_pos = self._pos
@@ -167,13 +186,17 @@ class NativePS2Geometry:
                         section_a_last = True
                         reached_end = True
                         data_a_read = True
+                        if chunk8[0] == 0:
+                            self._pos = split_end
+                            section_b_last = True
+                            read_types = []
                     elif chunk8[3] == 0x10:
                         reached_end = True
                         data_a_read = True
 
                 # Section B
                 reached_end = False
-                while not reached_end and not section_b_last:
+                while self._pos < split_end and not reached_end and not section_b_last:
                     chunk8 = unpack_from("16B", data, self._pos)
                     chunk32 = unpack_from("<4I", data, self._read(16))
 
@@ -210,19 +233,22 @@ class NativePS2Geometry:
         else:
             geometry.flags &= ~rpGEOMETRYPRELIT
 
-        if geometry.uv_layers and not geometry.uv_layers[0]:
+        if geometry.uv_layers and not any(geometry.uv_layers):
             geometry.uv_layers = []
 
     #######################################################
     def _read(self, size):
         current_pos = self._pos
+        if size < 0 or current_pos < 0 or current_pos + size > min(self.data_end, self.split_end):
+            raise ValueError('Truncated PS2 DFF vertex data at offset %d' % current_pos)
         self._pos += size
-
         return current_pos
 
     #######################################################
     def _read_geometry(self, geometry, data, split_index, indices_count, split_type):
         size = 0
+        if self._pos < 0 or self._pos > min(self.data_end, self.split_end):
+            raise ValueError('PS2 DFF vertex pointer is outside its split')
         split_type &= 0xFF00FFFF
 
         # Read vertices
@@ -266,6 +292,15 @@ class NativePS2Geometry:
                 self._indices[split_index].append(self._vertex_index)
                 self._vertex_index += 1
 
+        elif split_type == 0x69008000:
+            size = 6
+            scale = 1.0 / (128.0 if geometry.flags & rpGEOMETRYPRELIT else 1024.0)
+            for vertex_index in range(indices_count):
+                x, y, z = unpack_from('<3h', data, self._read(size))
+                geometry.vertices.append(Vector(x * scale, y * scale, z * scale))
+                self._indices[split_index].append(self._vertex_index)
+                self._vertex_index += 1
+
         # Read texture mapping coordinates
         elif split_type == 0x64008001:
             size = 8
@@ -294,7 +329,8 @@ class NativePS2Geometry:
 
             for _ in range(indices_count):
                 u, v = unpack_from("<2h", data, self._read(size))
-                tex_coord = TexCoords(u / 4096.0, v / 4096.0)
+                scale = 128.0 if geometry.flags & rpGEOMETRYPRELIT else 4096.0
+                tex_coord = TexCoords(u / scale, v / scale)
                 geometry.uv_layers[0].append(tex_coord)
 
             for uv in geometry.uv_layers[1:]:
@@ -309,7 +345,7 @@ class NativePS2Geometry:
                 x, y, z = unpack_from("3b", data, self._read(3))
                 normal = Vector(x / 128.0, y / 128.0, z / 128.0)
                 geometry.normals.append(normal)
-                self._pos += 1
+                self._read(1)
 
         elif split_type in (0x6A008002, 0x6A008003):
             size = 3
@@ -342,6 +378,24 @@ class NativePS2Geometry:
                 extra_color = RGBA(colors[1], colors[3], colors[5], colors[7])
                 extension.colors.append(extra_color)
 
+        elif split_type in (0x6F00C002, 0x6F00C003):
+            size = 2
+            colors = geometry.prelit_colors
+            if split_type == 0x6F00C003:
+                extension = geometry.extensions.get('extra_vert_color')
+                if extension is None:
+                    extension = ExtraVertColorExtension([])
+                    geometry.extensions['extra_vert_color'] = extension
+                colors = extension.colors
+            for vertex_index in range(indices_count):
+                value = unpack_from('<H', data, self._read(size))[0]
+                colors.append(RGBA(
+                    int((value & 31) * 255 / 31),
+                    int(((value >> 5) & 31) * 255 / 31),
+                    int(((value >> 10) & 31) * 255 / 31),
+                    255 if value & 0x8000 else 0
+                ))
+
         # Read vertex bone weights
         elif split_type in (0x6C008004, 0x6C008003, 0x6C008001):
             size = 16
@@ -351,17 +405,17 @@ class NativePS2Geometry:
                 geometry._vertex_bone_weights.append(weights)
 
         else:
-            print("Unknown Native PS2 data:", hex(split_type))
+            raise ValueError('Unsupported PS2 DFF vertex data 0x%08X' % split_type)
 
         padding = indices_count * size & 0xF
         if padding:
-            self._pos += 16 - padding
+            self._read(16 - padding)
 
     #######################################################
     def _delete_split_overlapping(self, geometry, read_types, split_index):
         for split_type in read_types:
             split_type &= 0xFF00FFFF
-            if split_type in (0x68008000, 0x6D008000, 0x6c008000):
+            if split_type in (0x68008000, 0x6D008000, 0x6c008000, 0x69008000):
                 geometry.vertices = geometry.vertices[:-2]
                 self._indices[split_index] = self._indices[split_index][:-2]
                 self._vertex_index -= 2
@@ -370,8 +424,11 @@ class NativePS2Geometry:
                     geometry.uv_layers[i] = geometry.uv_layers[i][:-2]
             elif split_type in (0x6E008002, 0x6E008003, 0x6A008002, 0x6A008003):
                 geometry.normals = geometry.normals[:-2]
-            elif split_type in (0x6E00C002,):
+            elif split_type in (0x6E00C002, 0x6F00C002):
                 geometry.prelit_colors = geometry.prelit_colors[:-2]
+            elif split_type == 0x6F00C003:
+                extension = geometry.extensions['extra_vert_color']
+                extension.colors = extension.colors[:-2]
             elif split_type in (0x6D00C002,):
                 geometry.prelit_colors = geometry.prelit_colors[:-2]
                 extension = geometry.extensions['extra_vert_color']
@@ -383,7 +440,7 @@ class NativePS2Geometry:
     def _generate_triangles(self, geometry):
         geometry.triangles = []
 
-        for split_index, split_header in enumerate(geometry.extensions['split_headers']):
+        for split_index, split_header in enumerate(geometry.split_headers):
             indices = self._indices[split_index]
             if geometry.flags & rpGEOMETRYTRISTRIP != 0:
                 for i in range(len(indices) - 2):

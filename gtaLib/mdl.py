@@ -1,6 +1,8 @@
-# DemonFF - Scripts for working with R* Leeds (GTA Stories, Chinatown Wars, Manhunt 2, etc) formats in Blender
-# Author: spicybung
-# Years: 2025 - 2026
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2027 spicybung
+
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,9 +17,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
 import os
 import struct
 import math
+import io
+import zlib
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Any, Optional, Iterable
 
@@ -52,41 +58,22 @@ from mathutils import Matrix, Vector
 # • https://www.gamedeveloper.com/programming/opinion-why-on-earth-would-we-write-our-own-game-engine- (Renderwares fate)
 # • https://vkvideo.ru/playlist/-76377865_3/video143954957_456239182?linked=1 ( *Russian* - VCS PSP MDL viewer by Daniil Sayanov)
 
-try:
-    from ..data.bone_data import (
-        commonBoneOrder,
-        commonBoneNamesLCS,
-        kamBoneID,
-        kamFrameName,
-        kamBoneType,
-        kamBoneIndex,
-        commonBoneParentsLCS,
-        commonBoneOrderVCS,
-        commonBoneNamesVCS,
-        kamBoneIDVCS,
-        kamFrameNameVCS,
-        kamBoneTypeVCS,
-        kamBoneIndexVCS,
-        commonBoneParentsVCS,
-    )
-except Exception:
-    from BLeeds.data.bone_data import (
-        commonBoneOrder,
-        commonBoneNamesLCS,
-        kamBoneID,
-        kamFrameName,
-        kamBoneType,
-        kamBoneIndex,
-        commonBoneParentsLCS,
-        commonBoneOrderVCS,
-        commonBoneNamesVCS,
-        kamBoneIDVCS,
-        kamFrameNameVCS,
-        kamBoneTypeVCS,
-        kamBoneIndexVCS,
-        commonBoneParentsVCS,
-    )
-# Bone arrays and shared PED hierarchy constants live in BLeeds/data/bone_data.py.
+from ..data.bone_data import (
+    commonBoneOrder,
+    commonBoneNamesLCS,
+    kamBoneID,
+    kamFrameName,
+    kamBoneType,
+    kamBoneIndex,
+    commonBoneParentsLCS,
+    commonBoneOrderVCS,
+    commonBoneNamesVCS,
+    kamBoneIDVCS,
+    kamFrameNameVCS,
+    kamBoneTypeVCS,
+    kamBoneIndexVCS,
+    commonBoneParentsVCS,
+)
 
 #######################################################
 # === Model Rendering Flags ===
@@ -251,29 +238,37 @@ class StoriesMDLContext:
         self.debug_log.append(str(msg))
         print(msg)
 
+def readMdlBytes(stream, size):
+    offset = stream.tell()
+    data = stream.read(size)
+    if len(data) != size:
+        raise ValueError('Truncated MDL at offset 0x%X: expected %d bytes, got %d' %
+                         (offset, size, len(data)))
+    return data
+
 def read_i8(f) -> int:
-    return struct.unpack("<b", f.read(1))[0]
+    return struct.unpack("<b", readMdlBytes(f, 1))[0]
 
 def read_u8(f) -> int:
-    return struct.unpack("<B", f.read(1))[0]
+    return struct.unpack("<B", readMdlBytes(f, 1))[0]
 
 def read_i16(f) -> int:
-    return struct.unpack("<h", f.read(2))[0]
+    return struct.unpack("<h", readMdlBytes(f, 2))[0]
 
 def read_u16(f) -> int:
-    return struct.unpack("<H", f.read(2))[0]
+    return struct.unpack("<H", readMdlBytes(f, 2))[0]
 
 def read_i32(f) -> int:
-    return struct.unpack("<i", f.read(4))[0]
+    return struct.unpack("<i", readMdlBytes(f, 4))[0]
 
 def read_u32(f) -> int:
-    return struct.unpack("<I", f.read(4))[0]
+    return struct.unpack("<I", readMdlBytes(f, 4))[0]
 
 def read_bu32(f) -> int:
-    return struct.unpack(">I", f.read(4))[0]
+    return struct.unpack(">I", readMdlBytes(f, 4))[0]
 
 def read_f32(f) -> float:
-    return struct.unpack("<f", f.read(4))[0]
+    return struct.unpack("<f", readMdlBytes(f, 4))[0]
 
 def read_string(f, ptr: int) -> str:
     if ptr == 0:
@@ -290,7 +285,7 @@ def read_string(f, ptr: int) -> str:
     return s.decode("utf-8", errors="ignore")
 
 def read_point3(f) -> Vector:
-    return Vector(struct.unpack("<3f", f.read(12)))
+    return Vector(struct.unpack("<3f", readMdlBytes(f, 12)))
 
 def read_local_matrix(f) -> Tuple[Matrix, int, Tuple[Vector, Vector, Vector, Vector]]:
     matrix_offset = f.tell()
@@ -537,8 +532,8 @@ def readAtomicHeaderAt(ctx: StoriesMDLContext, f, atomic_start: int, source: str
         atomic_info.clump_cycle_next = read_u32(f)
         atomic_info.clump_cycle_prev = read_u32(f)
         atomic_info.render_cb = read_u32(f)
-        atomic_info.model_info_id = struct.unpack("<h", f.read(2))[0]
-        atomic_info.vis_id_flag = struct.unpack("<H", f.read(2))[0]
+        atomic_info.model_info_id = struct.unpack("<h", readMdlBytes(f, 2))[0]
+        atomic_info.vis_id_flag = struct.unpack("<H", readMdlBytes(f, 2))[0]
         atomic_info.hierarchy_ptr = read_u32(f)
         try:
             atomic_info.tail = read_u32(f)
@@ -2474,8 +2469,8 @@ class read_stories:
                 link_ptr = read_u32(f)
                 link_ptr2 = read_u32(f)
                 render_cb = read_u32(f)
-                model_info_id = struct.unpack("<h", f.read(2))[0]
-                vis_id_flag = struct.unpack("<H", f.read(2))[0]
+                model_info_id = struct.unpack("<h", readMdlBytes(f, 2))[0]
+                vis_id_flag = struct.unpack("<H", readMdlBytes(f, 2))[0]
                 hierarchy_ptr = read_u32(f)
                 material_ptr = 0
                 if mdl_type == "PED":
@@ -7166,7 +7161,7 @@ def _append_ps2_ped_frames_all_bones(
 
     try:
         print(
-            f"[BLeeds] PED frames: wrote {len(nodes)} nodes from armature '{getattr(armature_obj, 'name', '?')}' at 0x{frames_offset:X}"
+            f"[DemonFF] PED frames: wrote {len(nodes)} nodes from armature '{getattr(armature_obj, 'name', '?')}' at 0x{frames_offset:X}"
         )
     except Exception:
         pass
@@ -9542,6 +9537,219 @@ def write_simplemodel_ps2_ped_mdl(
 
     _write_mdl_export_log(filepath, mdl_kind="PED_PS2", export_context=export_context)
 
+def decode_mh2_pc_container(raw):
+    if raw[:4] == b'PMLC':
+        return bytes(raw), False
+
+    maximum_size = 512 * 1024 * 1024
+    offsets = (8,) if raw[:4] == b'Z2HM' else (0, 4, 8, 12, 16, 20, 24, 32)
+    expected_size = struct.unpack_from('<I', raw, 4)[0] if raw[:4] == b'Z2HM' and len(raw) >= 8 else 0
+    if expected_size > maximum_size:
+        raise ValueError('MH2 PC container exceeds the 512 MiB limit')
+
+    for offset in offsets:
+        if offset >= len(raw):
+            continue
+        try:
+            decoder = zlib.decompressobj()
+            decoded = decoder.decompress(raw[offset:], maximum_size + 1)
+        except zlib.error:
+            continue
+        if len(decoded) > maximum_size or decoder.unconsumed_tail or not decoder.eof:
+            continue
+        if expected_size and len(decoded) != expected_size:
+            continue
+        if decoded[:4] == b'PMLC':
+            return decoded, True
+
+    raise ValueError('Expected a PMLC or supported zlib-compressed MH2 PC model')
+
+
+def read_mh2_pc_entries(data):
+    if len(data) < 40 or data[:4] != b'PMLC':
+        raise ValueError('Invalid MH2 PC model header')
+
+    first, last = struct.unpack_from('<2I', data, 32)
+    offsets = []
+    visited = set()
+    current = first
+    while current:
+        if current in visited:
+            raise ValueError('MH2 PC ClumpModel entry list contains a cycle')
+        if current < 40 or current + 16 > len(data):
+            raise ValueError('MH2 PC clump index outside the model')
+        visited.add(current)
+        next_offset, previous, body_offset, name_offset = struct.unpack_from('<4I', data, current)
+        if body_offset < 40 or body_offset + 28 > len(data):
+            raise ValueError('MH2 PC clump body outside the model')
+        offsets.append(current)
+        if current == last:
+            return offsets
+        current = next_offset
+
+    raise ValueError('MH2 PC entry list ended before its declared last entry')
+
+
+def parseMh2ConsoleGeometry(data, start, platform):
+    limit = len(data)
+
+    def values(format, offset):
+        size = struct.calcsize('<' + format)
+        if offset < start or offset + size > limit:
+            raise ValueError('Truncated MH2 %s geometry at 0x%X' % (platform, offset))
+        return struct.unpack_from('<' + format, data, offset)
+
+    result = {'verts': [], 'uvs': [], 'normals': [], 'colors': [],
+              'bone_indices': [], 'bone_weights': [], 'faces': [], 'materials': []}
+
+    def addFaces(first, count, material, initial_direction):
+        begin = len(result['faces'])
+        direction = initial_direction
+        for index in range(2, count):
+            direction *= -1
+            a, b, c = first + index - 2, first + index - 1, first + index
+            if len({result['verts'][a], result['verts'][b], result['verts'][c]}) < 3:
+                continue
+            result['faces'].append((a, b, c) if direction > 0 else (b, a, c))
+        result['materials'].append({'material_id': material, 'start_face': begin,
+                                    'num_faces': len(result['faces']) - begin})
+
+    if platform == 'PSP':
+        size, layout, material_count, unused = values('4I', start + 16)
+        scale = values('3f', start + 48)
+        count = values('I', start + 60)[0]
+        translation = values('3f', start + 64)
+        header_size = values('I', start + 80)[0]
+        if start + 16 + size > len(data):
+            raise ValueError('Truncated MH2 %s geometry block' % platform)
+        limit = start + 16 + size
+        if count <= 0 or count > 1000000 or material_count > 65535 or size < header_size:
+            raise ValueError('Invalid MH2 PSP geometry counts')
+        stride, remainder = divmod(size - header_size, count)
+        if remainder or stride < 16 or stride > 256 or header_size < 80 + material_count * 32:
+            raise ValueError('Invalid MH2 PSP vertex buffer size')
+        skinned = bool(layout & 0x10000)
+        color_type = layout & 255
+        if color_type not in (0x35, 0x3D):
+            raise ValueError('Unsupported MH2 PSP vertex layout 0x%X' % layout)
+        first = 0
+        for material_index in range(material_count):
+            descriptor = start + 96 + material_index * 32
+            strip_count, material = values('2H', descriptor + 16)
+            palette = values('8B', descriptor + 24)
+            if first + strip_count > count:
+                raise ValueError('MH2 PSP strip exceeds its vertex buffer')
+            for index in range(strip_count):
+                row = start + 16 + header_size + (first + index) * stride
+                row_end = row + stride
+                if row_end > limit:
+                    raise ValueError('Truncated MH2 PSP vertex row')
+                offset = row
+                if skinned:
+                    weights = tuple(value / 128.0 for value in values('8B', offset))
+                    result['bone_weights'].append(weights)
+                    result['bone_indices'].append(palette)
+                    offset += 8
+                uv = values('2B', offset)
+                result['uvs'].append((uv[0] / 127.0, 1.0 - uv[1] / 127.0))
+                offset += 2
+                if color_type == 0x35:
+                    word = values('H', offset)[0]
+                    result['colors'].append((((word >> 10) & 31) * 255 // 31,
+                                              ((word >> 5) & 31) * 255 // 31,
+                                              (word & 31) * 255 // 31,
+                                              255 if word & 0x8000 else 0))
+                    offset += 2
+                else:
+                    blue, green, red, alpha = values('4B', offset + 2)
+                    result['colors'].append((red, green, blue, alpha))
+                    offset += 6
+                result['normals'].append(tuple(value / 127.0 for value in values('3b', offset)))
+                offset += 4
+                position = values('3h', offset)
+                if offset + 6 > row_end:
+                    raise ValueError('MH2 PSP vertex attributes exceed the row stride')
+                result['verts'].append(tuple(position[axis] / 32768.0 * scale[axis] + translation[axis]
+                                            for axis in range(3)))
+            addFaces(first, strip_count, material, -1 if strip_count % 2 == 0 else 1)
+            first += strip_count
+        if first != count:
+            raise ValueError('MH2 PSP material counts do not match the vertex count')
+    elif platform == 'PS2':
+        low_size, packed_count = values('2H', start + 32)
+        size = low_size | ((packed_count & 15) << 16)
+        layout = values('I', start + 36)[0]
+        scale = values('3f', start + 56)
+        translation = values('3f', start + 68)
+        if start + 16 + size > len(data):
+            raise ValueError('Truncated MH2 %s geometry block' % platform)
+        limit = start + 16 + size
+        material_count = packed_count // 16
+        if not material_count or material_count > 4096 or start + 96 + material_count * 48 > limit:
+            raise ValueError('Invalid MH2 PS2 material table')
+        descriptors = []
+        for index in range(material_count):
+            descriptor = start + 96 + index * 48
+            uv_scale = values('2f', descriptor + 16)
+            face_direction, material = values('2H', descriptor + 32)
+            descriptors.append((uv_scale, face_direction, material))
+        offset = start + 96 + material_count * 48
+        for uv_scale, face_direction, material in descriptors:
+            units = values('H', offset)[0]
+            offset += 16
+            strip_end = offset + units * 16
+            if units == 0 or strip_end > limit:
+                raise ValueError('Invalid MH2 PS2 strip size')
+            direction = -1 if face_direction % 2 == 0 else 1
+            while offset < strip_end:
+                first = len(result['verts'])
+                count = values('I', offset + 12)[0]
+                if count < 1 or count > 8192:
+                    raise ValueError('Invalid MH2 PS2 batch vertex count')
+                offset += 52
+                for index in range(count):
+                    position = values('3h', offset)
+                    offset += 6
+                    result['verts'].append(tuple(position[axis] / 32768.0 * scale[axis] + translation[axis]
+                                                for axis in range(3)))
+                offset = (offset + 3) & ~3
+                offset += 32
+                for index in range(count):
+                    u, v = values('2B', offset)
+                    offset += 2
+                    result['uvs'].append((u / 255.0 * uv_scale[0], 1.0 - v / 255.0 * uv_scale[1]))
+                offset = ((offset + 3) & ~3) + 4
+                for index in range(count):
+                    blue, green, red, alpha = values('4B', offset)
+                    offset += 4
+                    result['colors'].append((red, green, blue, alpha))
+                offset += 4
+                for index in range(count):
+                    result['normals'].append(tuple(value / 127.0 for value in values('3b', offset)))
+                    offset += 3
+                offset = (offset + 3) & ~3
+                if layout > 15:
+                    offset += 4
+                    for index in range(count):
+                        encoded = values('4I', offset)
+                        offset += 16
+                        result['bone_indices'].append(tuple((word & 65535) // 4 for word in encoded))
+                        result['bone_weights'].append(tuple(struct.unpack('<f', struct.pack('<I', word & 0xFFFF0000))[0]
+                                                            for word in encoded))
+                offset += 4
+                if offset > strip_end:
+                    raise ValueError('MH2 PS2 batch exceeds its strip')
+                if 0 < strip_end - offset < 16:
+                    offset = strip_end
+                addFaces(first, count, material, direction)
+    else:
+        raise ValueError('Unsupported MH2 console platform ' + str(platform))
+    if not all(math.isfinite(value) for channel in ('verts', 'uvs', 'normals', 'bone_weights')
+               for values in result[channel] for value in values):
+        raise ValueError('MH2 console geometry contains non-finite attributes')
+    return result
+
+
 class Mh2MdlReader:
     MH2_PC_MATERIAL_ID_SIZE = 44
     def __init__(self, path, context, collection_name=None):
@@ -9560,23 +9768,47 @@ class Mh2MdlReader:
         self.debug_log = []
         self.source_to_blender = None
         self.blender_to_source = None
+        self.skin_palette = []
+        self.container_compressed = False
 
     def run(self):
-        with open(self.path, "rb") as f:
-            self.file = f
-            f.seek(0, os.SEEK_END)
-            self.file_size = f.tell()
-            f.seek(0)
+        with open(self.path, 'rb') as source_file:
+            decoded, self.container_compressed = decode_mh2_pc_container(source_file.read())
+
+        entry_offsets = read_mh2_pc_entries(decoded)
+        self.file_size = len(decoded)
+        self.file = io.BytesIO(decoded)
+        original_stem = self.stem
+        imported_count = 0
+        try:
             self.source_to_blender = Matrix.Rotation(math.pi / 2.0, 4, "X")
             self.blender_to_source = self.source_to_blender.inverted()
-            self.read_header()
-            self.read_entry()
-            self.read_bones()
-            self.read_animation_bone_bindings()
-            self.build_armature()
-            self.read_object_infos()
-            self.prepare_meshes()
+            for entry_number, entry_offset in enumerate(entry_offsets):
+                self.entry_index_offset = entry_offset
+                self.stem = original_stem if len(entry_offsets) == 1 else '{}_{:03d}'.format(original_stem, entry_number)
+                self.bone_map = {}
+                self.skin_palette = []
+                self.object_infos = []
+                self.imported_mesh_objects = []
+                self.armature_obj = None
+                self.read_header()
+                self.read_entry()
+                self.read_bones()
+                self.read_animation_bone_bindings()
+                if len(self.bone_map) > 1 or self.skin_palette:
+                    self.build_armature()
+                self.read_object_infos()
+                self.prepare_meshes()
+                imported_count += len(self.imported_mesh_objects)
+                self.log('MH2 clump {} / {}: {} meshes, {} bones'.format(
+                    entry_number + 1, len(entry_offsets), len(self.imported_mesh_objects), len(self.bone_map)))
+            if imported_count == 0:
+                raise ValueError('No usable meshes were found in this MH2 model')
+            self.stem = original_stem
             self.write_import_log()
+        finally:
+            self.file.close()
+            self.file = None
         return True
 
     def is_valid_offset(self, value, minimum=0):
@@ -9632,7 +9864,7 @@ class Mh2MdlReader:
         except Exception as exc:
             self.log(f"✗ Failed to write MH2 PC import log: {exc}")
             text = "\n".join(self.debug_log) + "\n"
-        safe_name = "BLeeds_MH2_" + self.stem[:40]
+        safe_name = "DemonFF_MH2_" + self.stem[:40]
         self.ensure_text_block(safe_name, text)
 
     def read_header(self):
@@ -9648,12 +9880,13 @@ class Mh2MdlReader:
         if signature != "PMLC":
             raise ValueError(f"Unsupported MH2 MDL signature {signature!r}; expected PC PMLC")
 
-        first_entry_offset = header[8]
+        first_entry_offset = self.entry_index_offset
 
         self.log("==== MH2 PC MDL Import Log ====")
         self.log(f"Source: {self.path}")
         self.log(f"Signature:           {signature}")
         self.log(f"Version:             0x{header[1]:08X}")
+        self.log(f"Container compressed: {self.container_compressed}")
         self.log(f"File Size:           {header[2]} bytes")
         self.log(f"Data Size:           {header[3]} bytes")
         self.log(f"Offset Table Start:  0x{header[4]:08X}")
@@ -9683,6 +9916,8 @@ class Mh2MdlReader:
         f.seek(entry_data_offset)
 
         coll_name = self.collection_name or f"MH2_PC_{self.stem}"
+        if self.collection_name and self.stem != os.path.splitext(os.path.basename(self.path))[0]:
+            coll_name = '{}_{}'.format(self.collection_name, self.stem)
         coll = bpy.data.collections.get(coll_name) or bpy.data.collections.new(coll_name)
         if coll.name not in {c.name for c in self.context.scene.collection.children}:
             self.context.scene.collection.children.link(coll)
@@ -9720,8 +9955,9 @@ class Mh2MdlReader:
         """
         f = self.file
         seen_indices = set()
-        for bone_info in self.bone_map.values():
-            idx_off = int(bone_info.get("anim_data_idx_offset", 0) or 0)
+        candidates = [int(self.bone_trans_idx_offs)]
+        candidates.extend(int(info.get('anim_data_idx_offset', 0) or 0) for info in self.bone_map.values())
+        for idx_off in candidates:
             if not self.is_valid_offset(idx_off, 24) or idx_off in seen_indices:
                 continue
             seen_indices.add(idx_off)
@@ -9737,20 +9973,33 @@ class Mh2MdlReader:
                 if not self.is_valid_offset(anim_data_off, num_bones * 8):
                     continue
                 f.seek(anim_data_off)
-                for _ in range(num_bones):
+                palette = []
+                bound = 0
+                for palette_index in range(num_bones):
                     row = f.read(8)
                     if len(row) != 8:
                         break
                     anim_bone_id, bone_type, bone_offset = struct.unpack("<hhI", row)
                     info = self.bone_map.get(int(bone_offset))
+                    palette.append({
+                        'index': palette_index,
+                        'anim_bone_id': int(anim_bone_id),
+                        'bone_type': int(bone_type),
+                        'bone_offset': int(bone_offset),
+                        'name': str(info.get('name', '')) if info else '',
+                    })
                     if info is None:
                         continue
+                    bound += 1
                     info["anim_bone_id"] = int(anim_bone_id)
                     info["anim_bone_type"] = int(bone_type)
+                    info["skin_palette_index"] = palette_index
                     self.log(
                         f"MH2 animation binding: BoneID {anim_bone_id} -> "
                         f"'{info.get('name', '')}' (0x{bone_offset:08X}, type {bone_type})"
                     )
+                if bound and len(palette) > len(self.skin_palette):
+                    self.skin_palette = palette
             except Exception as exc:
                 self.log(f"MH2 animation binding table 0x{idx_off:08X} skipped: {exc}")
             finally:
@@ -9800,6 +10049,11 @@ class Mh2MdlReader:
 
         self.run_silent_mode_set("OBJECT")
 
+        for palette_row in self.skin_palette:
+            referenced_bone = self.bone_map.get(int(palette_row['bone_offset']))
+            if referenced_bone is not None:
+                palette_row['name'] = str(referenced_bone['name'])
+
         for off, bone_info in self.bone_map.items():
             pose_bone = arm_obj.pose.bones.get(bone_info["name"])
             edit_bone = arm_obj.data.bones.get(bone_info["name"])
@@ -9817,11 +10071,16 @@ class Mh2MdlReader:
                     target["bleeds_mh2_anim_bone_id"] = anim_bone_id
                     target["bleeds_mdl_anim_bone_id"] = anim_bone_id
                     target["BoneID"] = anim_bone_id
+                    target['DemonFF_MH2_AnimBoneID'] = anim_bone_id
                     target["bleeds_mh2_anim_bone_type"] = int(bone_info.get("anim_bone_type", 0))
 
         arm_obj["bleeds_model_game"] = "MH2"
         arm_obj["bleeds_mh2_platform"] = "PC"
         arm_obj["bleeds_mdl_filepath"] = self.path
+        arm_obj['DemonFF_MH2_Container'] = 'Z2HM' if self.container_compressed else 'PMLC'
+        arm_obj['DemonFF_MH2_Entry_Offset'] = int(self.entry_index_offset)
+        arm_obj['DemonFF_MH2_Bone_Count'] = len(self.bone_map)
+        arm_obj['DemonFF_MH2_Palette_Bone_Offsets'] = [int(row['bone_offset']) for row in self.skin_palette]
         self.armature_obj = arm_obj
 
     def read_object_infos(self):
@@ -9967,7 +10226,7 @@ class Mh2MdlReader:
                     modifier = existing
                     break
             if modifier is None:
-                modifier = obj.modifiers.new(name="BLeeds_MH2_Armature", type="ARMATURE")
+                modifier = obj.modifiers.new(name="DemonFF_MH2_Armature", type="ARMATURE")
                 modifier.object = self.armature_obj
             try:
                 modifier.show_in_editmode = True
@@ -9986,6 +10245,40 @@ class Mh2MdlReader:
     def read_object(self, idx, info):
         f = self.file
         obj_off = info["object_data_offset"]
+        f.seek(obj_off + 32)
+        marker = f.read(4)
+        if marker != struct.pack('<I', 0x0045D454):
+            f.seek(obj_off + 80)
+            platform = 'PS2' if f.read(4) == b'D2SP' else 'PSP'
+            f.seek(0)
+            geometry = parseMh2ConsoleGeometry(f.read(), obj_off, platform)
+            parent = self.bone_map.get(info.get('parent_bone_offset', 0))
+            parent_matrix = parent.get('matrix') if parent else None
+            vertices = [self.source_vector_to_blender(position) for position in geometry['verts']]
+            if parent_matrix is not None:
+                vertices = [parent_matrix @ position for position in vertices]
+            rotation = self.source_to_blender.to_3x3()
+            if parent_matrix is not None:
+                rotation = parent_matrix.to_3x3() @ rotation
+            normals = [tuple((rotation @ Vector(normal)).normalized()) for normal in geometry['normals']]
+            f.seek(obj_off)
+            material_offset, material_count = struct.unpack('<2I', readMdlBytes(f, 8))
+            materials = []
+            if material_count > 65535 or material_offset + material_count * 12 > self.file_size:
+                raise ValueError('MH2 console material table is outside its file')
+            for material_index in range(material_count):
+                f.seek(material_offset + material_index * 12)
+                texture, loaded, red, green, blue, alpha = struct.unpack('<IB4B3x', readMdlBytes(f, 12))
+                materials.append({'tex_name': self.read_c_string(texture), 'color': (red, green, blue, alpha)})
+            obj = self.make_mesh('%s_%d' % (self.stem, idx), vertices, geometry['faces'],
+                                 [geometry['uvs']], normals, geometry['colors'],
+                                 geometry['bone_indices'], geometry['bone_weights'], materials,
+                                 geometry['materials'])
+            if obj is not None:
+                obj['bleeds_mh2_platform'] = platform
+                obj['DemonFF_MH2_Object_Data_Offset'] = obj_off
+                self.parent_mesh_to_armature(obj)
+            return obj
         f.seek(obj_off)
         header = f.read(180)
         if len(header) < 180:
@@ -10003,33 +10296,53 @@ class Mh2MdlReader:
 
         index_count = max(0, int(num_face_index))
         tri_count = index_count // 3
+        if (num_vertices > 1_000_000 or index_count > 12_000_000
+                or num_material_ids > 65_536 or num_materials > 65_536
+                or vertex_stride > 4096):
+            raise ValueError('MH2 mesh at 0x{:X} has unreasonable geometry counts'.format(obj_off))
         material_id_records = self.read_mh2_pc_material_ids(obj_off, num_material_ids)
         face_start = obj_off + 180 + (num_material_ids * self.MH2_PC_MATERIAL_ID_SIZE)
+        vertex_start = face_start + (tri_count * 6)
+        if vertex_start > self.file_size:
+            raise ValueError('MH2 face indices at 0x{:X} exceed the model'.format(face_start))
+        if vertex_stride and vertex_start + num_vertices * vertex_stride > self.file_size:
+            raise ValueError('MH2 vertex buffer at 0x{:X} exceeds the model'.format(vertex_start))
         f.seek(face_start)
         faces = []
+        face_source_indices = []
         for face_index in range(tri_count):
             tri = f.read(6)
             if len(tri) < 6:
                 break
             a, b, c = struct.unpack("<3H", tri)
-            if a < num_vertices and b < num_vertices and c < num_vertices:
+            if a < num_vertices and b < num_vertices and c < num_vertices and a != b and b != c and a != c:
                 faces.append((a, b, c))
+                face_source_indices.append(face_index)
 
-        vertex_start = face_start + (tri_count * 6)
         f.seek(vertex_start)
         parent_bone_offset = info.get("parent_bone_offset", 0)
         parent_bone_info = self.bone_map.get(parent_bone_offset)
-        verts, uvs, vertex_stats = self.read_vertex_stride(vertex_element_type, vertex_stride, num_vertices, parent_bone_info)
+        verts, uv_layers, normals, colors, bone_indices, bone_weights, vertex_stats = self.read_vertex_stride(
+            vertex_element_type, vertex_stride, num_vertices, parent_bone_info)
+        invalid_indices = vertex_stats['invalid_indices']
+        valid_face_rows = [
+            (face, source_index) for face, source_index in zip(faces, face_source_indices)
+            if not any(index in invalid_indices for index in face)
+        ]
+        faces = [face for face, source_index in valid_face_rows]
+        face_source_indices = [source_index for face, source_index in valid_face_rows]
 
         materials = []
-        if material_offset and num_materials > 0 and self.is_valid_offset(material_offset, 0x40):
+        if (material_offset and num_materials > 0
+                and self.is_valid_offset(material_offset, 0x40)
+                and material_offset + num_materials * 12 <= self.file_size):
             f.seek(material_offset)
             for material_index in range(num_materials):
-                row = f.read(16)
-                if len(row) < 16:
+                row = f.read(12)
+                if len(row) < 12:
                     break
-                tex_off, loaded = struct.unpack("<IB", row[:5])
-                color = struct.unpack("4B", row[5:9])
+                tex_off, loaded, red, green, blue, alpha = struct.unpack('<IB4B3x', row)
+                color = (red, green, blue, alpha)
                 tex_name = self.read_c_string(tex_off) if self.is_valid_offset(tex_off, 0x40) else ""
                 materials.append({"tex_name": tex_name, "color": color, "loaded": loaded})
 
@@ -10038,7 +10351,10 @@ class Mh2MdlReader:
         if parent_name:
             mesh_name = f"{self.stem}_{idx}_{parent_name}"
 
-        obj = self.make_mesh(mesh_name, [tuple(v) for v in verts], faces, uvs, materials, material_id_records)
+        obj = self.make_mesh(
+            mesh_name, [tuple(vertex) for vertex in verts], faces, uv_layers,
+            normals, colors, bone_indices, bone_weights, materials,
+            material_id_records, face_source_indices)
         if obj is not None:
             obj["bleeds_mh2_pc_objinfo_offset"] = int(info.get("objinfo_offset", 0))
             obj["bleeds_mh2_pc_object_data_offset"] = int(obj_off)
@@ -10050,6 +10366,12 @@ class Mh2MdlReader:
             obj["bleeds_mh2_pc_num_face_indices"] = int(num_face_index)
             obj["bleeds_mh2_pc_vertex_start"] = int(vertex_start)
             obj["bleeds_mh2_pc_mesh_space"] = "parent_bone_world" if parent_bone_info else "source_blender"
+            obj['DemonFF_MH2_Entry_Offset'] = int(self.entry_index_offset)
+            obj['DemonFF_MH2_Object_Info_Offset'] = int(info.get('objinfo_offset', 0))
+            obj['DemonFF_MH2_Object_Data_Offset'] = int(obj_off)
+            obj['DemonFF_MH2_Vertex_Layout'] = int(vertex_element_type)
+            obj['DemonFF_MH2_Vertex_Stride'] = int(vertex_stride)
+            obj['DemonFF_MH2_Skin_Palette'] = [str(row['name']) for row in self.skin_palette]
             self.parent_mesh_to_armature(obj)
         parent_status = "armature-child" if (obj is not None and getattr(obj, "parent", None) == self.armature_obj) else "unparented"
         self.log(
@@ -10076,127 +10398,94 @@ class Mh2MdlReader:
         cur = f.tell()
         if not self.is_valid_offset(offset, 0):
             return ""
-        f.seek(offset)
-        text = bytearray()
-        while True:
-            b = f.read(1)
-            if not b or b == b"\x00":
-                break
-            text += b
-        f.seek(cur)
-        return text.decode("ascii", errors="replace")
-
-    def vertex_position_offset(self, data, stride):
-        if len(data) < 16:
-            return 0
-        first_word = struct.unpack_from("<I", data, 0)[0]
-        color_like = first_word in (0xFF000000, 0x000000FF)
-        if not color_like:
-            return 0
         try:
-            x0, y0, z0 = struct.unpack_from("<3f", data, 0)
-            x1, y1, z1 = struct.unpack_from("<3f", data, 4)
-        except Exception:
-            return 0
-        first_valid = all(math.isfinite(v) and abs(v) < 10000.0 for v in (x0, y0, z0))
-        second_valid = all(math.isfinite(v) and abs(v) < 10000.0 for v in (x1, y1, z1))
-        if second_valid and not first_valid:
-            return 4
-        if second_valid and (abs(x0) > 100.0 or abs(y0) > 100.0 or abs(z0) > 100.0):
-            return 4
-        return 0
-
-    def vertex_uv_offset(self, stride, position_offset):
-        if stride >= 52:
-            return 32 + position_offset
-        if stride == 40:
-            return 28 + position_offset
-        if stride == 32:
-            return 20 + position_offset
-        return None
+            f.seek(offset)
+            text = f.read(min(512, self.file_size - offset))
+            return text.split(b'\x00', 1)[0].decode('ascii', errors='replace')
+        finally:
+            f.seek(cur)
 
     def read_vertex_stride(self, vertex_element_type, vertex_stride, count, parent_bone_info=None):
-        f = self.file
-        verts = []
-        uvs = None
-
+        layouts = {
+            0x52: (24, (), 12, 20, False),
+            0x152: (32, (24,), 12, 20, False),
+            0x252: (40, (24, 32), 12, 20, False),
+            0x115E: (52, (44,), 32, 40, True),
+            0x125E: (60, (44, 52), 32, 40, True),
+        }
+        layout = layouts.get(int(vertex_element_type))
+        if layout is None:
+            raise ValueError('Unknown MH2 PC vertex element 0x{:X}'.format(vertex_element_type))
+        expected_stride, uv_offsets, normal_offset, color_offset, skinned = layout
         if vertex_stride <= 0:
-            if vertex_element_type == 0x52:
-                vertex_stride = 24
-            elif vertex_element_type == 0x152:
-                vertex_stride = 32
-            elif vertex_element_type == 0x252:
-                vertex_stride = 40
-            elif vertex_element_type == 0x115E:
-                vertex_stride = 52
-            elif vertex_element_type == 0x125E:
-                vertex_stride = 60
-            else:
-                raise ValueError(f"Unknown MH2 PC VertexElementType: 0x{vertex_element_type:X}")
+            vertex_stride = expected_stride
+        if vertex_stride < expected_stride or vertex_stride > 4096:
+            raise ValueError('Invalid MH2 PC vertex stride {} for layout 0x{:X}'.format(vertex_stride, vertex_element_type))
 
-        parent_matrix = None
-        if parent_bone_info is not None:
-            parent_matrix = parent_bone_info.get("matrix")
+        parent_matrix = parent_bone_info.get('matrix') if parent_bone_info else None
+        rotation = self.source_to_blender.to_3x3()
+        if parent_matrix is not None:
+            rotation = parent_matrix.to_3x3() @ rotation
 
-        min_v = Vector((999999.0, 999999.0, 999999.0))
-        max_v = Vector((-999999.0, -999999.0, -999999.0))
-        skipped = 0
+        verts = []
+        normals = []
+        colors = []
+        uv_layers = [[] for offset in uv_offsets]
+        bone_indices = []
+        bone_weights = []
+        invalid_indices = set()
+        bounds_min = Vector((float('inf'),) * 3)
+        bounds_max = Vector((-float('inf'),) * 3)
 
         for vertex_index in range(count):
-            data = f.read(vertex_stride)
-            if len(data) < vertex_stride:
-                break
+            data = self.file.read(vertex_stride)
+            if len(data) != vertex_stride:
+                raise ValueError('Truncated MH2 vertex {} of {}'.format(vertex_index, count))
 
-            position_offset = 0
-            if position_offset + 12 > len(data):
-                skipped += 1
-                continue
+            position = struct.unpack_from('<3f', data, 0)
+            if not all(math.isfinite(value) and abs(value) < 100000.0 for value in position):
+                position = (0.0, 0.0, 0.0)
+                invalid_indices.add(vertex_index)
+            blender_position = self.source_vector_to_blender(position)
+            vertex = parent_matrix @ blender_position if parent_matrix is not None else blender_position
+            verts.append(vertex)
+            for axis in range(3):
+                bounds_min[axis] = min(bounds_min[axis], vertex[axis])
+                bounds_max[axis] = max(bounds_max[axis], vertex[axis])
 
-            pos = struct.unpack_from("<3f", data, position_offset)
-            if not all(math.isfinite(v) and abs(v) < 100000.0 for v in pos):
-                skipped += 1
-                continue
-
-            local_blender = self.source_vector_to_blender(pos)
-            if parent_matrix is not None:
-                out_pos = parent_matrix @ local_blender
+            normal_values = struct.unpack_from('<3h', data, normal_offset)
+            normal = rotation @ Vector(tuple(value / 32768.0 for value in normal_values))
+            if normal.length > 1e-8:
+                normal.normalize()
             else:
-                out_pos = local_blender
-            verts.append(out_pos)
+                normal = Vector((0.0, 0.0, 1.0))
+            normals.append(tuple(normal))
+            colors.append(struct.unpack_from('<4B', data, color_offset))
 
-            min_v.x = min(min_v.x, out_pos.x)
-            min_v.y = min(min_v.y, out_pos.y)
-            min_v.z = min(min_v.z, out_pos.z)
-            max_v.x = max(max_v.x, out_pos.x)
-            max_v.y = max(max_v.y, out_pos.y)
-            max_v.z = max(max_v.z, out_pos.z)
+            for uv_layer, uv_offset in zip(uv_layers, uv_offsets):
+                uv = struct.unpack_from('<2f', data, uv_offset)
+                if all(math.isfinite(value) and abs(value) < 10000.0 for value in uv):
+                    uv_layer.append((float(uv[0]), 1.0 - float(uv[1])))
+                else:
+                    uv_layer.append((0.0, 0.0))
 
-            uv_offset = self.vertex_uv_offset(vertex_stride, position_offset)
-            if uv_offset is not None and uv_offset + 8 <= len(data):
-                uv = struct.unpack_from("<2f", data, uv_offset)
-                if all(math.isfinite(v) and abs(v) < 10000.0 for v in uv):
-                    if uvs is None:
-                        uvs = []
-                    uvs.append((uv[0], 1.0 - uv[1]))
-                elif uvs is not None:
-                    uvs.append((0.0, 0.0))
-            elif uvs is not None:
-                uvs.append((0.0, 0.0))
+            if skinned:
+                weights = struct.unpack_from('<4f', data, 12)
+                bone_indices.append(struct.unpack_from('<4B', data, 28))
+                bone_weights.append(tuple(float(value) if math.isfinite(value) and value > 0 else 0.0 for value in weights))
 
-        if verts:
-            bounds_text = (
-                f"min=({min_v.x:.6f},{min_v.y:.6f},{min_v.z:.6f}) "
-                f"max=({max_v.x:.6f},{max_v.y:.6f},{max_v.z:.6f})"
-            )
-        else:
-            bounds_text = "empty"
-
-        return verts, uvs, {
-            "skipped_vertices": skipped,
-            "bounds_text": bounds_text,
+        bounds_text = 'empty' if not verts else (
+            'min=({:.6f},{:.6f},{:.6f}) max=({:.6f},{:.6f},{:.6f})'.format(
+                *bounds_min, *bounds_max))
+        return verts, uv_layers, normals, colors, bone_indices, bone_weights, {
+            'skipped_vertices': len(invalid_indices),
+            'invalid_indices': invalid_indices,
+            'bounds_text': bounds_text,
         }
 
-    def make_mesh(self, name, verts, faces, uvs, materials, material_id_records=None):
+    def make_mesh(self, name, verts, faces, uv_layers, normals, colors,
+                  bone_indices, bone_weights, materials, material_id_records=None,
+                  face_source_indices=None):
         import bpy
 
         if not verts:
@@ -10206,18 +10495,46 @@ class Mh2MdlReader:
         mesh.from_pydata(verts, [], faces)
         mesh.update()
 
-        if uvs and len(uvs) >= len(verts):
-            uv_layer = mesh.uv_layers.new(name="UVMap")
-            for poly in mesh.polygons:
-                for loop_index in poly.loop_indices:
-                    vertex_index = mesh.loops[loop_index].vertex_index
-                    if vertex_index < len(uvs):
-                        uv_layer.data[loop_index].uv = uvs[vertex_index]
+        for layer_index, vertex_uvs in enumerate(uv_layers):
+            uv_layer = mesh.uv_layers.new(name='UVMap' if layer_index == 0 else 'UVMap.{}'.format(layer_index))
+            for loop in mesh.loops:
+                uv_layer.data[loop.index].uv = vertex_uvs[loop.vertex_index]
+
+        if normals and hasattr(mesh, 'normals_split_custom_set_from_vertices'):
+            try:
+                mesh.normals_split_custom_set_from_vertices(normals)
+            except (ValueError, RuntimeError):
+                pass
+
+        if colors:
+            color_layer = (mesh.color_attributes.new(name='Color', type='FLOAT_COLOR', domain='CORNER')
+                           if hasattr(mesh, 'color_attributes') else mesh.vertex_colors.new(name='Color'))
+            for loop in mesh.loops:
+                color_layer.data[loop.index].color = tuple(channel / 255.0 for channel in colors[loop.vertex_index])
 
         for material_info in materials:
             material_name = material_info.get("tex_name") or "Material"
-            material = bpy.data.materials.get(material_name) or bpy.data.materials.new(material_name)
-            material.use_nodes = True
+            color = tuple(channel / 255.0 for channel in material_info.get('color', (255, 255, 255, 255)))
+            material = bpy.data.materials.get(material_name)
+            if material is None or material.get('demonff_mh2_texture') != material_name or tuple(material.diffuse_color) != color:
+                material = bpy.data.materials.new(material_name)
+                material['demonff_mh2_texture'] = material_name
+                material.diffuse_color = color
+                material.use_nodes = True
+                shader = material.node_tree.nodes.get('Principled BSDF')
+                if shader is not None:
+                    shader.inputs['Base Color'].default_value = color
+                    shader.inputs['Alpha'].default_value = color[3]
+                    wanted = {(material_name + extension).casefold() for extension in ('.png', '.tga', '.bmp', '.dds')}
+                    candidates = [entry for entry in Path(self.path).parent.iterdir()
+                                  if entry.is_file() and entry.name.casefold() in wanted]
+                    if candidates:
+                        texture = material.node_tree.nodes.new('ShaderNodeTexImage')
+                        texture.image = bpy.data.images.load(str(sorted(candidates)[0]), check_existing=True)
+                        if not texture.image.packed_file:
+                            texture.image.pack()
+                        material.node_tree.links.new(texture.outputs['Color'], shader.inputs['Base Color'])
+                        material.node_tree.links.new(texture.outputs['Alpha'], shader.inputs['Alpha'])
             mesh.materials.append(material)
 
         if material_id_records:
@@ -10226,10 +10543,9 @@ class Mh2MdlReader:
                 start_face = int(record.get("start_face", 0))
                 num_faces = int(record.get("num_faces", 0))
                 end_face = start_face + num_faces
-                for polygon_index in range(start_face, end_face):
-                    if polygon_index < len(mesh.polygons):
-                        if material_index < len(mesh.materials):
-                            mesh.polygons[polygon_index].material_index = material_index
+                for polygon_index, source_index in enumerate(face_source_indices or range(len(mesh.polygons))):
+                    if start_face <= source_index < end_face and material_index < len(mesh.materials):
+                        mesh.polygons[polygon_index].material_index = material_index
 
         obj = bpy.data.objects.new(name, mesh)
         self.collection.objects.link(obj)
@@ -10237,7 +10553,56 @@ class Mh2MdlReader:
         obj["bleeds_mh2_platform"] = "PC"
         obj["bleeds_mdl_filepath"] = self.path
 
+        if bone_indices and bone_weights:
+            palette = [row['name'] for row in self.skin_palette]
+            if not palette:
+                palette = [row['name'] for row in self.bone_map.values()]
+            groups = {}
+            for vertex_index, (indices, weights) in enumerate(zip(bone_indices, bone_weights)):
+                grouped_weights = {}
+                for palette_index, weight in zip(indices, weights):
+                    if weight <= 0 or palette_index >= len(palette):
+                        continue
+                    bone_name = palette[palette_index]
+                    if not bone_name:
+                        continue
+                    grouped_weights[bone_name] = grouped_weights.get(bone_name, 0.0) + weight
+                total = sum(grouped_weights.values())
+                if total <= 0:
+                    continue
+                for bone_name, weight in grouped_weights.items():
+                    if bone_name not in groups:
+                        groups[bone_name] = obj.vertex_groups.new(name=bone_name)
+                    groups[bone_name].add([vertex_index], weight / total, 'REPLACE')
+            obj['DemonFF_MH2_Skinned_Vertex_Count'] = sum(1 for weights in bone_weights if any(value > 0 for value in weights))
+
+            if hasattr(mesh, 'attributes'):
+                for influence in range(max((len(indices) for indices in bone_indices), default=4)):
+                    index_attr = mesh.attributes.new(name='MH2_BoneIndex_{}'.format(influence), type='INT', domain='POINT')
+                    weight_attr = mesh.attributes.new(name='MH2_BoneWeight_{}'.format(influence), type='FLOAT', domain='POINT')
+                    for vertex_index, (indices, weights) in enumerate(zip(bone_indices, bone_weights)):
+                        index_attr.data[vertex_index].value = int(indices[influence])
+                        weight_attr.data[vertex_index].value = float(weights[influence])
+
         return obj
 
 def import_mh2(path, context, collection_name=None):
-    return Mh2MdlReader(path, context, collection_name).run()
+    import bpy
+    if context.mode != 'OBJECT':
+        raise ValueError('Switch to Object Mode before importing an MH2 model')
+    groups = (bpy.data.objects, bpy.data.collections, bpy.data.meshes,
+              bpy.data.armatures, bpy.data.materials, bpy.data.images, bpy.data.texts)
+    snapshots = [set(group) for group in groups]
+    try:
+        return Mh2MdlReader(path, context, collection_name).run()
+    except Exception:
+        if bpy.ops.object.mode_set.poll():
+            bpy.ops.object.mode_set(mode='OBJECT')
+        for group, snapshot in zip(groups, snapshots):
+            for item in list(group):
+                if item not in snapshot:
+                    if group == bpy.data.objects:
+                        group.remove(item, do_unlink=True)
+                    elif group == bpy.data.collections or item.users == 0:
+                        group.remove(item)
+        raise

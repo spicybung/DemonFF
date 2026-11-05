@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -20,7 +20,7 @@
 # NOTE: Keeping seperate track for SA-MP COL files,
 # as some structures don't matter, and aren't calculated/needed(such as some magic values).
 
-from .dff import strlen
+from .binary import writeAtomic
 from collections import namedtuple
 from struct import error as StructError
 from struct import unpack_from, calcsize, pack
@@ -499,6 +499,8 @@ class coll:
         if model.version >= 3:
             header_data += pack("<III", len(model.shadow_faces), *offsets[6:])
 
+        if model.version == 4:
+            header_data += pack('<I', 0)
         return header_data + data
     
     #######################################################
@@ -516,13 +518,13 @@ class coll:
         samp_header = "samp"
         header_size = 24
         header = [
-            ("COL" + (str(model.version))).encode("ascii"),
+            ("COL" + ('L' if model.version == 1 else str(model.version))).encode("ascii"),
             len(data) + header_size,
             samp_header.encode("ascii"),
             model.model_id
         ]
              
-        return pack("4sI22sH", *header) + data
+        return pack("<4sI22sH", *header) + data
     #######################################################
     def clamp_value(val, min_value=-32768, max_value=32767):
         if val < min_value:
@@ -543,9 +545,7 @@ class coll:
     #######################################################
     def write_file(self, filename):
 
-        with open(filename, mode='wb') as file:
-            content = self.write_memory()
-            file.write(content)
+        writeAtomic(filename, self.write_memory())
             
     #######################################################
     def __init__(self, model = None):

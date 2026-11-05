@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -17,100 +17,139 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 import os
-
+import re
 from dataclasses import dataclass
-from struct import unpack, unpack_from
+from pathlib import Path
+from struct import unpack_from
 
-#######################################################
+SECTOR_SIZE = 2048
+
+
 @dataclass
 class DirectoryEntry:
     offset: int
     size: int
     name: str
 
-    #######################################################
     @classmethod
-    def read_from_memory(cls, data, offset=0):
-        offset, size, name = unpack_from("II24s", data, offset)
-        name = name.split(b'\0', 1)[0].decode('utf-8')
-        return cls(offset, size, name)
+    def read_from_memory(cls, data, offset=0, version=1):
+        if offset < 0 or offset + 32 > len(data):
+            raise ValueError('Truncated IMG directory entry')
+        if version == 2:
+            sector, streaming_size, archive_size, name = unpack_from('<IHH24s', data, offset)
+            size = streaming_size or archive_size
+        else:
+            sector, size, name = unpack_from('<II24s', data, offset)
+        name = name.split(b'\0', 1)[0].decode('latin-1')
+        return cls(sector, size, name)
 
-#######################################################
+
+def findCompanion(path, suffix):
+    path = Path(path)
+    wanted = path.with_suffix(suffix).name.casefold()
+    matches = [entry for entry in path.parent.iterdir() if entry.is_file() and entry.name.casefold() == wanted]
+    if not matches:
+        stem = re.sub(r'\s*\(\d+(?:-\d+)?\)$', '', path.stem).casefold()
+        matches = [entry for entry in path.parent.iterdir()
+                   if entry.is_file() and entry.suffix.casefold() == suffix.casefold()
+                   and re.sub(r'\s*\(\d+(?:-\d+)?\)$', '', entry.stem).casefold() == stem]
+    if len(matches) > 1:
+        raise ValueError('More than one matching companion for ' + path.name)
+    return matches[0] if matches else None
+
+
+def trimDffPadding(data):
+    position = 0
+    while position < len(data):
+        if not data[position:].strip(b'\0'):
+            return data[:position]
+        if position + 12 > len(data):
+            raise ValueError('Truncated DFF in IMG archive')
+        kind, size, version = unpack_from('<III', data, position)
+        end = position + 12 + size
+        if end > len(data):
+            raise ValueError('DFF chunk extends outside its IMG entry')
+        position = end
+    return data
+
+
 class img:
-
-    #######################################################
-    def load_dir_memory(self, data):
-        data_len = len(data)
-        for pos in range(0, data_len, 32):
-            entry = DirectoryEntry.read_from_memory(data, pos)
-            self.directory_entries.append(entry)
-
-    #######################################################
-    def clear(self):
-        self.directory_entries:list[DirectoryEntry] = []
+    def load_dir_memory(self, data, version=1):
+        if len(data) % 32:
+            raise ValueError('IMG directory length is not a multiple of 32')
+        self.directory_entries = [DirectoryEntry.read_from_memory(data, offset, version)
+                                  for offset in range(0, len(data), 32)]
         self.entry_idx = 0
 
-    #######################################################
+    def clear(self):
+        self.directory_entries = []
+        self.entry_idx = 0
+
     @classmethod
     def open(cls, filename):
-        file = open(filename, mode='rb')
-        self = cls(file)
+        file = open(filename, 'rb')
+        archive = cls(file)
+        try:
+            file.seek(0, os.SEEK_END)
+            length = file.tell()
+            file.seek(0)
+            header = file.read(8)
+            directory_end = 0
+            if header[:4] == b'VER2':
+                if len(header) != 8:
+                    raise ValueError('Truncated IMG header')
+                count = unpack_from('<I', header, 4)[0]
+                if count > (length - 8) // 32:
+                    raise ValueError('IMG directory count exceeds archive size')
+                directory_end = 8 + count * 32
+                archive.load_dir_memory(file.read(count * 32), version=2)
+            else:
+                directory = findCompanion(filename, '.dir')
+                if directory is None:
+                    raise ValueError('IMG v1 requires a matching DIR file')
+                archive.load_dir_memory(directory.read_bytes(), version=1)
+            for entry in archive.directory_entries:
+                start = entry.offset * SECTOR_SIZE
+                end = start + entry.size * SECTOR_SIZE
+                if start < directory_end or end > length:
+                    raise ValueError('IMG entry %r is outside its archive data' % entry.name)
+            file.seek(0)
+            return archive
+        except Exception:
+            archive.close()
+            raise
 
-        magic, entries_num = unpack("4sI", file.read(8))
-
-        if magic == b"VER2":
-            dir_data = file.read(entries_num * 32)
-            self.load_dir_memory(dir_data)
-
-        else:
-            dir_filename = os.path.splitext(filename)[0] + '.dir'
-            with open(dir_filename, mode='rb') as dir_file:
-                dir_data = dir_file.read()
-                self.load_dir_memory(dir_data)
-
-        file.seek(0, os.SEEK_SET)
-
-        return self
-
-    #######################################################
     def close(self):
-        if self._file and not self._file.closed:
-            self._file.close()
+        file = getattr(self, '_file', None)
+        if file is not None and not file.closed:
+            file.close()
 
-    #######################################################
     def read_entry(self, entry_idx=None):
-        if entry_idx is None:
-            entry_idx = self.entry_idx
+        index = self.entry_idx if entry_idx is None else entry_idx
+        if not 0 <= index < len(self.directory_entries):
+            return '', b''
+        entry = self.directory_entries[index]
+        self._file.seek(entry.offset * SECTOR_SIZE)
+        data = self._file.read(entry.size * SECTOR_SIZE)
+        if len(data) != entry.size * SECTOR_SIZE:
+            raise ValueError('Truncated IMG entry ' + entry.name)
+        return entry.name, data
 
-        if 0 <= entry_idx < len(self.directory_entries):
-            entry = self.directory_entries[entry_idx]
-            self._file.seek(entry.offset * 2048, os.SEEK_SET)
-            return entry.name, self._file.read(entry.size * 2048)
-
-        return "", b""
-
-    #######################################################
     def find_entry_idx(self, name):
-        return next(
-            (idx for idx, entry in enumerate(self.directory_entries) if entry.name == name),
-            -1
-        )
+        wanted = name.casefold()
+        return next((index for index, entry in enumerate(self.directory_entries)
+                     if entry.name.casefold() == wanted), -1)
 
-    #######################################################
     def __init__(self, file):
         self._file = file
         self.clear()
 
-    #######################################################
     def __enter__(self):
         return self
 
-    #######################################################
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
 
-    #######################################################
     def __del__(self):
         self.close()

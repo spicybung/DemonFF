@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -18,6 +18,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
+from typing import Tuple
 from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper, ExportHelper
 from bpy.props import (
@@ -32,7 +33,7 @@ from ..gtaLib import mdl as mdl_core
 from ..ops import tex_importer
 
 
-def resolve_export_defaults_from_root(context: bpy.types.Context) -> tuple[str, bool]:
+def resolve_export_defaults_from_root(context: bpy.types.Context) -> Tuple[str, bool]:
     from ..ops import mdl_exporter
 
     try:

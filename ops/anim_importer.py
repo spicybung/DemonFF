@@ -1,6 +1,8 @@
-# DemonFF - GTA Stories ANIM importer
-# Author: spicybung
-# Years: 2025 - 2026
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2027 spicybung
+
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,6 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from .blender_compat import assignAction
 import json
 import math
 from pathlib import Path
@@ -1164,7 +1167,7 @@ def applyAnimEntryToArmature(
         action["DemonFF_ANIM_Imported_Action"] = True
         action["DemonFF_ANIM_Pose_Space_Mode"] = str(pose_space_mode)
         action.use_fake_user = True
-        armature_object.animation_data.action = action
+        assignAction(armature_object, action)
     else:
         action = armature_object.animation_data.action
 

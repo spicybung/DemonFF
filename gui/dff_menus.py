@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -17,9 +17,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from ..ops.blender_compat import assignAction
 import os
 import re
 import bpy
+from ..ops.blender_compat import builtinShader
 import gpu
 import bmesh
 import struct
@@ -34,6 +36,7 @@ from .dff_ot import EXPORT_OT_dff_custom, IMPORT_OT_dff_custom, \
 from .dff_ot import SCENE_OT_dff_frame_move, SCENE_OT_dff_atomic_move, SCENE_OT_dff_update
 from .col_ot import EXPORT_OT_col, IMPORT_OT_col
 from .ifp_ot import IMPORT_OT_ifp, EXPORT_OT_ifp
+from .water_ot import IMPORT_OT_water, EXPORT_OT_water
 from .anim_ot import IMPORT_OT_anim, EXPORT_OT_animation, CONVERT_OT_animation_file
 from .mdl_ot import IMPORT_OT_mdl_custom
 from ..ops import col_importer
@@ -1496,6 +1499,7 @@ class DFF_MT_ImportChoice(bpy.types.Menu):
                         text="DemonFF IFP (.ifp)")
         layout.operator(IMPORT_OT_anim.bl_idname,
                         text="DemonFF ANIM (.anim)")
+        layout.operator(IMPORT_OT_water.bl_idname, text="DemonFF Water (.dat)")
 
 #######################################################@
 class DFF_MT_ExportChoice(bpy.types.Menu):
@@ -1508,6 +1512,7 @@ class DFF_MT_ExportChoice(bpy.types.Menu):
                              text="DemonFF Collision (.col)")
         self.layout.operator(EXPORT_OT_animation.bl_idname,
                              text="DemonFF Animation (.ifp/.anim)")
+        self.layout.operator(EXPORT_OT_water.bl_idname, text="DemonFF Water (.dat)")
 
 #######################################################
 def import_dff_func(self, context):
@@ -2977,8 +2982,7 @@ class SCENE_OT_assign_action_to_object(bpy.types.Operator):
             except Exception:
                 pass
 
-        obj.animation_data.action = action
-
+        assignAction(obj, action)
         try:
             start_frame = int(action.frame_range[0])
             end_frame = int(action.frame_range[1])
@@ -3031,14 +3035,12 @@ class DFFCollectionProps(bpy.types.PropertyGroup):
                 (bounds_max[0], bounds_max[1], bounds_max[2]),
             )
 
-            if (4, 0, 0) > bpy.app.version:
-                shader = gpu.shader.from_builtin('3D_UNIFORM_COLOR')
-            else:
-                shader = gpu.shader.from_builtin('UNIFORM_COLOR')
-
+            shader = builtinShader('POLYLINE_UNIFORM_COLOR')
             batch = batch_for_shader(shader, 'LINES', {"pos": coords}, indices=box_indices)
 
             shader.bind()
+            shader.uniform_float('viewportSize', (bpy.context.region.width, bpy.context.region.height))
+            shader.uniform_float('lineWidth', 1.0)
             shader.uniform_float("color", (0.84, 0.84, 0.54, 1))
             batch.draw(shader)
 

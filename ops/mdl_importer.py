@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -17,7 +17,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from __future__ import annotations
 import os
+import math
 import struct
 from dataclasses import dataclass, field
 from typing import List, Dict, Tuple, Any
@@ -69,7 +71,6 @@ class StoriesImportContext:
         self.debug_log.append(str(msg))
         print(msg)
 
-MATERIAL_CACHE: Dict[str, bpy.types.Material] = {}
 
 def getArmatureFrameMatrix(arm_info: Any, dict_name: str, ptr: int, fallback: Matrix = None) -> Matrix:
     if fallback is None:
@@ -298,19 +299,6 @@ def writeMdlArmatureFrameMatrixArrays(owner: Any, arm_info: Any) -> None:
     owner["bleeds_mdl_frame_field_a0"] = frame_field_a0
     owner["bleeds_mdl_frame_field_a4"] = frame_field_a4
 
-def _material_cache_get_valid(key: str):
-    mat = MATERIAL_CACHE.get(key)
-    if mat is None:
-        return None
-    try:
-        _ = mat.name
-        return mat
-    except Exception:
-        try:
-            MATERIAL_CACHE.pop(key, None)
-        except Exception:
-            pass
-        return None
 
 def get_bone_name_list(import_type: int) -> List[str]:
     names: List[str] = []
@@ -582,9 +570,10 @@ def get_or_create_material_for_stories(
     index: int,
 ) -> bpy.types.Material:
     key = getattr(mat_desc, "texture", "") or f"StoriesMat_{index:03d}"
-    cached = _material_cache_get_valid(key)
-    if cached is not None:
-        return cached
+    rgba = int(getattr(mat_desc, 'rgba', 0)) & 0xFFFFFFFF
+    for material in bpy.data.materials:
+        if material.get('demonff_stories_texture') == key and material.get('demonff_stories_rgba') == str(rgba):
+            return material
 
     mat = bpy.data.materials.new(name=key)
     mat.use_nodes = True
@@ -611,7 +600,8 @@ def get_or_create_material_for_stories(
 
     bsdf.inputs["Base Color"].default_value = (r, g, b, a)
 
-    MATERIAL_CACHE[key] = mat
+    mat['demonff_stories_texture'] = key
+    mat['demonff_stories_rgba'] = str(rgba)
     return mat
 
 CUTSCENE_BODY_BONE_NAMES = {
@@ -759,7 +749,7 @@ def accumulateMdlVertexSkinWeight(
     except Exception:
         return
 
-    if vi < 0 or wf <= 0.0:
+    if vi < 0 or wf <= 0.0 or not math.isfinite(wf):
         return
 
     if 0 <= bi < len(bone_names):
@@ -808,7 +798,7 @@ def writeMdlVertexSkinAssignments(obj: bpy.types.Object, assignments: Dict[int, 
                 wf = float(weight)
             except Exception:
                 continue
-            if wf <= 0.0:
+            if wf <= 0.0 or not math.isfinite(wf):
                 continue
             clean_pairs.append((str(name), wf))
 
@@ -2144,12 +2134,12 @@ def assign_psp_skin(
         return
 
     for vert_index in range(vertex_count):
-        if vert_index >= len(mesh_data.bone_indices):
+        if vert_index >= min(len(mesh_data.bone_indices), len(mesh_data.bone_weights)):
             break
         indices = mesh_data.bone_indices[vert_index]
         weights = mesh_data.bone_weights[vert_index]
         for bone_index, weight in zip(indices, weights):
-            if weight <= 0.0:
+            if not math.isfinite(weight) or weight <= 0.0:
                 continue
             vg = get_vg(bone_index)
             vg.add([vert_index], weight, "REPLACE")
@@ -2208,7 +2198,8 @@ def build_ps2_meshes(
                         uv_data[loop_index].uv = (u, 1.0 - v)
 
         colors = getattr(part, "vertex_colors", None)
-        if not colors:
+        colors_per_loop = not colors
+        if colors_per_loop:
             colors = getattr(part, "loop_colors", None)
         if colors:
             color_attr = getOrCreateCornerColorLayer(me, "Col")
@@ -2221,8 +2212,9 @@ def build_ps2_meshes(
                     if loop_index >= len(me.loops):
                         continue
                     vert_index = me.loops[loop_index].vertex_index
-                    if vert_index < len(colors) and loop_index < len(col_data):
-                        r, g, b, a = colors[vert_index]
+                    color_index = loop_index if colors_per_loop else vert_index
+                    if color_index < len(colors) and loop_index < len(col_data):
+                        r, g, b, a = colors[color_index]
                         col_data[loop_index].color = (
                             r / 255.0,
                             g / 255.0,
@@ -2384,8 +2376,9 @@ def build_psp_meshes(
                     if loop_index >= len(me.loops):
                         continue
                     vert_index = me.loops[loop_index].vertex_index
-                    if vert_index < len(colors) and loop_index < len(col_data):
-                        r, g, b, a = colors[vert_index]
+                    color_index = vert_index
+                    if color_index < len(colors) and loop_index < len(col_data):
+                        r, g, b, a = colors[color_index]
                         col_data[loop_index].color = (
                             r / 255.0,
                             g / 255.0,
@@ -2461,7 +2454,7 @@ def build_stories_armature_from_frame_mats(
 
     return armature_obj
 
-def import_stories_mdl(
+def importStoriesMdlData(
     context: bpy.types.Context,
     filepath: str,
     platform: str,
@@ -2553,7 +2546,7 @@ def import_stories_mdl(
         root_obj["bleeds_mdl_source_filepath"] = str(filepath)
 
         try:
-            source_template = mdl_lib._load_ped_source_template_blocks({
+            source_template = stories_mdl._load_ped_source_template_blocks({
                 "source_filepath": str(filepath),
                 "frame_ptr": int(getattr(atomic, "frame_ptr", 0) or 0),
                 "geom_ptr": int(getattr(atomic, "geom_ptr", 0) or 0),
@@ -2712,3 +2705,39 @@ def import_stories_mdl(
     created_objects.insert(0, root_obj)
 
     return created_objects
+
+
+def import_stories_mdl(context, filepath, platform, mdl_type, collection_name='',
+                       create_armature=True, link_to_scene=True):
+    if context.mode != 'OBJECT':
+        raise ValueError('Switch to Object Mode before importing an MDL')
+    platform = str(platform).upper().strip()
+    mdl_type = str(mdl_type).upper().strip()
+    if platform not in {'PS2', 'PSP'} or mdl_type not in {'SIM', 'PED', 'CUT', 'VEH'}:
+        raise ValueError('Choose a supported Stories platform and model type')
+    groups = (bpy.data.objects, bpy.data.collections, bpy.data.meshes,
+              bpy.data.armatures, bpy.data.materials, bpy.data.images)
+    snapshots = [set(group) for group in groups]
+    selected = list(context.selected_objects)
+    active = context.view_layer.objects.active
+    try:
+        result = importStoriesMdlData(context, bpy.path.abspath(filepath), platform,
+                                     mdl_type, collection_name, create_armature, link_to_scene)
+        if not any(obj.type == 'MESH' and len(obj.data.vertices) for obj in result):
+            raise ValueError('No usable geometry was found in this MDL')
+        return result
+    except Exception:
+        if bpy.ops.object.mode_set.poll():
+            bpy.ops.object.mode_set(mode='OBJECT')
+        for group, snapshot in zip(groups, snapshots):
+            for item in list(group):
+                if item not in snapshot:
+                    if group == bpy.data.objects:
+                        group.remove(item, do_unlink=True)
+                    elif group == bpy.data.collections or item.users == 0:
+                        group.remove(item)
+        for obj in selected:
+            if obj.name in bpy.data.objects:
+                obj.select_set(True)
+        context.view_layer.objects.active = active
+        raise

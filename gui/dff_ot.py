@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -138,8 +138,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             ('0x33002', "GTA 3 (v3.3.0.2)", "Grand Theft Auto 3 PC (v3.3.0.2)"),
             ('0x34003', "GTA VC/MH1 (v3.4.0.3)", "Grand Theft Auto VC/Manhunt PC (v3.4.0.3)"),  # For MH1, see: https://steamcommunity.com/sharedfiles/filedetails/?id=3324829436
             ('0x34005', "GTA VC Android (v3.4.0.5)", "Grand Theft Auto VC Android (v3.4.0.5)"),
-            ('0x34003', "GTA VC/GTA SA (v3.4.0.3)", "Grand Theft Auto VC/SA (v3.4.0.3)"),
-            ('0x36003', "GTA SA (v3.6.0.5)", "Grand Theft Auto SA PC (v3.6.0.5)"),
+            ('0x36003', "GTA SA (v3.6.0.3)", "Grand Theft Auto SA PC (v3.6.0.3)"),
             ('0x37001', "GTA LCS (3.7.0.1)", "Prototype GTA Stories RenderWare model format; not used by retail GTA LCS/VCS"),
             ('0x37002', "Bully (v3.7.0.2)", "Bully PS2 (v3.7.0.2)"),
             ('0x40001', "Crackdown (4.0.0.1)", "Crackdown RenderWare 4.0.0.1 DFF export profile"),
@@ -222,7 +221,7 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
         if self.export_version == "custom":
             if not self.verify_rw_version():
                 self.report({"ERROR_INVALID_INPUT"}, "Invalid RW Version")
-                return {'FINISHED'}
+                return {'CANCELLED'}
 
         start = time.time()
         try:
@@ -274,10 +273,17 @@ class EXPORT_OT_dff_custom(bpy.types.Operator, ExportHelper):
             elif self.export_format == 'SAMP':
                 dff_samp_exporter.export_dff(export_options)
 
+            exporter = dff_exporter if self.export_format == 'DEFAULT' else dff_samp_exporter
+            reports = exporter.dff_exporter.clamp_reports
+            if reports:
+                vertices = sum(report['omitted_vertices'] for report in reports)
+                faces = sum(report['omitted_faces'] for report in reports)
+                self.report({'WARNING'}, f'Exported with clamping: {vertices} vertex records and {faces} faces omitted; details in console')
             self.report({"INFO"}, f"Finished export in {time.time() - start:.2f}s")
 
-        except dff_exporter.DffExportException as e:
+        except (dff_exporter.DffExportException, dff_samp_exporter.DffExportException, OSError, ValueError) as e:
             self.report({"ERROR"}, str(e))
+            return {'CANCELLED'}
 
         context.scene['custom_imported_version'] = self.export_version
         context.scene['custom_custom_version'] = self.custom_version
@@ -666,7 +672,7 @@ class EXPORT_OT_samp_custom(bpy.types.Operator, ExportHelper):  # too lazy to fi
 class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
     
     bl_idname = "import_scene.dff_custom"
-    bl_description = 'Import a Renderware .DFF or .COL File'
+    bl_description = 'Import RenderWare DFF models, including Bully PS2, or COL collision files'
     bl_label = "DFF/Col Import (.dff/.col)"
 
     filter_glob: bpy.props.StringProperty(default="*.dff;*.col",
@@ -774,6 +780,7 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
     #######################################################
     def draw(self, context):
         layout = self.layout
+        layout.label(text="Includes Bully PS2 and Manhunt 2 DFF models")
 
         layout.prop(self, "load_txd")
         layout.prop(self, "connect_bones")
@@ -810,7 +817,7 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
             importer = dff_importer.import_dff(
                 {
                     'file_name': file,
-                    'load_txd': False,
+                    'load_txd': self.load_txd,
                     'txd_filename': "",
                     'skip_mipmaps': True,
                     'txd_pack': True,
@@ -832,7 +839,9 @@ class IMPORT_OT_dff_custom(bpy.types.Operator, ImportHelper):
 
             version = importer.version
 
-            if version in ('4.1.0.1', '4.5.0.1'):
+            if version == 'MH2':
+                context.scene['demonff_imported_model_format'] = 'Manhunt 2'
+            elif version in ('4.1.0.1', '4.5.0.1'):
                 context.scene['custom_imported_version'] = "custom"
                 context.scene['custom_custom_version'] = version
             elif version in ['0x31001', '0x33002', '0x34003', '0x34005', '0x36003', '0x37001', '0x37002', '0x40001']:

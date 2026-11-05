@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -17,7 +17,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from ..ops.blender_compat import assignAction
 import bpy
+from ..ops.animation_channels import boneChannelPath
+from ..ops.blender_compat import actionCurves, actionGroups
 import io
 import json
 import math
@@ -797,8 +800,8 @@ def correctManhuntClavicleHierarchy(action, arm_obj, selected_tracks, global_mat
         def get_curve(bone_name, channel, index):
             key = (bone_name, channel, index)
             if key not in curve_lookup:
-                path = (POSEDATA_PREFIX % bone_name) + channel
-                curve_lookup[key] = action.fcurves.find(path, index=index)
+                path = boneChannelPath(bone_name, '') + channel
+                curve_lookup[key] = actionCurves(action).find(path, index=index)
             return curve_lookup[key]
 
         def read_values(bone_name, channel, defaults, frame):
@@ -856,16 +859,16 @@ def correctManhuntClavicleHierarchy(action, arm_obj, selected_tracks, global_mat
             previous_rotation = rotation.copy()
             sampled_results.append((frame, rotation, corrected_basis.to_translation()))
 
-        group = action.groups.get(clavicle.name)
-        path = POSEDATA_PREFIX % clavicle.name
+        group = actionGroups(action).get(clavicle.name)
+        path = boneChannelPath(clavicle.name, '')
         for channel, components in (('rotation_quaternion', 4), ('location', 3)):
             for index in range(components):
-                existing = action.fcurves.find(path + channel, index=index)
+                existing = actionCurves(action).find(path + channel, index=index)
                 if existing is not None:
-                    action.fcurves.remove(existing)
+                    actionCurves(action).remove(existing)
 
-        rotations = [action.fcurves.new(path + 'rotation_quaternion', index=i) for i in range(4)]
-        locations = [action.fcurves.new(path + 'location', index=i) for i in range(3)]
+        rotations = [actionCurves(action).new(path + 'rotation_quaternion', index=i) for i in range(4)]
+        locations = [actionCurves(action).new(path + 'location', index=i) for i in range(3)]
         for curve in rotations + locations:
             if group is not None:
                 curve.group = group
@@ -945,8 +948,8 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
             continue
 
         pose_bone.rotation_mode = 'QUATERNION'
-        group = action.groups.new(name=bone_name)
-        data_path = POSEDATA_PREFIX % bone_name
+        group = actionGroups(action).new(name=bone_name)
+        data_path = boneChannelPath(bone_name, '')
 
         keyframe_type = str(getattr(ifp_bone, 'keyframe_type', '') or '').ljust(4, '0')[:4]
         has_rotation = keyframe_type[1] == 'R'
@@ -956,7 +959,7 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
         rotation_curves = None
         if has_rotation:
             rotation_curves = [
-                action.fcurves.new(
+                actionCurves(action).new(
                     data_path=data_path + 'rotation_quaternion',
                     index=index,
                 )
@@ -968,7 +971,7 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
         location_curves = None
         if has_translation:
             location_curves = [
-                action.fcurves.new(
+                actionCurves(action).new(
                     data_path=data_path + 'location',
                     index=index,
                 )
@@ -980,7 +983,7 @@ def create_action(arm_obj, anim, fps, global_matrix, game_version='AUTO', retarg
         scale_curves = None
         if has_scale:
             scale_curves = [
-                action.fcurves.new(
+                actionCurves(action).new(
                     data_path=data_path + 'scale',
                     index=index,
                 )
@@ -1197,7 +1200,12 @@ IFP_RETARGET_ITEMS = (
 
 def _try_zlib_decompress(blob, wbits):
     try:
-        return zlib.decompress(blob, wbits)
+        maximum_size = 512 * 1024 * 1024
+        decoder = zlib.decompressobj(wbits)
+        decoded = decoder.decompress(blob, maximum_size + 1)
+        if len(decoded) > maximum_size or decoder.unconsumed_tail or not decoder.eof:
+            return None
+        return decoded
     except (zlib.error, ValueError):
         return None
 
@@ -1278,6 +1286,72 @@ def _validate_game_magic(game_version, magic):
         )
 
 
+def read_mh2_stream_directory(raw):
+    if len(raw) < 0x808 or struct.unpack_from('<I', raw, 0)[0] != 1:
+        raise ValueError('Not a Manhunt 2 PC streamed animation archive')
+
+    entries = []
+    for header_offset in range(0, 0x800 - 7, 4):
+        offset, size = struct.unpack_from('<II', raw, header_offset)
+        if (offset >= 0x800 and offset % 0x800 == 0
+                and 8 <= size <= len(raw) - offset
+                and raw[offset:offset + 4] == b'ANPK'):
+            entries.append((offset, size, header_offset))
+
+    entries.sort()
+    if not entries or entries[0][0] != 0x800:
+        raise ValueError('Manhunt 2 stream directory has no initial ANPK block')
+
+    for index in range(1, len(entries)):
+        previous_offset, previous_size, _ = entries[index - 1]
+        if entries[index][0] < previous_offset + previous_size:
+            raise ValueError('Manhunt 2 stream directory contains overlapping blocks')
+    return entries
+
+
+def read_mh2_stream_animations(raw, game_version='AUTO'):
+    if game_version not in ('AUTO', 'MANHUNT_2'):
+        raise ValueError('Manhunt 2 streamed animations require the Manhunt 2 format')
+
+    entries = read_mh2_stream_directory(raw)
+    blocks = []
+    animations = []
+    for block_index, (offset, size, header_offset) in enumerate(entries):
+        fd = io.BytesIO(raw[offset:offset + size])
+        if _read_exact(fd, 4, 'streamed ANPK header') != b'ANPK':
+            raise ValueError('Missing Manhunt 2 ANPK at 0x{:X}'.format(offset))
+        animation_count = read_uint32(fd)
+        if animation_count > 10000:
+            raise ValueError('Invalid streamed ANPK animation count at 0x{:X}'.format(offset))
+
+        block = AnctBlock()
+        block.name = 'MH2_Stream_{:03d}'.format(block_index)
+        block.animations = []
+        for _ in range(animation_count):
+            animation = AnctAnimation.read(fd, block_name=block.name, expected_sequence='SEQT')
+            if not animation.chunk_size_matches:
+                raise ValueError('Incorrect MH2 track payload size in {!r}'.format(animation.name))
+            animation.source_stream_offset = int(offset)
+            animation.source_stream_size = int(size)
+            animation.source_stream_header_offset = int(header_offset)
+            block.animations.append(animation)
+            animations.append(animation)
+
+        if fd.tell() != size:
+            raise ValueError('MH2 streamed ANPK at 0x{:X}: parsed {} of {} bytes'.format(offset, fd.tell(), size))
+        blocks.append(block)
+
+    data = Anct('Manhunt 2 Streamed', animations)
+    data.blocks = blocks
+    data.block_count = len(blocks)
+    result = Ifp('ANCT', data, 'MANHUNT_2')
+    result.source_container = 'MH2_STRMANIM_ANPK'
+    result.was_compressed = False
+    result.source_size = len(raw)
+    result.decoded_size = len(raw)
+    return result
+
+
 def load_ifp(filepath, game_version='AUTO'):
     requested_game = game_version or 'AUTO'
 
@@ -1286,6 +1360,9 @@ def load_ifp(filepath, game_version='AUTO'):
 
     if len(raw) < 4:
         raise ValueError('IFP file is too small')
+
+    if len(raw) >= 0x804 and raw[:4] == b'\x01\x00\x00\x00' and raw[0x800:0x804] == b'ANPK':
+        return read_mh2_stream_animations(raw, requested_game)
 
     blob = raw
     was_compressed = False
@@ -1339,6 +1416,7 @@ def load_ifp(filepath, game_version='AUTO'):
         data = anim_cls.read(fd)
 
     result = Ifp(version, data, detected_game)
+    result.source_container = version
     result.was_compressed = bool(was_compressed)
     result.source_size = len(raw)
     result.decoded_size = len(blob)
@@ -1361,8 +1439,7 @@ def activate_action_on_armature(context, arm_obj, action):
     if arm_obj.animation_data is None:
         arm_obj.animation_data_create()
     reset_armature_pose_to_rest(arm_obj)
-    arm_obj.animation_data.action = action
-
+    assignAction(arm_obj, action)
     if action is not None:
         try:
             start_frame = int(action.frame_range[0])
@@ -1409,6 +1486,10 @@ def apply_ifp_to_armature(context, ifp, fps, global_matrix, retarget_mode='AUTO'
         act['DemonFF_IFP_Source_Name'] = str(anim.name)
         act['DemonFF_IFP_Block_Name'] = str(getattr(anim, 'source_block', '') or '')
         act["DemonFF_IFP_Container"] = ifp.version
+        act["DemonFF_IFP_Source_Container"] = str(getattr(ifp, 'source_container', ifp.version))
+        if hasattr(anim, 'source_stream_offset'):
+            act["DemonFF_IFP_Stream_Offset"] = int(anim.source_stream_offset)
+            act["DemonFF_IFP_Stream_Size"] = int(anim.source_stream_size)
         act["DemonFF_IFP_Game_Version"] = game_version
         act["DemonFF_IFP_Retarget_Mode"] = retarget_mode
         act["DemonFF_IFP_Package_Name"] = str(getattr(getattr(ifp, "data", None), "name", "") or "DemonFF")
@@ -1448,10 +1529,12 @@ def buildIfpImportLog(ifp, filepath, context, retarget_mode, result):
     game_label = IFP_GAME_LABELS.get(game_version, game_version)
     arm_obj = getattr(context.view_layer.objects, "active", None)
 
-    lines.append("DemonFF 0.6.9b IFP Import Log")
+    lines.append("DemonFF 0.6.9c IFP Import Log")
     lines.append("importer_build=ANIMATION-28")
     lines.append(f"file={filepath}")
     lines.append(f"container={getattr(ifp, 'version', 'UNKNOWN')}")
+    lines.append(f"source_container={getattr(ifp, 'source_container', getattr(ifp, 'version', 'UNKNOWN'))}")
+    lines.append(f"source_blocks={int(getattr(getattr(ifp, 'data', None), 'block_count', 0) or 0)}")
     lines.append(f"detected_game={game_label}")
     lines.append(f"retarget_mode={retarget_mode}")
     lines.append(f"compressed={bool(getattr(ifp, 'was_compressed', False))}")
@@ -1535,7 +1618,7 @@ def writeIfpTextLog(filepath, contents):
     source_path = Path(filepath)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     log_path = source_path.with_name(
-        source_path.name + ".DemonFF-0.6.9b-ifp-" + timestamp + ".txt"
+        source_path.name + ".DemonFF-0.6.9c-ifp-" + timestamp + ".txt"
     )
     with log_path.open("x", encoding="utf-8", newline="\n") as output:
         output.write("Import time: " + datetime.now().isoformat(timespec="microseconds") + "\n")
@@ -1549,10 +1632,10 @@ def writeIfpTextLog(filepath, contents):
 class IMPORT_OT_ifp(bpy.types.Operator):
     bl_idname = "import_scene.ifp"
     bl_label = "Import IFP"
-    bl_description = "Import RenderWare .IFP animation data with automatic game/format detection"
+    bl_description = "Import RenderWare IFP and Manhunt 2 streamed ANPK animations"
     filename_ext = ".ifp"
     filter_glob: bpy.props.StringProperty(
-        default="*.ifp",
+        default="*.ifp;*.IFP;*.bin;*.BIN",
         options={'HIDDEN'},
     )
     filepath: bpy.props.StringProperty(subtype="FILE_PATH")
@@ -1601,14 +1684,15 @@ class IMPORT_OT_ifp(bpy.types.Operator):
                 detected_game = getattr(ifp, "game_version", "AUTO")
                 game_label = IFP_GAME_LABELS.get(detected_game, detected_game)
                 compression = " (decompressed)" if getattr(ifp, "was_compressed", False) else ""
+                source_container = str(getattr(ifp, 'source_container', ifp.version))
                 self.report(
                     {'INFO'},
-                    f"Imported {game_label} {ifp.version} IFP{compression}"
+                    f"Imported {game_label} {source_container} animations{compression}"
                 )
             return result
         except Exception as e:
             if self.print_console_log or self.print_txt_log:
-                error_log = "DemonFF 0.6.9b IFP Import Log\nfile={}\nERROR: {}".format(
+                error_log = "DemonFF 0.6.9c IFP Import Log\nfile={}\nERROR: {}".format(
                     self.filepath, e
                 )
                 if self.print_console_log:
@@ -1626,7 +1710,7 @@ class IMPORT_OT_ifp(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 #######################################################
 def menu_func_import(self, context):
-    self.layout.operator(IMPORT_OT_ifp.bl_idname, text="DemonFF IFP(.ifp)")
+    self.layout.operator(IMPORT_OT_ifp.bl_idname, text="DemonFF IFP / MH2 Stream (.ifp/.bin)")
 #######################################################
 def register():
     bpy.utils.register_class(IMPORT_OT_ifp)
@@ -1961,7 +2045,7 @@ class AnctSequenceBone(Bone):
             )
 
         start_time_offset = fd.tell()
-        start_time = read_int16(fd)
+        start_time = read_uint16(fd)
 
         # For KR00/KRT0 tracks StartTime==0 means those two bytes are the first
         # variable delta, not a stored StartTime field.
@@ -2284,12 +2368,12 @@ def getExportBoneId(pose_bone):
     return int(fallback) if fallback is not None else -1
 
 
-def actionBoneFrames(action, bone_name):
+def actionBoneFrames(action, bone_name, owner=None):
     prefix = 'pose.bones["{}"]'.format(str(bone_name).replace('\\', '\\\\').replace('"', '\\"'))
     frames = set()
     has_location = False
     has_scale = False
-    for curve in getattr(action, "fcurves", ()):
+    for curve in actionCurves(action, owner=owner, create=False):
         if not str(getattr(curve, "data_path", "")).startswith(prefix):
             continue
         data_path = str(curve.data_path)
@@ -2323,7 +2407,7 @@ def collect_animation_data(context):
     except Exception:
         source_track_metadata = {}
     old_subframe = getattr(context.scene, "frame_subframe", 0.0)
-    all_frames = [frame for bone in arm_obj.pose.bones for frame in actionBoneFrames(action, bone.name)[0]]
+    all_frames = [frame for bone in arm_obj.pose.bones for frame in actionBoneFrames(action, bone.name, arm_obj)[0]]
     origin_frame = min(all_frames) if all_frames else 0.0
     if action.get('DemonFF_ANIM_Imported_Action'):
         origin_frame = float(action.get('DemonFF_ANIM_Start_Frame', origin_frame))
@@ -2333,7 +2417,7 @@ def collect_animation_data(context):
 
     try:
         for pose_bone in arm_obj.pose.bones:
-            frames, has_location, _has_scale = actionBoneFrames(action, pose_bone.name)
+            frames, has_location, _has_scale = actionBoneFrames(action, pose_bone.name, arm_obj)
             if not frames:
                 continue
 
@@ -2352,7 +2436,7 @@ def collect_animation_data(context):
                 frames.append(end_frame)
             for frame_number in frames:
                 from ..ops.animation_channels import sampleActionBoneBasis
-                matrix_basis = sampleActionBoneBasis(action, pose_bone.name, frame_number, pose_bone.rotation_mode)
+                matrix_basis = sampleActionBoneBasis(action, pose_bone.name, frame_number, pose_bone.rotation_mode, owner=arm_obj)
                 game_local = rest_local @ matrix_basis
                 rotation = game_local.to_quaternion().normalized()
                 location = game_local.to_translation()

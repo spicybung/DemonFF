@@ -1,7 +1,7 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
-# This is a fork of DragonFF by Parik - maintained by Psycrow, and various others!
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
 
 # This program is free software: you can redistribute it and/or modify
@@ -25,10 +25,10 @@ from .ops.state import State
 from bpy.utils import register_class, unregister_class
 
 bl_info = {
-    "name": "DemonFF 0.6.9b",
+    "name": "DemonFF 0.6.9c",
     "author": "SpicyBung",
     "version": (0, 6, 9),
-    "blender": (2, 80, 0),
+    "blender": (2, 90, 0),
     "category": "Import-Export",
     "location": "File > Import/Export",
     "description": "Importer and Exporter for RenderWare and R* Formats"
@@ -36,6 +36,12 @@ bl_info = {
 
 # Class list to register
 _classes = [
+    gui.IMPORT_OT_water,
+    gui.EXPORT_OT_water,
+    gui.OBJECT_OT_water_mark,
+    gui.OBJECT_OT_water_preview,
+    gui.OBJECT_OT_water_apply_settings,
+    gui.OBJECT_PT_demonff_water,
     gui.IMPORT_OT_dff_custom,
     gui.EXPORT_OT_dff_custom,
     gui.IMPORT_OT_mdl_custom,
@@ -208,6 +214,8 @@ def remove_menu_once(menu, func):
 
 
 def register():
+    from .ops.water_simulation import registerWaterSimulation
+    registerWaterSimulation()
     remove_runtime_properties()
 
     for cls in _classes:
@@ -267,6 +275,8 @@ def register():
 
 
 def unregister():
+    from .ops.water_simulation import unregisterWaterSimulation
+    unregisterWaterSimulation()
     samp_test.stop_server_process()
     State.unhook_events()
     from .ops.animation_channels import unregisterAnimationEvents

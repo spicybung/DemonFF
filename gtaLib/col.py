@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -17,7 +17,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from .dff import strlen
+from .binary import writeAtomic
 from collections import namedtuple
 from struct import error as StructError
 from struct import unpack_from, calcsize, pack
@@ -81,6 +81,8 @@ class Sections:
             TBounds    = namedtuple("TBounds"    , "min max center radius")
             TSphere    = namedtuple("TSphere"    , "center radius surface")
 
+        if version not in (1, 2, 3, 4):
+            raise ValueError('Unsupported COL version %r' % version)
         Sections.version = version
 
         Sections.__formats = {
@@ -93,6 +95,10 @@ class Sections:
             TVertex    : [  "fff"  , "hhh"   ],
             TFace      : [  "IIIS" , "HHHBB" ]
         }
+
+    #######################################################
+    def clamp_value(value, min_value=-32768, max_value=32767):
+        return min(max(value, min_value), max_value)
 
     #######################################################
     def compress_vertices(vertices):
@@ -133,7 +139,7 @@ class Sections:
                 offset += Sections.size(TSurface)
 
             else:
-                output.append(unpack_from(char, data, offset)[0])
+                output.append(unpack_from("<" + char, data, offset)[0])
                 offset += calcsize(char)
                 
         return output
@@ -153,7 +159,7 @@ class Sections:
                 _data += Sections.write_section(TSurface, data[index])
 
             else:
-                _data += pack(char, data[index])
+                _data += pack("<" + char, data[index])
             
         return _data
 
@@ -186,7 +192,7 @@ class Sections:
         format = format.replace("V", "fff")
         format = format.replace("S", "BBBB")
 
-        return calcsize(format)
+        return calcsize("<" + format)
         
 #######################################################
 class coll:
@@ -194,20 +200,23 @@ class coll:
     __slots__ = [
         "models",
         "_data",
-        "_pos"
+        "_pos",
+        "model_start",
+        "model_end",
+        "warnings"
     ]
 
     #######################################################
     def __read_struct(self, format):
 
-        unpacked = unpack_from(format, self._data, self._pos)
-        self._pos += calcsize(format)
-
-        return unpacked
+        return unpack_from('<' + format.lstrip('<'), self._data,
+                           self.__incr(calcsize('<' + format.lstrip('<'))))
 
     #######################################################
     def __incr(self, incr):
         pos = self._pos
+        if incr < 0 or pos < self.model_start or pos + incr > self.model_end:
+            raise ValueError('COL data extends outside its model at offset 0x%X' % pos)
         self._pos += incr
         return pos
 
@@ -219,6 +228,8 @@ class coll:
         if count == -1:
             count = unpack_from("<I", self._data, self.__incr(4))[0]
 
+        if count < 0 or count > (self.model_end - self._pos) // block_size:
+            raise ValueError('COL block count exceeds its model at offset 0x%X' % self._pos)
         for i in range(count):
             object_array.append(
                 Sections.read_section(
@@ -257,6 +268,16 @@ class coll:
         if model.version == 4:
             self.__incr(4)
 
+        data_start = self._pos
+        sections = [(sphere_count, spheres_offset), (box_count, box_offset),
+                    (face_count, faces_offset), (face_count, verts_offset)]
+        if model.version >= 3 and flags & 16:
+            sections += [(shadow_mesh_face_count, shadow_verts_offset),
+                         (shadow_mesh_face_count, shadow_faces_offset)]
+        for count, offset in sections:
+            if count and not data_start <= pos + offset + 4 < self.model_end:
+                raise ValueError('COL section offset is outside its model data')
+
         # Spheres
         self._pos = pos + spheres_offset + 4
         model.spheres += self.__read_block(TSphere, sphere_count)
@@ -268,7 +289,7 @@ class coll:
         # Face Groups
         if flags & 8:
             self._pos = pos + faces_offset
-            facegroup_count = unpack_from("<L", self._data, self._pos)
+            facegroup_count = unpack_from("<L", self._data, self.__incr(4))
             self._pos = pos + faces_offset - (28 * facegroup_count[0])
             model.face_groups += self.__read_block(TFaceGroup, facegroup_count[0])
 
@@ -329,6 +350,9 @@ class coll:
         except StructError:
             raise RuntimeError("Unexpected EOF")
 
+        self.model_end = pos + header.file_size + 8
+        if header.file_size < 64 or self.model_end > len(self._data):
+            raise ValueError('COL model at offset 0x%X has an invalid declared size' % pos)
         magic_number = header.magic_number
 
         model.model_name = header.model_name.split(b'\0', 1)[0].decode(
@@ -359,9 +383,8 @@ class coll:
         model.bounds = Sections.read_section(
             TBounds,
             self._data,
-            self._pos
+            self.__incr(Sections.size(TBounds))
         )
-        self._pos += Sections.size(TBounds)
 
         if model.version == 1:
             self.__read_legacy_col(model)
@@ -373,50 +396,60 @@ class coll:
             
     #######################################################
     def load_memory(self, memory):
-        self._data = memory
+        if not isinstance(memory, (bytes, bytearray, memoryview)):
+            raise TypeError('COL data must be bytes')
+        self.models = []
+        self.warnings = []
+        self._data = bytes(memory)
         self._pos = 0
-
-        valid_headers = (b"COLL", b"COL2", b"COL3", b"COL4")
-
-        while self._pos + 8 <= len(self._data):
-
+        self.model_start = 0
+        self.model_end = len(self._data)
+        valid_headers = (b'COLL', b'COL2', b'COL3', b'COL4')
+        while self._pos < len(self._data):
             if self._data[self._pos:self._pos + 4] not in valid_headers:
-                next_header = len(self._data)
-
-                for header in valid_headers:
-                    found = self._data.find(header, self._pos + 1)
-                    if found != -1:
-                        next_header = min(next_header, found)
-
-                if next_header >= len(self._data):
+                if not self._data[self._pos:].strip(b'\0'):
                     break
-
-                print(
-                    "DemonFF COL import: skipped %d byte(s) before next COL header at 0x%X." % (
-                        next_header - self._pos,
-                        next_header
-                    )
-                )
+                positions = [self._data.find(header, self._pos + 1) for header in valid_headers]
+                positions = [position for position in positions if position >= 0]
+                if not positions:
+                    raise ValueError('No COL model header at offset 0x%X' % self._pos)
+                next_header = min(positions)
+                self.warnings.append('Skipped %d bytes before COL model at 0x%X' %
+                                     (next_header - self._pos, next_header))
                 self._pos = next_header
-
-            old_pos = self._pos
-
+            self.model_start = self._pos
+            self.model_end = len(self._data)
             try:
-                self.models.append(self.__read_col())
-            except RuntimeError as e:
-                print(
-                    "DemonFF COL import: stopped at offset 0x%X: %s" % (
-                        old_pos,
-                        e
-                    )
-                )
-                return
+                model = self.__read_col()
+            except (StructError, RuntimeError) as error:
+                raise ValueError('Invalid COL model at offset 0x%X: %s' %
+                                 (self.model_start, error)) from error
+            self.validateModel(model)
+            self.models.append(model)
+        if not self.models:
+            raise ValueError('No COL models found')
 
-            if self._pos <= old_pos:
-                print(
-                    "DemonFF COL import: stopped because parser did not advance at offset 0x%X." % old_pos
-                )
-                return
+    def validateModel(self, model):
+        if model.version not in (1, 2, 3, 4):
+            raise ValueError('Unsupported COL version %r' % model.version)
+        if model.bounds is None:
+            raise ValueError('COL model is missing its bounds')
+        if not math.isfinite(model.bounds.radius) or model.bounds.radius < 0:
+            raise ValueError('COL bounds have an invalid radius')
+        for vector in (model.bounds.min, model.bounds.max, model.bounds.center):
+            if len(vector) != 3 or any(not math.isfinite(value) for value in vector):
+                raise ValueError('COL bounds contain invalid coordinates')
+        for vertices, faces in ((model.mesh_verts, model.mesh_faces),
+                                (model.shadow_verts, model.shadow_faces)):
+            for vertex in vertices:
+                if len(vertex) != 3 or any(not math.isfinite(value) for value in vertex):
+                    raise ValueError('COL mesh contains invalid coordinates')
+            for face in faces:
+                if any(not 0 <= index < len(vertices) for index in (face.a, face.b, face.c)):
+                    raise ValueError('COL face references a vertex outside its mesh')
+        for group in model.face_groups:
+            if not 0 <= group.start <= group.end < len(model.mesh_faces):
+                raise ValueError('COL face group references faces outside its mesh')
 
     #######################################################
     def load_file(self, filename):
@@ -454,7 +487,9 @@ class coll:
     def __write_col_new(self, model):
         data = b''
 
-        flags = 0
+        if model.lines:
+            raise ValueError('COL line export is not supported; refusing to write an empty line section')
+        flags = model.flags & ~(2 | 8 | 16)
         flags |= 2 if model.spheres or model.boxes or model.mesh_faces else 0
         flags |= 8 if model.face_groups else 0
         flags |= 16 if model.shadow_faces and model.version >= 3 else 0
@@ -522,13 +557,18 @@ class coll:
         if model.version >= 3:
             header_data += pack("<III", len(model.shadow_faces), *offsets[6:])
 
+        if model.version == 4:
+            header_data += pack('<I', 0)
         return header_data + data
     
     #######################################################
     def __write_col(self, model):
 
+        self.validateModel(model)
+        name = model.model_name.encode('ascii')
+        if len(name) > 22 or b'\0' in name:
+            raise ValueError('COL model names must fit in 22 bytes without null characters')
         Sections.init_sections(model.version)
-        
         if model.version == 1:
             data = self.__write_col_legacy(model)
         else:
@@ -546,7 +586,7 @@ class coll:
             model.model_id
         ]
 
-        return pack("4sI22sH", *header) + data
+        return pack("<4sI22sH", *header) + data
             
     #######################################################
     def write_memory(self):
@@ -561,13 +601,14 @@ class coll:
     #######################################################
     def write_file(self, filename):
 
-        with open(filename, mode='wb') as file:
-            content = self.write_memory()
-            file.write(content)
+        writeAtomic(filename, self.write_memory())
             
     #######################################################
     def __init__(self, model = None):
-        self.models = [ColModel()] * 0
+        self.models = []
+        self.model_start = 0
+        self.model_end = 0
+        self.warnings = []
         self._data = ""
         self._pos = 0
 

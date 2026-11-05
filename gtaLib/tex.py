@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -49,78 +49,38 @@ def read_cstr(data: bytes, offset: int, length: int) -> str:
         end = len(s)
     return s[:end].decode('ascii', 'replace')
 
-def unswizzle_psp_4bit(src: bytes, w: int, h: int) -> bytes:
+def unswizzlePspRows(src, row_bytes, height):
+    if row_bytes <= 0 or height <= 0:
+        raise ValueError('PSP texture dimensions must be positive')
+    stride = (row_bytes + 15) & ~15
+    padded_height = (height + 7) & ~7
+    required = stride * padded_height
+    if len(src) < required:
+        raise ValueError('Truncated PSP swizzled texture: expected %d bytes, got %d' % (required, len(src)))
+    output = bytearray(row_bytes * height)
+    position = 0
+    for block_y in range(0, padded_height, 8):
+        for block_x in range(0, stride, 16):
+            for row in range(8):
+                y = block_y + row
+                if y < height and block_x < row_bytes:
+                    count = min(16, row_bytes - block_x)
+                    offset = y * row_bytes + block_x
+                    output[offset:offset + count] = src[position:position + count]
+                position += 16
+    return bytes(output)
 
-    min_width = 32
-    bufw = w if w >= min_width else min_width
-    stride = bufw // 2
-    dest = bytearray(stride * h)
-    nbx = stride // 16
-    nby = (h + 7) // 8
-    src_pos = 0
-    for yb in range(nby):
-        row_base = yb * 8 * stride
-        for xb in range(nbx):
-            block_base = row_base + xb * 16
-            b_off = block_base
-            for n in range(8):
-                dest[b_off:b_off + 16] = src[src_pos:src_pos + 16]
-                src_pos += 16
-                b_off += stride
-    out = bytearray((w // 2) * h)
-    for row in range(h):
-        src_offset = row * stride
-        dst_offset = row * (w // 2)
-        out[dst_offset:dst_offset + (w // 2)] = dest[src_offset:src_offset + (w // 2)]
-    return bytes(out)
+
+def unswizzle_psp_4bit(src: bytes, w: int, h: int) -> bytes:
+    return unswizzlePspRows(src, (w + 1) // 2, h)
+
 
 def unswizzle_psp_8bit(src: bytes, w: int, h: int) -> bytes:
-    min_width = 16
-    bufw = w if w >= min_width else min_width
-    stride = bufw
-    dest = bytearray(stride * h)
-    nbx = stride // 16
-    nby = (h + 7) // 8
-    src_pos = 0
-    for yb in range(nby):
-        row_base = yb * 8 * stride
-        for xb in range(nbx):
-            block_base = row_base + xb * 16
-            b_off = block_base
-            for n in range(8):
-                dest[b_off:b_off + 16] = src[src_pos:src_pos + 16]
-                src_pos += 16
-                b_off += stride
-    out = bytearray(w * h)
-    for row in range(h):
-        src_offset = row * stride
-        dst_offset = row * w
-        out[dst_offset:dst_offset + w] = dest[src_offset:src_offset + w]
-    return bytes(out)
+    return unswizzlePspRows(src, w, h)
+
 
 def unswizzle_psp_32bit(src: bytes, w: int, h: int) -> bytes:
-    min_width = 4
-    bufw = w if w >= min_width else min_width
-    stride = bufw * 4
-    dest = bytearray(stride * h)
-    nbx = stride // 16
-    nby = (h + 7) // 8
-    src_pos = 0
-    for yb in range(nby):
-        row_base = yb * 8 * stride
-        for xb in range(nbx):
-            block_base = row_base + xb * 16
-            b_off = block_base
-            for n in range(8):
-                dest[b_off:b_off + 16] = src[src_pos:src_pos + 16]
-                src_pos += 16
-                b_off += stride
-    out = bytearray(w * h * 4)
-    for row in range(h):
-        src_offset = row * stride
-        dst_offset = row * w * 4
-        out[dst_offset:dst_offset + w * 4] = dest[src_offset:src_offset + w * 4]
-    return bytes(out)
+    return unswizzlePspRows(src, w * 4, h)
 
 def expand_nibbles_lo_first(data: bytes) -> np.ndarray:
 
@@ -354,7 +314,13 @@ def decode_psp_texture(
         return None
     if offset + base_bytes > len(data):
         return None
-    raw = data[offset:offset + base_bytes]
+    stored_bytes = base_bytes
+    if thdr.swizzle_width:
+        row_bytes = (w * bpp + 7) // 8
+        stored_bytes = ((row_bytes + 15) & ~15) * ((h + 7) & ~7)
+    if offset + stored_bytes > len(data) or stored_bytes > block_size:
+        return None
+    raw = data[offset:offset + stored_bytes]
 
     if thdr.swizzle_width:
         if bpp == 4:
@@ -399,7 +365,11 @@ def decode_psp_texture(
                     pal.append((r, g, b, a))
             else:
                 pal = None
-    rgba = np.empty((h, w, 4), dtype=np.uint8)
+    if bpp == 4 and w % 2 and thdr.swizzle_width:
+        idx = idx.reshape((h, ((w + 1) // 2) * 2))[:, :w].reshape(-1)
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    if len(idx) < pixel_count:
+        return None
     if pal:
 
         for i, v in enumerate(idx[:pixel_count]):
@@ -492,7 +462,11 @@ def decode_ps2_texture(
         return rgba
     else:
         return None
-    rgba = np.empty((h, w, 4), dtype=np.uint8)
+    if bpp == 4 and w % 2 and thdr.swizzle_width:
+        idx = idx.reshape((h, ((w + 1) // 2) * 2))[:, :w].reshape(-1)
+    rgba = np.zeros((h, w, 4), dtype=np.uint8)
+    if len(idx) < pixel_count:
+        return None
     if pal:
         for i in range(pixel_count):
             y = i // w

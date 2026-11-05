@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -4885,17 +4885,17 @@ def export_stories_mdl_ps2(
 
     try:
         if live_logical_ped_compile:
-            print("[BLeeds] LIVE_LOGICAL_PED_COMPILE enabled: POINT attributes are always stamped; imported native POINT streams are used only when topology authority is proven; custom meshes use face-strip topology and importer display-matrix local transform anchoring under imported PED roots.")
-        print("[BLeeds] PED export position-space policy:")
+            print("[DemonFF] LIVE_LOGICAL_PED_COMPILE enabled: POINT attributes are always stamped; imported native POINT streams are used only when topology authority is proven; custom meshes use face-strip topology and importer display-matrix local transform anchoring under imported PED roots.")
+        print("[DemonFF] PED export position-space policy:")
         for export_part_index, mesh_obj in enumerate(meshes):
             export_mtx_probe = resolveMdlPartExportMatrix(mesh_obj, root)
             space_name = readIdProp(mesh_obj, "bleeds_mdl_export_position_space", "UNKNOWN")
             print(
-                f"[BLeeds]   part {export_part_index:02d} {getattr(mesh_obj, 'name', '<mesh>')}: "
+                f"[DemonFF]   part {export_part_index:02d} {getattr(mesh_obj, 'name', '<mesh>')}: "
                 f"{space_name}; matrix_is_identity={export_mtx_probe == Matrix.Identity(4)}"
             )
     except Exception as exc:
-        print(f"[BLeeds] PED export position-space policy logging failed: {exc}")
+        print(f"[DemonFF] PED export position-space policy logging failed: {exc}")
 
     GLOBAL_SCALE = 100.0 * 0.00000030518203134641490805874367518203
 
@@ -4982,7 +4982,7 @@ def export_stories_mdl_ps2(
             root["bleeds_mdl_export_scale_raw_limit"] = float(safe_raw_limit)
         except Exception:
             pass
-        print("[BLeeds] PED live geometry detected: recomputed geometry scale/translation from live transformed bounds; old imported ROOT ScalePos is not reused.")
+        print("[DemonFF] PED live geometry detected: recomputed geometry scale/translation from live transformed bounds; old imported ROOT ScalePos is not reused.")
 
     if scale_pos is None and scale_pos_root is not None and bounds is not None:
         try:
@@ -5006,7 +5006,7 @@ def export_stories_mdl_ps2(
             if max(ux, uy, uz) > safe_raw_limit:
                 fits = False
                 print(
-                    "[BLeeds] ROOT stored scale/translation technically fits but would use "
+                    "[DemonFF] ROOT stored scale/translation technically fits but would use "
                     f"raw range ({ux:.1f}, {uy:.1f}, {uz:.1f}); recomputing with headroom."
                 )
 
@@ -5018,7 +5018,7 @@ def export_stories_mdl_ps2(
                 except Exception:
                     pass
             else:
-                print("[BLeeds] ROOT stored scale/translation does not fit current mesh bounds; recomputing for export.")
+                print("[DemonFF] ROOT stored scale/translation does not fit current mesh bounds; recomputing for export.")
         except Exception:
             scale_pos = None
 
@@ -5222,7 +5222,7 @@ def export_stories_mdl_ps2(
             source_had_part_index = bool(header.get("source_had_part_index"))
             if imported_indexed_meshes_present and not source_had_part_index:
                 print(
-                    "[BLeeds] PED logical-parts: skipped unindexed mesh fragment/accessory "
+                    "[DemonFF] PED logical-parts: skipped unindexed mesh fragment/accessory "
                     f"near imported parts: {name}"
                 )
                 continue
@@ -5237,7 +5237,7 @@ def export_stories_mdl_ps2(
                 compact_dma[dst_index] = merge_ps2_dma_packets_for_logical_part(compact_dma[dst_index], packet)
                 compact_headers[dst_index] = merge_ped_part_header_for_logical_part(compact_headers[dst_index], header)
                 print(
-                    "[BLeeds] PED logical-parts: merged duplicate mesh fragment into "
+                    "[DemonFF] PED logical-parts: merged duplicate mesh fragment into "
                     f"part {logical_part_index}: {name}"
                 )
                 continue
@@ -5470,7 +5470,7 @@ def export_stories_mdl_ps2(
             try:
                 me_dbg = getBaseMeshForMdlExport(mesh_obj)
                 print(
-                    "[BLeeds] skipped mesh with no exportable PS2 vertices: "
+                    "[DemonFF] skipped mesh with no exportable PS2 vertices: "
                     f"{getattr(mesh_obj, 'name', '<unnamed>')} "
                     f"verts={len(getattr(me_dbg, 'vertices', []) or [])} "
                     f"faces={len(getattr(me_dbg, 'polygons', []) or [])} "

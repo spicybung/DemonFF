@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -18,6 +18,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bpy
+from ..gtaLib.binary import writeAtomic
 
 from bpy_extras.io_utils import ExportHelper
 
@@ -85,13 +86,17 @@ class EXPORT_OT_demonff_ipl(bpy.types.Operator, ExportHelper):
     def execute(self, context):
         objects = self.collect_objects(context)
 
-        with open(self.filepath, "w", encoding="latin-1") as file:
-            file.write("inst\n")
-
+        try:
+            lines = ['inst']
             for obj in objects:
-                file.write(self.format_inst_line(obj) + f"  # {obj.name}\n")
-
-            file.write("end\n")
+                comment = str(obj.name).replace('\r', ' ').replace('\n', ' ')
+                lines.append(map_exporter.format_ipl_inst_line(context, obj, self.game) + '  # ' + comment)
+            lines.append('end')
+            data = ('\n'.join(lines) + '\n').encode('latin-1', errors='replace')
+            writeAtomic(bpy.path.abspath(self.filepath), data)
+        except (OSError, ValueError) as error:
+            self.report({'ERROR'}, str(error))
+            return {'CANCELLED'}
 
         self.report({'INFO'}, f"Exported {len(objects)} IPL entries")
         return {'FINISHED'}

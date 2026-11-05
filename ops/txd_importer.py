@@ -1,5 +1,5 @@
 # DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
-# 2023 - 2026 spicybung
+# 2023 - 2027 spicybung
 
 # This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
 # Check it out at: https://github.com/Parik27/DragonFF
@@ -46,18 +46,22 @@ class txd_importer:
 
     #######################################################
     def _create_image(name, rgba, width, height, pack=False):
+        if width <= 0 or height <= 0 or len(rgba) != width * height * 4:
+            raise ValueError('Decoded texture dimensions do not match its RGBA pixels')
         pixels = []
         for h in range(height - 1, -1, -1):
             offset = h * width * 4
             pixels += list(map(lambda b: b / 0xff, rgba[offset:offset+width*4]))
 
         image = bpy.data.images.new(name, width, height)
-        image.pixels = pixels
-
-        if pack:
-            image.pack()
-
-        return image
+        try:
+            image.pixels = pixels
+            if pack:
+                image.pack()
+            return image
+        except Exception:
+            bpy.data.images.remove(image)
+            raise
 
     #######################################################
     def import_textures():
@@ -72,9 +76,7 @@ class txd_importer:
 
             for level in range(num_levels):
                 image_name = "%s/%s/%d" % (txd_name, tex.name, level)
-                image = bpy.data.images.get(image_name)
-                if not image:
-                    image = txd_importer._create_image(image_name,
+                image = txd_importer._create_image(image_name,
                                                         tex.to_rgba(level),
                                                         tex.get_width(level),
                                                         tex.get_height(level),
@@ -85,15 +87,15 @@ class txd_importer:
 
         # Import textures
         for tex, imgs in zip(self.txd.textures, self.txd.images):
+            if not imgs:
+                raise ValueError('Texture %r has no image levels' % tex.name)
             images = []
-            num_levels = len(imgs) if not self.skip_mipmaps else 1
+            num_levels = len(imgs) if not self.skip_mipmaps else min(1, len(imgs))
 
             for level in range(num_levels):
                 img = imgs[level]
                 image_name = "%s/%s/%d" % (txd_name, tex.name, level)
-                image = bpy.data.images.get(image_name)
-                if not image:
-                    image = txd_importer._create_image(image_name,
+                image = txd_importer._create_image(image_name,
                                                         img.to_rgba(),
                                                         img.width,
                                                         img.height,
@@ -148,6 +150,13 @@ def import_txd(options):
     txd_importer.skip_mipmaps = options['skip_mipmaps']
     txd_importer.pack = options['pack']
 
-    txd_importer.import_txd(options['file_name'])
-
+    existing = set(bpy.data.images)
+    try:
+        txd_importer.import_txd(options['file_name'])
+    except Exception:
+        for image in list(bpy.data.images):
+            if image not in existing and image.users == 0:
+                bpy.data.images.remove(image)
+        txd_importer.images = {}
+        raise
     return txd_importer

@@ -1,7 +1,24 @@
-# DemonFF - Manhunt animation transfer
-# 2026 spicybung
+# DemonFF - Blender scripts for working with Renderware & R*/SA-MP/open.mp formats in Blender
+# 2023 - 2027 spicybung
+
+# This is a fork of DragonFF by Parik27 - maintained by Psycrow, and various others!
+# Check it out at: https://github.com/Parik27/DragonFF
+
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import bisect
+from .blender_compat import actionCurves, actionGroups
 import json
 import math
 
@@ -105,7 +122,7 @@ def writeManhuntCurves(action, bone_name, channel, samples):
     path = 'pose.bones[' + json.dumps(bone_name) + '].' + channel
     width = len(samples[0][1])
     for component in range(width):
-        curve = action.fcurves.new(path, index=component, action_group=bone_name)
+        curve = actionCurves(action).new(path, index=component, action_group=bone_name)
         curve.keyframe_points.add(len(samples))
         coordinates = []
         for frame, values in samples:
@@ -320,7 +337,7 @@ def collectManhunt1Clip(context, export_translation=True):
     fps = context.scene.render.fps / max(context.scene.render.fps_base, 0.000001)
     by_id, by_name = build_armature_bone_lookup(armature)
     bones = sorted(armature.data.bones, key=lambda bone: len(bone.parent_recursive))
-    frame_times = sorted({float(key.co.x) for curve in action.fcurves for key in curve.keyframe_points})
+    frame_times = sorted({float(key.co.x) for curve in actionCurves(action, owner=armature, create=False) for key in curve.keyframe_points})
     if not frame_times:
         raise ValueError('The active Action has no animation keys')
     begin = min(frame_times)
@@ -333,7 +350,7 @@ def collectManhunt1Clip(context, export_translation=True):
     if any(source_id in by_id for source_id in MANHUNT_PARENTS):
         for source_id, bone in by_id.items():
             prefix = 'pose.bones[' + json.dumps(bone.name) + '].'
-            curves = [curve for curve in action.fcurves if curve.data_path.startswith(prefix)]
+            curves = [curve for curve in actionCurves(action, owner=armature, create=False) if curve.data_path.startswith(prefix)]
             if not curves:
                 continue
             if source_id < 1000:
@@ -343,7 +360,7 @@ def collectManhunt1Clip(context, export_translation=True):
             translation = export_translation and any(curve.data_path.endswith('.location') for curve in curves)
             frames = []
             for frame in frame_times:
-                local = local_rest @ sampleActionBoneBasis(action, bone.name, frame)
+                local = local_rest @ sampleActionBoneBasis(action, bone.name, frame, owner=armature)
                 rotation = local.to_quaternion().normalized()
                 frames.append(AnimExportFrame((frame - begin) / fps, (rotation.x, rotation.y, rotation.z, rotation.w), tuple(local.translation)))
             clip.tracks.append(ConversionTrack(source_id, bone.name, frames, translation))
@@ -363,7 +380,7 @@ def collectManhunt1Clip(context, export_translation=True):
     mapped_names = {bone.name for bone in source_targets.values()}
     for bone in bones:
         prefix = 'pose.bones[' + json.dumps(bone.name) + '].'
-        if bone.name not in mapped_names and any(curve.data_path.startswith(prefix) for curve in action.fcurves):
+        if bone.name not in mapped_names and any(curve.data_path.startswith(prefix) for curve in actionCurves(action, owner=armature, create=False)):
             raise ValueError('Assign a Manhunt Animation BoneID to animated bone ' + bone.name)
     body = makeBodyFrame(source_targets[1039].head_local - source_targets[1093].head_local,
                          source_targets[1040].head_local - source_targets[1045].head_local)
@@ -376,7 +393,7 @@ def collectManhunt1Clip(context, export_translation=True):
     samples = {source_id: [] for source_id in source_targets}
     root_name = source_targets[1000].name
     root_path = 'pose.bones[' + json.dumps(root_name) + '].location'
-    has_root_translation = export_translation and any(curve.data_path == root_path for curve in action.fcurves)
+    has_root_translation = export_translation and any(curve.data_path == root_path for curve in actionCurves(action, owner=armature, create=False))
     if has_root_translation and 'DemonFF_IFP_Source_Root_Position' not in action:
         raise ValueError('Export root translation on a native Manhunt rig, or use an Action imported by this version')
     root_reference = Vector(action.get('DemonFF_IFP_Source_Root_Position', (0.0, 0.0, 0.0)))
@@ -388,7 +405,7 @@ def collectManhunt1Clip(context, export_translation=True):
             parent_rest = parent.matrix_local if parent else Matrix.Identity(4)
             local_rest = parent_rest.inverted_safe() @ bone.matrix_local
             parent_pose = target_world[parent.name] if parent else Matrix.Identity(4)
-            target_world[bone.name] = parent_pose @ local_rest @ sampleActionBoneBasis(action, bone.name, frame)
+            target_world[bone.name] = parent_pose @ local_rest @ sampleActionBoneBasis(action, bone.name, frame, owner=armature)
         source_world = {}
         for source_id, parent_id in MANHUNT_PARENTS.items():
             bone = source_targets.get(source_id)
